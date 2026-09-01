@@ -26,3 +26,4 @@ Entry point for any agent working in this repo. Read this file first.
 ## Do not touch
 - `<AREA_1>`
 - `<AREA_2>`
+test commit verification
