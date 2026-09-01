@@ -3,20 +3,24 @@
 Entry point for any agent working in this repo. Read this file first.
 
 ## Project
-- Name: `<PROJECT_NAME>`
-- One-line purpose: `<PURPOSE>`
+- Name: `movie-downloader-qbitorrent`
+- One-line purpose: Self-hosted web app that searches movies/TV via TMDB, finds torrent/magnet sources via Prowlarr, downloads them with qBittorrent (Docker), shows live download progress, and streams the video in-browser.
 - Full plan lives in `docs/plan/00-index.md`.
 
 ## Commands
-- Install deps: `<COMMAND>`
-- Run app: `<COMMAND>`
-- Test: `<COMMAND>`
-- Lint: `<COMMAND>`
-- Typecheck: `<COMMAND>`
+- Install deps: `cd backend && npm install` · `cd frontend && npm install`
+- Run app: `docker compose up -d --build` (or `npm run dev` in `backend/` and `frontend/`)
+- Test: `cd backend && npm test` · `cd frontend && npm test`
+- Lint: `npm run lint` (each package)
+- Typecheck: `npm run typecheck` (each package)
 
 ## Conventions
-- `<CONVENTION_1>`
-- `<CONVENTION_2>`
+- TypeScript strict in both packages. Tests are Vitest (backend) with mocked external providers.
+- API field names are camelCase; DB columns snake_case (see `docs/plan/02-specs.md` §5).
+- External providers (TMDB, Prowlarr, qBittorrent) are always behind an interface in `backend/src/services/`.
+- Secrets live only in `.env` (gitignored). Never commit keys. The TMDB key must never reach the browser — images go through `/api/images/tmdb/*`.
+- Credentials setup is documented in `docs/credentials.md` (template) and `docs/credentials.local.md` (gitignored local notes).
+- qBittorrent is polled at exactly 2s intervals; never faster.
 
 ## Editing rules
 - Do not modify files under `docs/plan/` unless explicitly asked.
@@ -24,6 +28,5 @@ Entry point for any agent working in this repo. Read this file first.
 - Follow the execution protocol in `docs/plan/00-index.md`.
 
 ## Do not touch
-- `<AREA_1>`
-- `<AREA_2>`
-test commit verification
+- `.env` (user secrets)
+- `docs/plan/` (plan docs) unless explicitly asked

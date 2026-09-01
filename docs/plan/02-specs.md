@@ -1,52 +1,251 @@
 # 02 — Specs
 
-Concrete, verifiable contracts. Owns: API, data model, UI, provider behavior. No rationale, no alternatives.
+Concrete, verifiable contracts. Owns: API, data model, UI, provider behavior. No rationale, no alternatives. Naming is canonical (see §5); reuse verbatim.
+
+All JSON fields are `camelCase` in API payloads; DB columns are `snake_case` (mapped in the backend service layer).
 
 ## 1. API contract
 
-### `<ENDPOINT OR METHOD>` `<PATH>`
-- Auth: `<NONE | ...>`
-- Request:
-  - Query/params: `<PARAM>: <TYPE>` — `<MEANING>`
-  - Body: `{ <FIELD>: <TYPE> }`
-- Response: `200` → `{ <FIELD>: <TYPE> }`
-- Errors: `<CODE>` → `<MEANING>`
+Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` with the stated HTTP codes.
 
-_(repeat per endpoint/method)_
+### S0 `GET /api/health`
+- Auth: none
+- Response: `200` → `{ ok: true }`
+- Errors: none (always 200 while process is up).
+
+### S1 `GET /api/search`
+- Auth: none
+- Request: query `q: string` (required), `type: "movie" | "tv" | "all"` (default `all`).
+- Response: `200` → `{ items: MediaItem[] }`
+  - `MediaItem`: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, backdropPath: string|null, overview: string, voteAverage: number }`
+- Errors: `400` missing `q`.
+
+### S2 `GET /api/media/:id`
+- Auth: none
+- Request: query `type: "movie" | "tv"` (required).
+- Response: `200` → `{ tmdbId: number, mediaType: string, title: string, year: number|null, overview: string, posterPath: string|null, backdropPath: string|null, voteAverage: number, genres: string[], runtime: number|null }`
+- Errors: `400` missing/invalid `type`; `502` TMDB unreachable.
+
+### S3 `GET /api/media/:id/sources`
+- Auth: none
+- Request: query `type: "movie" | "tv"` (required).
+- Behavior: builds query `"<title> <year>"` from the media record; calls Prowlarr with category `2000` (movie) or `5000` (tv); dedupes by `infoHash`; sorts seeders desc; guarantees every result has `magnetUri` (Prowlarr magnet if present, else built — §4.3).
+- Response: `200` → `{ sources: Source[] }`
+  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string }`
+- Errors: `502` Prowlarr unreachable (return `{ sources: [] }` and log if only empty).
+
+### S4 `POST /api/downloads`
+- Auth: none
+- Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string }`
+- Behavior: adds magnet to qBittorrent (category `stream`, savepath `/downloads`), then inserts a `downloads` row keyed by `info_hash`.
+- Response: `201` → `DownloadRecord` (shape below).
+- Errors: `409` if `info_hash` already exists; `502` qBittorrent unreachable/add failed.
+
+### S5 `GET /api/downloads`
+- Auth: none
+- Response: `200` → `{ downloads: DownloadRecord[] }`
+- `DownloadRecord`: `{ id: number, tmdbId: number|null, mediaType: string|null, title: string|null, year: number|null, posterPath: string|null, infoHash: string, torrentName: string, indexer: string|null, sizeBytes: number, state: string, progress: number, downloadSpeed: number, uploadSpeed: number, etaSeconds: number|null, ratio: number, contentPath: string|null, streamFilePath: string|null, streamable: boolean, createdAt: string, completedAt: string|null }`
+  - `state` values: one of `queued | fetching-metadata | downloading | stalled | paused | checking | seeding | error | unknown` (see §4.2 mapping).
+  - `progress`: `0.0–1.0`. `streamable`: true iff a streamable file is resolvable (§4.4).
+
+### S6 `DELETE /api/downloads/:infoHash`
+- Auth: none
+- Request: query `deleteFiles: "true" | "false"` (default `"false"`).
+- Behavior: deletes torrent in qBittorrent (with files if requested), deletes the `downloads` row.
+- Response: `204` on success.
+- Errors: `404` unknown `infoHash`.
+
+### S7 `GET /api/stream/:infoHash`
+- Auth: none
+- Behavior: resolves `streamFilePath` (§4.4), serves the file via `res.sendFile` with automatic Range/`Accept-Ranges` support and correct `Content-Type`. Incomplete `.!qb` files are served with the type of their stripped extension. Resolved path must resolve inside `/downloads` (NFR9).
+- Response: `200` video stream; `206` partial (Range); `404` no streamable file / unknown torrent.
+- Errors: `404` → `{ error: "not found" }`.
+
+### S8 `GET /api/images/tmdb/*path`
+- Auth: none
+- Behavior: proxies `https://image.tmdb.org/t/p/w500/<path>` (poster) / `w1280` (backdrop) server-side. Never exposes the TMDB key. `path` must match `^[a-f0-9/_ .-]+$` (reject anything else with `400`).
+- Response: `200` image bytes; `502` TMDB unreachable.
+
+### S9 Socket.IO events
+- Namespace: default (`/`).
+- On connect, server emits `downloads:initial` with `{ downloads: DownloadRecord[] }`.
+- Every 2s, server emits `downloads:update` with `{ downloads: DownloadRecord[] }`.
+- Client never sends messages (subscribe-only).
+- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, resolves `stream_file_path`/`streamable` once `content_path` is known, sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
+
+### S10 `GET /api/downloads/:infoHash/file`
+- Auth: none
+- Behavior: resolves the same media file as `S7` but streams it as an attachment (`Content-Disposition: attachment; filename="<basename>"`). Used for external playback when the browser can't play the codec. Path containment per NFR9.
+- Response: `200` file download (no Range guarantee needed).
+- Errors: `404` unknown `infoHash` / no resolvable file.
 
 ## 2. Data model
 
-### Table / entity: `<NAME>`
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `<field>` | `<type>` | `<yes/no>` | `<note>` |
+Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver: `pg`.
 
-_(repeat per entity)_
+### Table: `downloads`
+| Column | Type | Required | Notes |
+|--------|------|----------|-------|
+| `id` | serial PK | yes | |
+| `tmdb_id` | int | no | null for manual/manual adds |
+| `media_type` | text | no | `movie` \| `tv`, null if unknown |
+| `title` | text | no | display title |
+| `year` | int | no | |
+| `poster_path` | text | no | TMDB poster path |
+| `info_hash` | text UNIQUE NOT NULL | yes | torrent infohash (lowercase hex) |
+| `torrent_name` | text NOT NULL | yes | from qBittorrent / source |
+| `indexer` | text | no | Prowlarr indexer name |
+| `size_bytes` | bigint | no | total torrent size |
+| `state` | text NOT NULL DEFAULT 'queued' | yes | canonical UI state (§4.2) |
+| `progress` | double precision NOT NULL DEFAULT 0 | yes | 0–1 |
+| `download_speed` | bigint NOT NULL DEFAULT 0 | yes | bytes/s |
+| `upload_speed` | bigint NOT NULL DEFAULT 0 | yes | bytes/s |
+| `eta_seconds` | int NOT NULL DEFAULT 0 | yes | qBittorrent ETA |
+| `ratio` | double precision NOT NULL DEFAULT 0 | yes | |
+| `content_path` | text | no | qBittorrent `content_path` (dir) |
+| `stream_file_path` | text | no | resolved relative-to-content file path |
+| `created_at` | timestamptz NOT NULL DEFAULT now() | yes | |
+| `completed_at` | timestamptz | no | |
 
-- Migration strategy: `<DECISION>`
+### Table: `settings`
+| Column | Type | Required | Notes |
+|--------|------|----------|-------|
+| `key` | text PK | yes | e.g. `stream_dir`, `poll_interval_ms` |
+| `value` | jsonb NOT NULL | yes | |
+
+- Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1.
 
 ## 3. UI / CLI
 
-### Screen / command: `<NAME>`
-- Entry: `<HOW USER GETS HERE>`
-- Elements:
-  - `<ELEMENT>` — `<BEHAVIOR>`
-- Actions:
-  - `<ACTION>` — `<RESULT>` — `<ERROR HANDLING>`
+Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player). The Downloads panel is a persistent right-hand slide-over reachable from the header on every page.
 
-_(repeat per screen/command)_
+### Screen: Search (`/`)
+- Entry: app root.
+- Elements:
+  - Search input — debounced 300ms, submits on Enter.
+  - Media type filter — `All | Movies | TV`.
+  - Poster grid — `PosterCard` (poster image, title, year). Image src = `/api/images/tmdb/<posterPath>`.
+  - Loading skeleton while `GET /api/search` is in flight.
+- Actions:
+  - Submit → fetch `S1` → render grid; on error show inline message, keep last results.
+  - Click card → navigate `/media/:id?type=<mediaType>`.
+  - Empty results → "No results for '<q>'".
+
+### Screen: Media Detail (`/media/:id`)
+- Entry: click from Search.
+- Elements:
+  - Hero — backdrop image (`w1280`), title, year, genres, vote, overview, runtime.
+  - "Sources" section — list of `SourceRow`: indexer badge, title, size (humanized), seeders/leechers, "Download" button.
+  - Regex filter input above the source list — matches against `Source.title` (e.g. `1080p|x264`, `-CAM`, `REMUX`). Invalid regex → treated as no filter with a subtle inline warning. Filtering is client-side only.
+  - Source list capped at **30 visible rows** with a "Load more" button revealing the next 30 (from the full fetched list, after filtering).
+  - Loading spinner while `S3` in flight; empty state "No sources found" (distinct from "no results match your filter").
+- Actions:
+  - Download → `POST S4` → on `201`, open Downloads panel and navigate to `/watch/:infoHash`? No — stay on page; toast "Added to downloads" and open the panel. On `409` toast "Already downloading".
+  - If the current media already has an active download, show a "Watch" button first (links to `/watch/:infoHash`).
+
+### Screen: Player (`/watch/:infoHash`)
+- Entry: "Watch" button from Downloads panel or Detail.
+- Elements:
+  - Full-page `<video>` with `src="/api/stream/:infoHash"`, controls, autoplay.
+  - Overlay showing torrent state + progress while streamable but incomplete ("Buffering — download in progress").
+  - Back button.
+- Actions:
+  - Seek during download → works via Range.
+  - If `streamable` is false → error state "No playable file yet".
+
+### Component: DownloadsPanel (persistent slide-over)
+- Elements: list of `DownloadRecord` rows — poster thumb, title, state badge, progress bar, speed, ETA, actions (Watch, Download file, Remove).
+- State badges (§4.2): `queued`=gray, `fetching-metadata`=blue, `downloading`=blue spinner, `stalled`=amber, `paused`=orange, `checking`=purple, `seeding`=green, `error`=red, `unknown`=gray.
+- Actions:
+  - Watch → navigate `/watch/:infoHash` (only when `streamable`; disabled otherwise).
+  - Download file → `S10` attachment download, for codecs the browser can't play (external player).
+  - Remove → confirm dialog → `DELETE S6?deleteFiles=true`.
+- Data: fed by Socket.IO `downloads:initial`/`downloads:update`; updates mutate Zustand store.
 
 ## 4. Provider / integration behavior
 
-### `<INTEGRATION>`
-- Endpoint/base URL: `<URL>`
-- Timeouts/retries: `<DECISION>`
-- Error mapping: `<INPUT>` → `<OUTPUT>`
-- Known quirks: `<QUIRK>`
+### 4.1 TMDB
+- Base URL: `https://api.themoviedb.org/3`
+- Auth: `api_key` query param (v3), key from `TMDB_API_KEY`.
+- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`.
+- Images: `https://image.tmdb.org/t/p/{w500|w1280}/{path}` (proxied, S8).
+- Timeouts: 10s connect/read. Retries: 2, exponential backoff (0.5s, 1s).
+- Error mapping: non-2xx or network → throw `UpstreamError` → routes respond `502`.
+- Quirks: TV dates → `first_air_date`; movies → `release_date`. Normalize both to `year` (int) or null.
 
-_(repeat per integration)_
+### 4.2 qBittorrent
+- Base URL (compose): `http://qbittorrent:8080`
+- Auth: `POST /api/v2/auth/login` (`username`, `password`) → cookie session; re-login on `403` from any call.
+- Endpoints:
+  - `POST /api/v2/torrents/add` — form `urls=<magnet>&category=stream&savepath=/downloads`
+  - `GET /api/v2/torrents/info?category=stream` — poll every 2s
+  - `POST /api/v2/torrents/delete?hashes=<h>&deleteFiles=true|false`
+- State mapping (qBittorrent `state` → canonical UI `state`):
+
+| qBittorrent state | UI state |
+|-------------------|----------|
+| `queuedDL`, `queuedUP` | `queued` |
+| `metaDL`, `forcedMetaDL` | `fetching-metadata` |
+| `downloading`, `forcedDL` | `downloading` |
+| `stalledDL`, `stalledUP` | `stalled` |
+| `pausedDL`, `pausedUP` | `paused` |
+| `checkingDL`, `checkingUP`, `checkingResumeData` | `checking` |
+| `uploading` | `seeding` |
+| `error`, `missingFiles` | `error` |
+| anything else | `unknown` |
+
+- Fields consumed from info: `hash`, `name`, `state`, `progress` (0–1), `dlspeed`, `upspeed`, `eta`, `ratio`, `size`, `content_path`.
+- Normalization: `eta == -1` → null (`etaSeconds: null`); `ratio` missing → 0; `torrent_name`/`size_bytes` overwrite the values captured at add time (qBittorrent metadata is authoritative); `completed_at` set on `progress == 1` transition (only once).
+- Error mapping: login fail / network → `UpstreamError` → `502`; add duplicate → `409`.
+- Quirks: `content_path` points at the torrent folder; incomplete files carry `.!qb` suffix.
+
+### 4.3 Prowlarr
+- Base URL (compose): `http://prowlarr:9696`
+- Auth: header `X-Api-Key: <PROWLARR_API_KEY>`.
+- Endpoint: `GET /api/v1/search?query=<q>&categories=<2000|5000>`.
+- Timeouts: 20s (indexers are slow). Retries: 0 (Prowlarr aggregates/retries internally).
+- Field mapping: `Title→title`, `Size→sizeBytes`, `Seeders→seeders`, `Leechers→leechers`, `InfoHash→infoHash` (lowercase), `IndexerId→indexerId`, `Indexer→indexer`, `MagnetUrl→magnetUri` (if non-empty).
+- Magnet fallback builder (used when `MagnetUrl` empty):
+  `magnet:?xt=urn:btih:<infoHash>&dn=<urlencode(title)>` then append trackers:
+  1. `udp://tracker.opentrackr.org:1337/announce`
+  2. `udp://open.stealth.si:80/announce`
+  3. `udp://tracker.torrent.eu.org:451/announce`
+  4. `udp://exodus.desync.com:6969/announce`
+  5. `udp://open.demonii.com:1337/announce`
+  6. `udp://tracker.openbittorrent.com:6969/announce`
+  7. `udp://tracker.tiny-vps.com:6969/announce`
+  8. `udp://tracker.moeking.me:6969/announce`
+  9. `udp://explodie.org:6969/announce`
+  Format: `&tr=<urlencode(tracker)>` for each.
+- Error mapping: non-200/network → `UpstreamError` → `502`; empty array → `{ sources: [] }`.
+- Filtering: drop any result that has neither `InfoHash` nor `MagnetUrl` (magnet cannot be built).
+- Quirks: category `5000` covers episodes; a TV source's `title` may be an episode pack — UI must display it as-is; no season/episode parsing in v1.
+
+### 4.4 Streaming file resolver
+- Input: `infoHash` + `contentPath`.
+- Scan `contentPath` recursively for the largest file whose name ends with one of: `.mkv`, `.mp4`, `.avi`, `.webm`, `.mov`, `.m4v`, `.ts`, OR those same names with a trailing `.!qb`.
+- If both `x.mkv` and `x.mkv.!qb` exist and `x.mkv` size > 0, prefer `x.mkv`.
+- Selection priority when sizes are equal: `.mkv` > `.webm` > `.ts` > `.mp4` > `.mov` > `.m4v` > `.avi` (MKV/WebM/TS stream while downloading; MP4 may not be seekable until complete because `moov` can be at file end).
+- Store result as `stream_file_path`; recompute in the poll loop (S9) when null and `content_path` is known, and on `S7`/`S10` if still null.
+- MIME: map by extension (`.mkv`→`video/x-matroska`, `.mp4`→`video/mp4`, `.webm`→`video/webm`, others→`application/octet-stream`); strip `.!qb` before mapping.
+- Path containment: resolve against `/downloads` and verify the absolute path stays inside it; reject with `404` otherwise (NFR9).
+- Serve with `res.sendFile` (native Range support).
 
 ## 5. Canonical naming (single source of truth)
 | Term | Canonical name |
 |------|----------------|
-| `<term>` | `<canonical>` |
+| TMDB media id | `tmdbId` |
+| Media type | `mediaType` (`movie` \| `tv`) |
+| Torrent id | `infoHash` (lowercase hex) |
+| Downloadable torrent result | `source` |
+| Stored torrent metadata row | `download` / table `downloads` |
+| Magnet URI | `magnetUri` |
+| UI torrent phase | `state` (values §4.2) |
+| Completion 0–1 | `progress` |
+| qBittorrent folder path | `contentPath` |
+| Resolved streamable file | `streamFilePath` |
+| Is file streamable | `streamable` |
+| Shared volume | `/downloads` |
+| Backend stream route | `/api/stream/:infoHash` |
+| Backend file-download route | `/api/downloads/:infoHash/file` |
+| Realtime channel | Socket.IO events `downloads:initial` / `downloads:update` |

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.local.md
+pgdata/
+qbconfig/
+prowlarr-config/
+.DS_Store
+*.log
