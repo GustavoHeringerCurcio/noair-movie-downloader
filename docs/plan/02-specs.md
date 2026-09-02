@@ -37,7 +37,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 ### S4 `POST /api/downloads`
 - Auth: none
 - Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string }`
-- Behavior: adds magnet to qBittorrent (category `stream`, savepath `/downloads`, `sequentialDownload=true`, `firstLastPiecePriority=true` — required for playback-before-complete, §4.2), then inserts a `downloads` row keyed by `info_hash`.
+- Behavior: adds the source to qBittorrent (category `stream`, savepath `/downloads`, `sequentialDownload=true`, `firstLastPiecePriority=true`, `rename=<torrentName>` — required for playback-before-complete and for hash adoption, §4.2), then inserts a `downloads` row keyed by `info_hash`. `magnetUri` may be a real magnet **or a Prowlarr torrent-download URL** (§4.3); `infoHash` may be a `url-` placeholder in the latter case — the poll adopts qBittorrent's real hash by torrent name (S9).
 - Response: `201` → `DownloadRecord` (shape below).
 - Errors: `409` if `info_hash` already exists; `502` qBittorrent unreachable/add failed.
 
@@ -71,7 +71,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - On connect, server emits `downloads:initial` with `{ downloads: DownloadRecord[] }`.
 - Every 2s, server emits `downloads:update` with `{ downloads: DownloadRecord[] }`.
 - Client never sends messages (subscribe-only).
-- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, resolves `stream_file_path`/`streamable` whenever `content_path` is known and the stored `stream_file_path` is null **or no longer exists on disk**, sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
+- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, **adopts the real qBittorrent `hash` for any `downloads` row keyed by a `url-` placeholder by matching `torrent_name`** (torrents added via a Prowlarr download URL have no infohash up-front), resolves `stream_file_path`/`streamable` whenever `content_path` is known and the stored `stream_file_path` is null **or no longer exists on disk**, sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
 
 ### S10 `GET /api/downloads/:infoHash/file`
 - Auth: none
@@ -98,7 +98,7 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 | `title` | text | no | display title |
 | `year` | int | no | |
 | `poster_path` | text | no | TMDB poster path |
-| `info_hash` | text UNIQUE NOT NULL | yes | torrent infohash (lowercase hex) |
+| `info_hash` | text UNIQUE NOT NULL | yes | torrent infohash (lowercase hex); a `url-…` placeholder for URL-added torrents until the poll adopts the real hash (S9) |
 | `torrent_name` | text NOT NULL | yes | from qBittorrent / source |
 | `indexer` | text | no | Prowlarr indexer name |
 | `size_bytes` | bigint | no | total torrent size |
@@ -184,7 +184,7 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 - Auth: `POST /api/v2/auth/login` (`username`, `password`) → cookie session (`SID`); re-login on `403` from any call. Every API request must send `Referer: <QBITTORRENT_URL>` (Web API CSRF check). Login success may be either `200` with body `Ok.` (≤ 4.x) **or `204 No Content` (5.x)** — the client must accept both. Host-header validation: verify the container allows the internal service-name `Host` (`qbittorrent:8080`); if not, set `WebUI\HostHeaderValidationEnabled=false` in `/config/qBittorrent/qBittorrent.conf` — otherwise all API calls return `403`.
 - Auth-bruteforce guard: `web_ui_max_auth_fail_count` (default 5) triggers an IP ban for `web_ui_ban_duration` (default 3600s). A backend polling with wrong credentials self-bans its container IP — clear it by restarting the qBittorrent container.
 - Endpoints:
-  - `POST /api/v2/torrents/add` — form `urls=<magnet>&category=stream&savepath=/downloads&sequentialDownload=true&firstLastPiecePriority=true`; success response is text `Ok.` (≤ 4.x) **or structured JSON** `{added_torrent_ids, failure_count, pending_count, success_count, error?}` (5.x) — success iff `success_count ≥ 1` or `added_torrent_ids` non-empty; a duplicate yields `failure_count ≥ 1` with `error` containing `already`/`duplicate`/`conflict`, or HTTP `409` → map to `409`
+  - `POST /api/v2/torrents/add` — form `urls=<magnet|http>&category=stream&savepath=/downloads&sequentialDownload=true&firstLastPiecePriority=true&rename=<sourceTitle>`; success response is text `Ok.` (≤ 4.x) **or structured JSON** `{added_torrent_ids, failure_count, pending_count, success_count, error?}` (5.x) — success iff `success_count ≥ 1` **or `pending_count ≥ 1`** (URL-based adds are fetched asynchronously and return `pending_count: 1` until the `.torrent` is parsed) or `added_torrent_ids` non-empty; a duplicate yields `failure_count ≥ 1` with `error` containing `already`/`duplicate`/`conflict`, or HTTP `409` → map to `409`. `rename` is set to the source title so the poll can adopt the real infoHash by torrent name for URL-based adds (S9).
   - `GET /api/v2/torrents/info?category=stream` — poll every 2s
   - `POST /api/v2/torrents/delete?hashes=<h>&deleteFiles=true|false`
 - State mapping (qBittorrent `state` → canonical UI `state`):
@@ -209,10 +209,15 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 ### 4.3 Prowlarr
 - Base URL (compose): `http://prowlarr:9696`
 - Auth: header `X-Api-Key: <PROWLARR_API_KEY>`.
-- Endpoint: `GET /api/v1/search?query=<q>&categories=<2000|5000>`.
-- Timeouts: 20s (indexers are slow). Retries: 0 (Prowlarr aggregates/retries internally).
-- Field mapping: `Title→title`, `Size→sizeBytes`, `Seeders→seeders`, `Leechers→leechers`, `InfoHash→infoHash` (lowercase), `IndexerId→indexerId`, `Indexer→indexer`, `MagnetUrl→magnetUri` (if non-empty).
-- Magnet fallback builder (used when `MagnetUrl` empty):
+- Endpoint: `GET /api/v1/search?query=<q>&categories=<2000|5000>&type=search`.
+- Timeouts: 60s (indexers are slow, and FlareSolverr-solved indexers push searches past 20s). Retries: 0 (Prowlarr aggregates/retries internally).
+- Field mapping: Prowlarr returns **camelCase** keys: `title`, `size`, `seeders`, `leechers`, `infoHash`, `indexerId`, `indexer`, `magnetUrl`, `downloadUrl` (read PascalCase variants as a fallback). Map to `sizeBytes`, `seeders`, `leechers`, `infoHash` (lowercase), `indexerId`, `indexer`.
+- `magnetUri` resolution, in order of preference:
+  1. `infoHash` present → use a real `magnetUrl` if it starts with `magnet:`, else build a magnet from `infoHash` (§4.3 magnet builder).
+  2. no `infoHash` but `magnetUrl` is a real magnet → extract the hash from it.
+  3. no `infoHash`/magnet but `downloadUrl` present (Prowlarr's torrent download proxy, typical for Cardigann-scraped indexers like 1337x/Lime/TD) → set `magnetUri` to that URL (host normalized to `PROWLARR_URL` so qBittorrent can reach it) and set `infoHash` to a **placeholder** `url-<sha256(downloadUrl) first 40 hex>` — the poll adopts the real qBittorrent hash by torrent name (S9).
+  4. otherwise drop the result.
+- Magnet fallback builder (used when no real magnet):
   `magnet:?xt=urn:btih:<infoHash>&dn=<urlencode(title)>` then append trackers:
   1. `udp://tracker.opentrackr.org:1337/announce`
   2. `udp://open.stealth.si:80/announce`
@@ -224,9 +229,8 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
   8. `udp://tracker.moeking.me:6969/announce`
   9. `udp://explodie.org:6969/announce`
   Format: `&tr=<urlencode(tracker)>` for each.
-- Error mapping: non-200/network → `UpstreamError` → `502`; empty array → `{ sources: [] }`.
-- Filtering: drop any result that has neither `InfoHash` nor `MagnetUrl` (magnet cannot be built).
-- Quirks: category `5000` covers episodes; a TV source's `title` may be an episode pack — UI must display it as-is; no season/episode parsing in v1.
+- Error mapping: `401` → `UpstreamError(401)` (invalid key); non-200/network → `UpstreamError` → `502`; empty array → `{ sources: [] }`.
+- Quirks: category `5000` covers episodes; a TV source's `title` may be an episode pack — UI must display it as-is; no season/episode parsing in v1. Only indexers that expose `infoHash` in search results (e.g. YTS API) populate it; others rely on the `downloadUrl` proxy path above.
 
 ### 4.4 Streaming file resolver
 - Input: `infoHash` + `contentPath`.

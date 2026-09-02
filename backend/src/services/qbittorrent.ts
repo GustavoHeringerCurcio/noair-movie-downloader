@@ -15,7 +15,7 @@ export interface QBittorrentTorrentInfo {
 }
 
 export interface QBittorrentClient {
-  addTorrent(magnetUri: string): Promise<void>;
+  addTorrent(uri: string, options?: { rename?: string }): Promise<void>;
   listTorrents(): Promise<QBittorrentTorrentInfo[]>;
   deleteTorrent(infoHash: string, deleteFiles: boolean): Promise<void>;
   pauseTorrent(infoHash: string): Promise<void>;
@@ -122,13 +122,14 @@ export function createQbittorrentClient(config: QBittorrentClientConfig): QBitto
     return res;
   }
 
-  async function addTorrent(magnetUri: string): Promise<void> {
+  async function addTorrent(uri: string, options?: { rename?: string }): Promise<void> {
     const form = new FormData();
-    form.set('urls', magnetUri);
+    form.set('urls', uri);
     form.set('category', config.category);
     form.set('savepath', config.savePath);
     form.set('sequentialDownload', 'true');
     form.set('firstLastPiecePriority', 'true');
+    if (options?.rename) form.set('rename', options.rename);
     const res = await request('/api/v2/torrents/add', { method: 'POST', body: form });
     if (res.status === 409) throw new UpstreamError(409, 'qBittorrent: torrent already exists');
     const text = (await res.text()).trim();
@@ -139,11 +140,15 @@ export function createQbittorrentClient(config: QBittorrentClientConfig): QBitto
 
     try {
       const parsed = JSON.parse(text) as {
+        added_torrent_ids?: string[];
         success_count?: number;
+        pending_count?: number;
         failure_count?: number;
         error?: string;
       };
       if (typeof parsed.success_count === 'number' && parsed.success_count >= 1) return;
+      if (typeof parsed.pending_count === 'number' && parsed.pending_count >= 1) return;
+      if (Array.isArray(parsed.added_torrent_ids) && parsed.added_torrent_ids.length >= 1) return;
       if (typeof parsed.failure_count === 'number' && parsed.failure_count >= 1) {
         const reason = parsed.error ?? text;
         if (isDuplicate(reason)) throw new UpstreamError(409, `qBittorrent: ${reason}`);

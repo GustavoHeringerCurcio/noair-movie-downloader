@@ -81,8 +81,10 @@ const UPDATE_COLUMNS: Record<keyof DownloadUpdate, string> = {
 export interface DownloadsRepository {
   insert(input: CreateDownloadInput): Promise<DownloadRecord>;
   findByInfoHash(infoHash: string): Promise<DownloadRecord | null>;
+  findByTorrentName(torrentName: string): Promise<DownloadRecord | null>;
   list(): Promise<DownloadRecord[]>;
   update(infoHash: string, fields: DownloadUpdate): Promise<void>;
+  adoptInfoHash(fromInfoHash: string, toInfoHash: string): Promise<void>;
   remove(infoHash: string): Promise<void>;
 }
 
@@ -116,6 +118,15 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
     return row ? rowToRecord(row) : null;
   }
 
+  async function findByTorrentName(torrentName: string): Promise<DownloadRecord | null> {
+    const result = await pool.query<DownloadRow>(
+      'SELECT * FROM downloads WHERE torrent_name = $1 LIMIT 1',
+      [torrentName],
+    );
+    const row = result.rows[0];
+    return row ? rowToRecord(row) : null;
+  }
+
   async function list(): Promise<DownloadRecord[]> {
     const result = await pool.query<DownloadRow>('SELECT * FROM downloads ORDER BY created_at DESC');
     return result.rows.map(rowToRecord);
@@ -142,5 +153,12 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
     await pool.query('DELETE FROM downloads WHERE info_hash = $1', [infoHash.toLowerCase()]);
   }
 
-  return { insert, findByInfoHash, list, update, remove };
+  async function adoptInfoHash(fromInfoHash: string, toInfoHash: string): Promise<void> {
+    await pool.query(
+      'UPDATE downloads SET info_hash = $1 WHERE info_hash = $2',
+      [toInfoHash.toLowerCase(), fromInfoHash.toLowerCase()],
+    );
+  }
+
+  return { insert, findByInfoHash, findByTorrentName, list, update, adoptInfoHash, remove };
 }

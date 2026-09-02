@@ -104,8 +104,10 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     downloads: {
       insert: async (input: CreateDownloadInput) => makeDownloadRecord({ infoHash: input.infoHash }),
       findByInfoHash: async () => null,
+      findByTorrentName: async () => null,
       list: async () => [],
       update: async () => {},
+      adoptInfoHash: async () => {},
       remove: async () => {},
     },
   };

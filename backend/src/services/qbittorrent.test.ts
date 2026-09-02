@@ -119,6 +119,23 @@ describe('QBittorrentClient.addTorrent', () => {
     await expect(client.addTorrent('magnet')).rejects.toMatchObject({ status: 409 });
   });
 
+  it('accepts a pending add (URL-based torrent fetch in progress)', async () => {
+    let added = false;
+    const fetchImpl = makeFetch([
+      { match: (url) => url.endsWith('/api/v2/auth/login'), respond: () => createResponseWithCookies(200, 'Ok.', ['SID=x']) },
+      {
+        match: () => true,
+        respond: () => {
+          added = true;
+          return createResponse(200, { added_torrent_ids: [], failure_count: 0, pending_count: 1, success_count: 0 });
+        },
+      },
+    ]);
+    const client = createQbittorrentClient({ ...CONFIG, fetchImpl });
+    await client.addTorrent('https://example.com/file.torrent');
+    expect(added).toBe(true);
+  });
+
   it('throws 409 on duplicate add', async () => {
     const fetchImpl = makeFetch([
       { match: (url) => url.endsWith('/api/v2/auth/login'), respond: () => createResponseWithCookies(200, 'Ok.', ['SID=x']) },

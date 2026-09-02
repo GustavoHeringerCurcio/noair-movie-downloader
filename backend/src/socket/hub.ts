@@ -2,6 +2,7 @@ import type { Server } from 'socket.io';
 import type { AppDeps } from '../deps.js';
 import type { DownloadUpdate } from '../db/downloadsRepo.js';
 import { toCanonicalState } from '../services/qbittorrent.js';
+import { isPlaceholderInfoHash } from '../services/prowlarr.js';
 import { existsOnDisk, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
 
 export async function pollOnce(deps: AppDeps): Promise<void> {
@@ -9,7 +10,18 @@ export async function pollOnce(deps: AppDeps): Promise<void> {
   for (const torrent of torrents) {
     const infoHash = torrent.hash;
     if (!infoHash) continue;
-    const record = await deps.downloads.findByInfoHash(infoHash);
+    let record = await deps.downloads.findByInfoHash(infoHash);
+
+    if (!record && torrent.name) {
+      // Torrent was added via a Prowlarr download URL (no infohash up-front).
+      // It was stored under a placeholder hash but renamed to the source title,
+      // so adopt qBittorrent's real hash by matching the torrent name.
+      const byName = await deps.downloads.findByTorrentName(torrent.name);
+      if (byName && isPlaceholderInfoHash(byName.infoHash)) {
+        await deps.downloads.adoptInfoHash(byName.infoHash, infoHash);
+        record = { ...byName, infoHash };
+      }
+    }
     if (!record) continue;
 
     const storedStreamPath = record.streamFilePath;

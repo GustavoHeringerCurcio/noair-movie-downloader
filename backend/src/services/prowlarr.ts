@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Source } from '../types.js';
 import { UpstreamError } from '../types.js';
 import { buildMagnet, infoHashFromMagnet } from '../lib/magnet.js';
@@ -14,19 +15,41 @@ export interface ProwlarrClientConfig {
 
 interface ProwlarrResult {
   Title?: string | null;
+  title?: string | null;
   Size?: number;
+  size?: number;
   Seeders?: number;
+  seeders?: number;
   Leechers?: number;
+  leechers?: number;
   InfoHash?: string | null;
+  infoHash?: string | null;
   IndexerId?: number;
+  indexerId?: number;
   Indexer?: unknown;
+  indexer?: unknown;
   MagnetUrl?: string | null;
+  magnetUrl?: string | null;
+  DownloadUrl?: string | null;
+  downloadUrl?: string | null;
 }
 
 function indexerName(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object' && 'name' in value && typeof value.name === 'string') return value.name;
   return '';
+}
+
+export function placeholderInfoHash(downloadUrl: string): string {
+  return 'url-' + createHash('sha256').update(downloadUrl).digest('hex').slice(0, 40);
+}
+
+export function isPlaceholderInfoHash(value: string): boolean {
+  return value.startsWith('url-');
+}
+
+function normalizeDownloadUrl(url: string, baseUrl: string): string {
+  return url.replace(/^https?:\/\/[^/]+/, baseUrl.replace(/\/+$/, ''));
 }
 
 export function createProwlarrClient(config: ProwlarrClientConfig): ProwlarrClient {
@@ -38,7 +61,7 @@ export function createProwlarrClient(config: ProwlarrClientConfig): ProwlarrClie
     try {
       res = await fetchImpl(url, {
         headers: { 'X-Api-Key': config.apiKey },
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(60000),
       });
     } catch {
       throw new UpstreamError(502, 'Prowlarr unreachable');
@@ -53,26 +76,51 @@ export function createProwlarrClient(config: ProwlarrClientConfig): ProwlarrClie
 
     const sources: Source[] = [];
     for (const r of results) {
-      const infoHash = typeof r.InfoHash === 'string' ? r.InfoHash.trim().toLowerCase() : '';
-      const magnet = typeof r.MagnetUrl === 'string' ? r.MagnetUrl.trim() : '';
-      if (!infoHash && !magnet) continue;
+      const rawInfoHash =
+        typeof r.infoHash === 'string'
+          ? r.infoHash.trim()
+          : typeof r.InfoHash === 'string'
+            ? r.InfoHash.trim()
+            : '';
+      const magnet =
+        typeof r.magnetUrl === 'string'
+          ? r.magnetUrl.trim()
+          : typeof r.MagnetUrl === 'string'
+            ? r.MagnetUrl.trim()
+            : '';
+      const downloadUrl =
+        typeof r.downloadUrl === 'string'
+          ? r.downloadUrl.trim()
+          : typeof r.DownloadUrl === 'string'
+            ? r.DownloadUrl.trim()
+            : '';
 
-      let finalInfoHash = infoHash;
-      if (!finalInfoHash) {
+      const title = r.title ?? r.Title ?? '';
+
+      let finalInfoHash = rawInfoHash.toLowerCase();
+      let magnetUri: string;
+      if (finalInfoHash) {
+        magnetUri = magnet.startsWith('magnet:') ? magnet : buildMagnet(finalInfoHash, title);
+      } else if (magnet.startsWith('magnet:')) {
         finalInfoHash = infoHashFromMagnet(magnet) ?? '';
+        if (!finalInfoHash) continue;
+        magnetUri = magnet;
+      } else if (downloadUrl) {
+        finalInfoHash = placeholderInfoHash(downloadUrl);
+        magnetUri = normalizeDownloadUrl(downloadUrl, config.baseUrl);
+      } else {
+        continue;
       }
-      if (!finalInfoHash) continue;
 
-      const title = r.Title ?? '';
       sources.push({
-        indexerId: r.IndexerId ?? 0,
-        indexer: indexerName(r.Indexer),
+        indexerId: r.indexerId ?? r.IndexerId ?? 0,
+        indexer: indexerName(r.indexer ?? r.Indexer),
         title,
-        sizeBytes: r.Size ?? 0,
-        seeders: r.Seeders ?? 0,
-        leechers: r.Leechers ?? 0,
+        sizeBytes: r.size ?? r.Size ?? 0,
+        seeders: r.seeders ?? r.Seeders ?? 0,
+        leechers: r.leechers ?? r.Leechers ?? 0,
         infoHash: finalInfoHash,
-        magnetUri: magnet || buildMagnet(finalInfoHash, title),
+        magnetUri,
       });
     }
 

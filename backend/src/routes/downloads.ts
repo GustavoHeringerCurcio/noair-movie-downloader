@@ -43,7 +43,7 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       body.mediaType === 'movie' || body.mediaType === 'tv' ? body.mediaType : null;
 
     try {
-      await deps.qbittorrent.addTorrent(magnetUri);
+      await deps.qbittorrent.addTorrent(magnetUri, { rename: torrentName });
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });
