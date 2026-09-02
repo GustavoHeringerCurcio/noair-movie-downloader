@@ -31,7 +31,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Request: query `type: "movie" | "tv"` (required).
 - Behavior: builds query `"<title> <year>"` from the media record; calls Prowlarr with category `2000` (movie) or `5000` (tv); dedupes by `infoHash`; sorts seeders desc; guarantees every result has `magnetUri` (Prowlarr magnet if present, else built — §4.3).
 - Response: `200` → `{ sources: Source[] }`
-  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string }`
+  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string, ageHours: number|null, resolution: "2160p"|"1080p"|"720p"|"480p"|null, source: "REMUX"|"BluRay"|"WEB-DL"|"WEBRip"|"BDRip"|"BRRip"|"HDTV"|"DVDRip"|null, codec: "x264"|"x265"|"AV1"|"XviD"|"DivX"|null, hdr: boolean, isDolbyVision: boolean, group: string|null, cleanTitle: string }` — the last eight fields are parsed from the release title by `lib/releaseParser.ts` (Prowlarr returns only `age`; quality metadata must be parsed).
 - Errors: `502` Prowlarr unreachable (return `{ sources: [], unreachable: true }` and log if only empty).
 
 ### S4 `POST /api/downloads`
@@ -141,12 +141,15 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 - Entry: click from Search.
 - Elements:
   - Hero — backdrop image (`w1280`), title, year, genres, vote, overview, runtime.
-  - "Sources" section — list of `SourceRow`: indexer badge, title, size (humanized), seeders/leechers, "Download" button.
-  - Regex filter input above the source list — matches against `Source.title` (e.g. `1080p|x264`, `-CAM`, `REMUX`). Invalid regex → treated as no filter with a subtle inline warning. Filtering is client-side only.
-  - Source list capped at **30 visible rows** with a "Load more" button revealing the next 30 (from the full fetched list, after filtering).
-  - Loading spinner while `S3` in flight; empty state "No sources found" (distinct from "no results match your filter").
+  - "Sources" section — list of `SourceRow`: quality chips (resolution/source/codec/HDR/DoVi parsed from the title), indexer, title, size (humanized), seeders/leechers, "Download" button.
+  - **Structured filter bar** (client-side): Resolution (2160p/1080p/720p/480p), Source (REMUX/BluRay/WEB-DL/WEBRip/BRRip…), Codec (x264/x265/AV1/…), Indexer (multi-select from results), Min seeders, Size range (GB), plus an **advanced regex** input (matches `Source.title`, e.g. `1080p|x264`, `-CAM`; invalid regex → no filter + inline warning).
+  - **Sort** control — seeders (default) / size / age / resolution / size-per-seeder.
+  - **Grouping** — identical releases across indexers (same `cleanTitle+resolution+source+codec`) collapse into one row by default, with an indexer dropdown on the row (default = most seeders); a "Show duplicates" toggle reveals the raw list.
+  - Count line ("N results · M shown" + grouped-duplicate count) and active-filter count with a "Clear all" button.
+  - Source list capped at **30 visible rows** with a "Load more" button revealing the next 30 (from the final filtered/sorted/grouped list).
+  - Loading spinner while `S3` in flight; empty state "No sources found" (distinct from "No sources match your filters").
 - Actions:
-  - Download → `POST S4` → on `201`, open Downloads panel and navigate to `/watch/:infoHash`? No — stay on page; toast "Added to downloads" and open the panel. On `409` toast "Already downloading".
+  - Download → `POST S4` → on `201`, stay on page; toast "Added to downloads" and open the panel. On `409` toast "Already downloading".
   - If the current media already has an active download, show a "Watch" button first (links to `/watch/:infoHash`).
 
 ### Screen: Player (`/watch/:infoHash`)

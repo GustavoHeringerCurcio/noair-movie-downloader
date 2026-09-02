@@ -34,6 +34,39 @@ export interface Source {
   leechers: number;
   infoHash: string;
   magnetUri: string;
+  ageHours: number | null;
+  resolution: '2160p' | '1080p' | '720p' | '480p' | null;
+  source: 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip' | null;
+  codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
+  hdr: boolean;
+  isDolbyVision: boolean;
+  group: string | null;
+  cleanTitle: string;
+}
+
+export interface SourceGroup {
+  key: string;
+  cleanTitle: string;
+  resolution: Source['resolution'];
+  source: Source['source'];
+  codec: Source['codec'];
+  hdr: boolean;
+  isDolbyVision: boolean;
+  variants: Source[];
+  best: Source;
+}
+
+export type SourceSortKey = 'seeders' | 'size' | 'age' | 'resolution' | 'sizePerSeeder';
+
+export interface SourceFilters {
+  indexers: string[];
+  resolutions: string[];
+  sources: string[];
+  codecs: string[];
+  minSeeders: number | null;
+  minSizeGB: number | null;
+  maxSizeGB: number | null;
+  regex: string;
 }
 
 export type TorrentState =

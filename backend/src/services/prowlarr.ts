@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Source } from '../types.js';
 import { UpstreamError } from '../types.js';
 import { buildMagnet, infoHashFromMagnet } from '../lib/magnet.js';
+import { parseReleaseTitle } from '../lib/releaseParser.js';
 
 export interface ProwlarrClient {
   search(query: string, category: 2000 | 5000): Promise<Source[]>;
@@ -32,6 +33,8 @@ interface ProwlarrResult {
   magnetUrl?: string | null;
   DownloadUrl?: string | null;
   downloadUrl?: string | null;
+  Age?: number | null;
+  age?: number | null;
 }
 
 function indexerName(value: unknown): string {
@@ -121,6 +124,8 @@ export function createProwlarrClient(config: ProwlarrClientConfig): ProwlarrClie
         leechers: r.leechers ?? r.Leechers ?? 0,
         infoHash: finalInfoHash,
         magnetUri,
+        ageHours: r.age ?? r.Age ?? null,
+        ...parseReleaseTitle(title),
       });
     }
 

@@ -34,6 +34,14 @@ export interface Source {
   leechers: number;
   infoHash: string;
   magnetUri: string;
+  ageHours: number | null;
+  resolution: '2160p' | '1080p' | '720p' | '480p' | null;
+  source: 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip' | null;
+  codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
+  hdr: boolean;
+  isDolbyVision: boolean;
+  group: string | null;
+  cleanTitle: string;
 }
 
 export type TorrentState =
