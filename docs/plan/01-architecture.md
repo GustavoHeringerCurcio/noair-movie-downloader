@@ -50,7 +50,7 @@ System design for `movie-downloader-qbitorrent`. Owns: components, data flow, bo
 ### 2.3 qBittorrent (Docker container)
 - Responsibility: downloads magnets/`.torrent`, exposes state via Web API v2.
 - Talks to: Backend (API), writes files into `/downloads`.
-- Boundary/constraints: Web UI port only reachable on the internal compose network (not published to host for production). `savepath` = `/downloads`.
+- Boundary/constraints: Web UI port only reachable on the internal compose network (not published to host for production). `savepath` = `/downloads`. Torrents are added with `sequentialDownload=true` + `firstLastPiecePriority=true` (streaming-before-complete, D8). Host-header validation must permit the internal `qbittorrent:8080` Host; API calls must send the `Referer` header (§4.2).
 
 ### 2.4 Prowlarr (Docker container)
 - Responsibility: aggregates configured trackers and returns normalized search results (title, size, seeders, leechers, infoHash).

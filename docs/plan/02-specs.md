@@ -32,12 +32,12 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Behavior: builds query `"<title> <year>"` from the media record; calls Prowlarr with category `2000` (movie) or `5000` (tv); dedupes by `infoHash`; sorts seeders desc; guarantees every result has `magnetUri` (Prowlarr magnet if present, else built — §4.3).
 - Response: `200` → `{ sources: Source[] }`
   - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string }`
-- Errors: `502` Prowlarr unreachable (return `{ sources: [] }` and log if only empty).
+- Errors: `502` Prowlarr unreachable (return `{ sources: [], unreachable: true }` and log if only empty).
 
 ### S4 `POST /api/downloads`
 - Auth: none
 - Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string }`
-- Behavior: adds magnet to qBittorrent (category `stream`, savepath `/downloads`), then inserts a `downloads` row keyed by `info_hash`.
+- Behavior: adds magnet to qBittorrent (category `stream`, savepath `/downloads`, `sequentialDownload=true`, `firstLastPiecePriority=true` — required for playback-before-complete, §4.2), then inserts a `downloads` row keyed by `info_hash`.
 - Response: `201` → `DownloadRecord` (shape below).
 - Errors: `409` if `info_hash` already exists; `502` qBittorrent unreachable/add failed.
 
@@ -63,7 +63,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 
 ### S8 `GET /api/images/tmdb/*path`
 - Auth: none
-- Behavior: proxies `https://image.tmdb.org/t/p/w500/<path>` (poster) / `w1280` (backdrop) server-side. Never exposes the TMDB key. `path` must match `^[a-f0-9/_ .-]+$` (reject anything else with `400`).
+- Behavior: proxies `https://image.tmdb.org/t/p/w500/<path>` (poster) / `w1280` (backdrop) server-side. Never exposes the TMDB key. `path` must match `^[a-zA-Z0-9/_.-]+$` (reject anything else with `400`).
 - Response: `200` image bytes; `502` TMDB unreachable.
 
 ### S9 Socket.IO events
@@ -71,13 +71,19 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - On connect, server emits `downloads:initial` with `{ downloads: DownloadRecord[] }`.
 - Every 2s, server emits `downloads:update` with `{ downloads: DownloadRecord[] }`.
 - Client never sends messages (subscribe-only).
-- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, resolves `stream_file_path`/`streamable` once `content_path` is known, sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
+- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, resolves `stream_file_path`/`streamable` whenever `content_path` is known and the stored `stream_file_path` is null **or no longer exists on disk**, sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
 
 ### S10 `GET /api/downloads/:infoHash/file`
 - Auth: none
 - Behavior: resolves the same media file as `S7` but streams it as an attachment (`Content-Disposition: attachment; filename="<basename>"`). Used for external playback when the browser can't play the codec. Path containment per NFR9.
 - Response: `200` file download (no Range guarantee needed).
 - Errors: `404` unknown `infoHash` / no resolvable file.
+
+### S11 `POST /api/downloads/:infoHash/pause` · `POST /api/downloads/:infoHash/resume`
+- Auth: none
+- Behavior: pauses/resumes the torrent in qBittorrent (`/api/v2/torrents/stop|start`). State updates arrive on the next Socket.IO snapshot.
+- Response: `204`.
+- Errors: `404` unknown `infoHash`; `502` qBittorrent unreachable/failed.
 
 ## 2. Data model
 
@@ -102,8 +108,8 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 | `upload_speed` | bigint NOT NULL DEFAULT 0 | yes | bytes/s |
 | `eta_seconds` | int NOT NULL DEFAULT 0 | yes | qBittorrent ETA |
 | `ratio` | double precision NOT NULL DEFAULT 0 | yes | |
-| `content_path` | text | no | qBittorrent `content_path` (dir) |
-| `stream_file_path` | text | no | resolved relative-to-content file path |
+| `content_path` | text | no | qBittorrent `content_path` (dir or single file) |
+| `stream_file_path` | text | no | resolved video file path, relative to `/downloads` |
 | `created_at` | timestamptz NOT NULL DEFAULT now() | yes | |
 | `completed_at` | timestamptz | no | |
 
@@ -175,9 +181,10 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 
 ### 4.2 qBittorrent
 - Base URL (compose): `http://qbittorrent:8080`
-- Auth: `POST /api/v2/auth/login` (`username`, `password`) → cookie session; re-login on `403` from any call.
+- Auth: `POST /api/v2/auth/login` (`username`, `password`) → cookie session (`SID`); re-login on `403` from any call. Every API request must send `Referer: <QBITTORRENT_URL>` (Web API CSRF check). Login success may be either `200` with body `Ok.` (≤ 4.x) **or `204 No Content` (5.x)** — the client must accept both. Host-header validation: verify the container allows the internal service-name `Host` (`qbittorrent:8080`); if not, set `WebUI\HostHeaderValidationEnabled=false` in `/config/qBittorrent/qBittorrent.conf` — otherwise all API calls return `403`.
+- Auth-bruteforce guard: `web_ui_max_auth_fail_count` (default 5) triggers an IP ban for `web_ui_ban_duration` (default 3600s). A backend polling with wrong credentials self-bans its container IP — clear it by restarting the qBittorrent container.
 - Endpoints:
-  - `POST /api/v2/torrents/add` — form `urls=<magnet>&category=stream&savepath=/downloads`
+  - `POST /api/v2/torrents/add` — form `urls=<magnet>&category=stream&savepath=/downloads&sequentialDownload=true&firstLastPiecePriority=true`; success response is text `Ok.` (≤ 4.x) **or structured JSON** `{added_torrent_ids, failure_count, pending_count, success_count, error?}` (5.x) — success iff `success_count ≥ 1` or `added_torrent_ids` non-empty; a duplicate yields `failure_count ≥ 1` with `error` containing `already`/`duplicate`/`conflict`, or HTTP `409` → map to `409`
   - `GET /api/v2/torrents/info?category=stream` — poll every 2s
   - `POST /api/v2/torrents/delete?hashes=<h>&deleteFiles=true|false`
 - State mapping (qBittorrent `state` → canonical UI `state`):
@@ -223,11 +230,12 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 
 ### 4.4 Streaming file resolver
 - Input: `infoHash` + `contentPath`.
-- Scan `contentPath` recursively for the largest file whose name ends with one of: `.mkv`, `.mp4`, `.avi`, `.webm`, `.mov`, `.m4v`, `.ts`, OR those same names with a trailing `.!qb`.
+- `contentPath` may be a directory (multi-file torrent) **or a single file** (single-file torrent): if it is a directory, scan it recursively; if it is a file, consider it directly.
+- Find the largest file whose name ends with one of: `.mkv`, `.mp4`, `.avi`, `.webm`, `.mov`, `.m4v`, `.ts`, OR those same names with a trailing `.!qb`.
 - If both `x.mkv` and `x.mkv.!qb` exist and `x.mkv` size > 0, prefer `x.mkv`.
 - Selection priority when sizes are equal: `.mkv` > `.webm` > `.ts` > `.mp4` > `.mov` > `.m4v` > `.avi` (MKV/WebM/TS stream while downloading; MP4 may not be seekable until complete because `moov` can be at file end).
-- Store result as `stream_file_path`; recompute in the poll loop (S9) when null and `content_path` is known, and on `S7`/`S10` if still null.
-- MIME: map by extension (`.mkv`→`video/x-matroska`, `.mp4`→`video/mp4`, `.webm`→`video/webm`, others→`application/octet-stream`); strip `.!qb` before mapping.
+- Store result as `stream_file_path` (relative to `/downloads`); recompute whenever it is `null` **or the stored path no longer exists on disk** (qBittorrent renames `x.mkv.!qb` → `x.mkv` on completion). Recompute in the poll loop (S9) and again at serve time in `S7`/`S10` before serving.
+- MIME: map by extension (`.mkv`→`video/x-matroska`, `.mp4`→`video/mp4`, `.webm`→`video/webm`, `.ts`→`video/mp2t`, others→`application/octet-stream`); strip `.!qb` before mapping.
 - Path containment: resolve against `/downloads` and verify the absolute path stays inside it; reject with `404` otherwise (NFR9).
 - Serve with `res.sendFile` (native Range support).
 

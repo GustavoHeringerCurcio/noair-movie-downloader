@@ -15,7 +15,7 @@ Execution protocol: work through tasks in order. Read the referenced docs before
   - `docker-compose.yml`: `postgres` (16-alpine, volume `pgdata`, healthcheck `pg_isready`), `qbittorrent` (linuxserver/qbittorrent, env PUID/PGID/TZ **set to 1000:1000**, volume `qbconfig` + `downloads:/downloads`, host port for Web UI), `prowlarr` (linuxserver/prowlarr, volume `prowlarr-config`, host port for UI), `backend` (depends_on postgres healthy, volume `downloads:/downloads`, env from `.env`, internal-only), `frontend` (nginx serving built assets, proxies `/api` and `/socket.io` with WebSocket `Upgrade`/`Connection` headers, host port).
   - Wire `.env.example` for `TMDB_API_KEY`, `PROWLARR_API_KEY`, `PROWLARR_URL`, `QBITTORRENT_URL`, `QBITTORRENT_USER`, `QBITTORRENT_PASS`, `DATABASE_URL`, `DOWNLOAD_DIR`.
   - Document boot order in README: start `prowlarr` first → configure trackers → copy its API key into `.env` → then start backend/frontend.
-  - **Acceptance:** `docker compose up -d postgres qbittorrent prowlarr` starts all three healthy; `docker compose ps` shows healthy; `downloads` volume shared; backend (running locally) can `read` a file the qbittorrent container created in `/downloads` (PUID/PGID permission check); qBittorrent + Prowlarr UIs reachable on the host.
+  - **Acceptance:** `docker compose up -d postgres qbittorrent prowlarr` starts all three healthy; `docker compose ps` shows healthy; `downloads` volume shared; a container on the compose network (e.g. `backend` built from a stub Dockerfile) can `read` a file the qbittorrent container created in `/downloads` (PUID/PGID permission check); qBittorrent + Prowlarr UIs reachable on the host. Dev runs everything as compose services (no local-Node access to the volume — Windows host cannot read Docker Desktop/WSL2 volumes directly).
 
 - [ ] **T0.3** Backend skeleton boots — Read: `00-index.md` D1, `02-specs.md` S1/S9
   - Express app with `/api/health` returning `{ ok: true }`; env parsing in `config.ts` that fails fast on missing vars; Socket.IO server attached; Vitest configured with one smoke test hitting `/api/health`.
@@ -36,8 +36,8 @@ Execution protocol: work through tasks in order. Read the referenced docs before
   - **Acceptance:** `npm test` green for magnet cases; generated string matches spec format.
 
 - [ ] **T1.3** Stream resolver + Range serving — Read: `02-specs.md` §4.4
-  - `streaming.ts`: `resolveStreamFile(contentPath)` finds largest video file incl. `.!qb` twin, applies extension priority (`.mkv` > `.webm` > `.ts` > `.mp4` > `.mov` > `.m4v` > `.avi`), returns `{ path, mime }`, enforces path containment inside `/downloads`; route `GET /api/stream/:infoHash` serves via `res.sendFile`. Vitest uses temp dirs with mixed files (mkv, mp4, `.!qb`) and a path-escape case.
-  - **Acceptance:** `npm test` green; curl a temp file with `Range: bytes=0-99` returns `206` + `Accept-Ranges`; equal-size mkv beats mp4; a `../`-escape path returns `404`.
+  - `streaming.ts`: `resolveStreamFile(contentPath)` handles both a directory (recursive scan) and a single-file `contentPath`, finds the largest video file incl. `.!qb` twin, applies extension priority (`.mkv` > `.webm` > `.ts` > `.mp4` > `.mov` > `.m4v` > `.avi`), returns `{ path, mime }`, enforces path containment inside `/downloads`; route `GET /api/stream/:infoHash` serves via `res.sendFile`. Vitest uses temp dirs with mixed files (mkv, mp4, `.!qb`) and a path-escape case.
+  - **Acceptance:** `npm test` green; curl a temp file with `Range: bytes=0-99` returns `206` + `Accept-Ranges`; equal-size mkv beats mp4; a `../`-escape path returns `404`; a single-file `contentPath` resolves without error.
 
 ## Milestone 2 — External integrations (each behind an interface)
 
@@ -50,7 +50,7 @@ Execution protocol: work through tasks in order. Read the referenced docs before
   - **Acceptance:** `npm test` green; results always have `magnetUri`; seeders-sorted; dedupe by infoHash verified.
 
 - [ ] **T2.3** qBittorrent client — Read: `02-specs.md` §4.2
-  - `services/qbittorrent.ts`: `login()`, `addTorrent(magnetUri)`, `listTorrents()`, `deleteTorrent(infoHash, deleteFiles)`, `toCanonicalState()` mapping table. Vitest with mocked fetch; re-login-on-403 behavior tested.
+  - `services/qbittorrent.ts`: `login()`, `addTorrent(magnetUri)` (with `sequentialDownload=true`, `firstLastPiecePriority=true`, checks the `Ok.` response body), `listTorrents()`, `deleteTorrent(infoHash, deleteFiles)`, `toCanonicalState()` mapping table; sends `Referer: <QBITTORRENT_URL>` on every call. Vitest with mocked fetch; re-login-on-403 and non-`Ok.` add-failure tested.
   - **Acceptance:** `npm test` green; canonical state mapping matches table in spec for all listed qBittorrent states.
 
 ## Milestone 3 — API layer

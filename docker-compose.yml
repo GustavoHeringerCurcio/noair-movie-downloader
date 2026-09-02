@@ -1,0 +1,87 @@
+name: movie-downloader
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: moviedl
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d moviedl"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks: [internal]
+
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      WEBUI_PORT: "8080"
+    volumes:
+      - qbconfig:/config
+      - downloads:/downloads
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped
+    networks: [internal]
+
+  prowlarr:
+    image: linuxserver/prowlarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - prowlarr-config:/config
+    ports:
+      - "9696:9696"
+    restart: unless-stopped
+    networks: [internal]
+
+  backend:
+    build: ./backend
+    environment:
+      TMDB_API_KEY: ${TMDB_API_KEY:?set TMDB_API_KEY in .env}
+      PROWLARR_URL: http://prowlarr:9696
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:?set PROWLARR_API_KEY in .env}
+      QBITTORRENT_URL: http://qbittorrent:8080
+      QBITTORRENT_USER: ${QBITTORRENT_USER:-admin}
+      QBITTORRENT_PASS: ${QBITTORRENT_PASS:?set QBITTORRENT_PASS in .env}
+      DATABASE_URL: postgres://app:app@postgres:5432/moviedl
+      DOWNLOAD_DIR: /downloads
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - downloads:/downloads
+    restart: unless-stopped
+    networks: [internal]
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks: [internal]
+
+volumes:
+  pgdata:
+  qbconfig:
+  prowlarr-config:
+  downloads:
+
+networks:
+  internal:
+    driver: bridge
