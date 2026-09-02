@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseReleaseTitle } from './releaseParser.js';
+import { isAudioCodecBrowserSafe, parseReleaseTitle } from './releaseParser.js';
 
 describe('parseReleaseTitle', () => {
   it('parses a 1080p BluRay x265 release', () => {
@@ -87,5 +87,22 @@ describe('parseReleaseTitle', () => {
     ];
     const clean = titles.map((t) => parseReleaseTitle(t).cleanTitle);
     expect(clean).toEqual(titles.map(() => 'inception'));
+  });
+
+  it('detects audio codecs', () => {
+    expect(parseReleaseTitle('Movie 1080p BluRay DDP5.1 x265').audioCodec).toBe('E-AC3');
+    expect(parseReleaseTitle('Movie 1080p BluRay AC3 x264').audioCodec).toBe('AC3');
+    expect(parseReleaseTitle('Movie 1080p BluRay DTS x264').audioCodec).toBe('DTS');
+    expect(parseReleaseTitle('Movie 1080p WEB-DL AAC x264').audioCodec).toBe('AAC');
+    expect(parseReleaseTitle('Movie 1080p BluRay TrueHD Atmos x265').audioCodec).toBe('TrueHD');
+    expect(parseReleaseTitle('Movie 1080p WEBRip x264').audioCodec).toBeNull();
+  });
+
+  it('marks browser-safe audio codecs', () => {
+    expect(isAudioCodecBrowserSafe('AAC')).toBe(true);
+    expect(isAudioCodecBrowserSafe('MP3')).toBe(true);
+    expect(isAudioCodecBrowserSafe('E-AC3')).toBe(false);
+    expect(isAudioCodecBrowserSafe('DTS')).toBe(false);
+    expect(isAudioCodecBrowserSafe(null)).toBe(false);
   });
 });

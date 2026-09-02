@@ -31,7 +31,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Request: query `type: "movie" | "tv"` (required).
 - Behavior: builds query `"<title> <year>"` from the media record; calls Prowlarr with category `2000` (movie) or `5000` (tv); dedupes by `infoHash`; sorts seeders desc; guarantees every result has `magnetUri` (Prowlarr magnet if present, else built — §4.3).
 - Response: `200` → `{ sources: Source[] }`
-  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string, ageHours: number|null, resolution: "2160p"|"1080p"|"720p"|"480p"|null, source: "REMUX"|"BluRay"|"WEB-DL"|"WEBRip"|"BDRip"|"BRRip"|"HDTV"|"DVDRip"|null, codec: "x264"|"x265"|"AV1"|"XviD"|"DivX"|null, hdr: boolean, isDolbyVision: boolean, group: string|null, cleanTitle: string }` — the last eight fields are parsed from the release title by `lib/releaseParser.ts` (Prowlarr returns only `age`; quality metadata must be parsed).
+  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string, ageHours: number|null, resolution: "2160p"|"1080p"|"720p"|"480p"|null, source: "REMUX"|"BluRay"|"WEB-DL"|"WEBRip"|"BDRip"|"BRRip"|"HDTV"|"DVDRip"|null, codec: "x264"|"x265"|"AV1"|"XviD"|"DivX"|null, hdr: boolean, isDolbyVision: boolean, group: string|null, cleanTitle: string, audioCodec: "AAC"|"AC3"|"E-AC3"|"DTS"|"TrueHD"|"FLAC"|"Opus"|"MP3"|"Atmos"|null }` — the last nine fields are parsed from the release title by `lib/releaseParser.ts` (Prowlarr returns only `age`; quality metadata must be parsed).
 - Errors: `502` Prowlarr unreachable (return `{ sources: [], unreachable: true }` and log if only empty).
 
 ### S4 `POST /api/downloads`
@@ -55,11 +55,12 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Response: `204` on success.
 - Errors: `404` unknown `infoHash`.
 
-### S7 `GET /api/stream/:infoHash`
+### S7 `GET /api/stream/:infoHash` · `GET /api/stream/:infoHash/compat`
 - Auth: none
-- Behavior: resolves `streamFilePath` (§4.4), serves the file via `res.sendFile` with automatic Range/`Accept-Ranges` support and correct `Content-Type`. Incomplete `.!qb` files are served with the type of their stripped extension. Resolved path must resolve inside `/downloads` (NFR9).
-- Response: `200` video stream; `206` partial (Range); `404` no streamable file / unknown torrent.
-- Errors: `404` → `{ error: "not found" }`.
+- Behavior (`:infoHash`): resolves `streamFilePath` (§4.4), serves the file via `res.sendFile` with automatic Range/`Accept-Ranges` support and correct `Content-Type`. Incomplete `.!qb` files are served with the type of their stripped extension. Resolved path must resolve inside `/downloads` (NFR9).
+- Behavior (`/compat`): resolves the same file, then pipes it through ffmpeg (`-c:v copy -map 0:a:0? -c:a aac -movflags frag_keyframe+empty_moov -f mp4`) as a fragmented `video/mp4`. Video is copied; the first audio track is re-encoded to **AAC** so browsers that cannot decode AC3/E-AC3/DTS/TrueHD get sound. **No Range/seek** on this stream (progressive). ffmpeg is killed on client disconnect.
+- Response: `200` video stream; `206` partial (native only); `404` no streamable file / unknown torrent.
+- Errors: `404` → `{ error: "not found" }`; `500` ffmpeg unavailable.
 
 ### S8 `GET /api/images/tmdb/*path`
 - Auth: none
@@ -156,10 +157,13 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 - Entry: "Watch" button from Downloads panel or Detail.
 - Elements:
   - Full-page `<video>` with `src="/api/stream/:infoHash"`, controls, autoplay.
+  - **Audio/video codec warnings** derived from the torrent name: if it hints at AC3/E-AC3/DTS/TrueHD/Atmos ("no sound is expected — use Compatible audio") or HEVC/x265 ("Chrome can't decode — use Edge/Safari or an external player").
+  - **"Compatible audio" toggle** — switches `src` to `/api/stream/:infoHash/compat` (S7): ffmpeg re-encodes the first audio track to AAC so sound plays in the browser; video is copied; **seeking is disabled**. Toggle back to the original (seekable) stream.
+  - **"Open in external player"** — copies `http://<host>/api/stream/:infoHash` to the clipboard for pasting into VLC/MPC-HC (decodes x265/DTS natively).
   - Overlay showing torrent state + progress while streamable but incomplete ("Buffering — download in progress").
   - Back button.
 - Actions:
-  - Seek during download → works via Range.
+  - Seek during download → works via Range (original stream only).
   - If `streamable` is false → error state "No playable file yet".
 
 ### Component: DownloadsPanel (persistent slide-over)

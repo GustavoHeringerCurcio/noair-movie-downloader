@@ -20,6 +20,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     isDolbyVision: false,
     group: 'GalaxyRG265',
     cleanTitle: 'blade runner',
+    audioCodec: null,
     ...overrides,
   };
 }

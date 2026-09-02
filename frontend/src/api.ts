@@ -36,6 +36,10 @@ export function streamUrl(infoHash: string): string {
   return `/api/stream/${encodeURIComponent(infoHash)}`;
 }
 
+export function compatStreamUrl(infoHash: string): string {
+  return `/api/stream/${encodeURIComponent(infoHash)}/compat`;
+}
+
 export function fileUrl(infoHash: string): string {
   return `/api/downloads/${encodeURIComponent(infoHash)}/file`;
 }

@@ -42,6 +42,7 @@ export interface Source {
   isDolbyVision: boolean;
   group: string | null;
   cleanTitle: string;
+  audioCodec: 'AAC' | 'AC3' | 'E-AC3' | 'DTS' | 'TrueHD' | 'FLAC' | 'Opus' | 'MP3' | 'Atmos' | null;
 }
 
 export interface SourceGroup {

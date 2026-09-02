@@ -10,6 +10,41 @@ export interface ParsedRelease {
   isDolbyVision: boolean;
   group: string | null;
   cleanTitle: string;
+  audioCodec: ReleaseAudioCodec | null;
+}
+
+export type ReleaseAudioCodec =
+  | 'AAC'
+  | 'AC3'
+  | 'E-AC3'
+  | 'DTS'
+  | 'TrueHD'
+  | 'FLAC'
+  | 'Opus'
+  | 'MP3'
+  | 'Atmos';
+
+export function isAudioCodecBrowserSafe(codec: ReleaseAudioCodec | null): boolean {
+  return codec === 'AAC' || codec === 'MP3' || codec === 'FLAC' || codec === 'Opus';
+}
+
+const AUDIO_MATCHERS: Array<[ReleaseAudioCodec, RegExp]> = [
+  ['E-AC3', /\b(eac3|ddp5|ddp2|ddp|dd ?plus)\b/],
+  ['TrueHD', /\btruehd\b/],
+  ['DTS', /\b(dts-hd|dtshd|dts)\b/],
+  ['AC3', /\b(ac3|dd5|dd 5 1|dolby digital)\b/],
+  ['Atmos', /\batmos\b/],
+  ['AAC', /\baac\b/],
+  ['FLAC', /\bflac\b/],
+  ['Opus', /\bopus\b/],
+  ['MP3', /\bmp3\b/],
+];
+
+function detectAudioCodec(norm: string): ReleaseAudioCodec | null {
+  for (const [codec, re] of AUDIO_MATCHERS) {
+    if (re.test(norm)) return codec;
+  }
+  return null;
 }
 
 function normalizeTitle(title: string): string {
@@ -136,6 +171,7 @@ export function parseReleaseTitle(title: string): ParsedRelease {
 
   const group = extractGroup(title);
   const cleanTitle = buildCleanTitle(title, group);
+  const audioCodec = detectAudioCodec(norm);
 
-  return { resolution, source, codec, hdr, isDolbyVision, group, cleanTitle };
+  return { resolution, source, codec, hdr, isDolbyVision, group, cleanTitle, audioCodec };
 }
