@@ -48,8 +48,13 @@ export function mediaDetails(id: number, type: MediaType): Promise<MediaDetail> 
   return request<MediaDetail>(`/api/media/${id}?type=${type}`);
 }
 
-export function sources(id: number, type: MediaType): Promise<{ sources: Source[]; unreachable?: boolean }> {
-  return request<{ sources: Source[]; unreachable?: boolean }>(`/api/media/${id}/sources?type=${type}`);
+export function sources(
+  id: number,
+  type: MediaType,
+): Promise<{ sources: Source[]; unreachable?: boolean; authError?: boolean }> {
+  return request<{ sources: Source[]; unreachable?: boolean; authError?: boolean }>(
+    `/api/media/${id}/sources?type=${type}`,
+  );
 }
 
 export function listDownloads(): Promise<{ downloads: DownloadRecord[] }> {

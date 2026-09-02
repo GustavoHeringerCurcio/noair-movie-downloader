@@ -21,6 +21,7 @@ export function DetailPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [allSources, setAllSources] = useState<Source[]>([]);
   const [sourcesUnreachable, setSourcesUnreachable] = useState(false);
+  const [sourcesAuthError, setSourcesAuthError] = useState(false);
   const [loadingSources, setLoadingSources] = useState(false);
   const [filter, setFilter] = useState('');
   const [filterInvalid, setFilterInvalid] = useState(false);
@@ -40,6 +41,7 @@ export function DetailPage() {
     setDetail(null);
     setAllSources([]);
     setSourcesUnreachable(false);
+    setSourcesAuthError(false);
     setFilter('');
     setVisibleCount(PAGE_SIZE);
 
@@ -59,6 +61,7 @@ export function DetailPage() {
         if (cancelled) return;
         setAllSources(res.sources);
         setSourcesUnreachable(res.unreachable === true);
+        setSourcesAuthError(res.authError === true);
       } catch {
         if (cancelled) return;
         setAllSources([]);
@@ -181,6 +184,11 @@ export function DetailPage() {
 
         {sourcesUnreachable && (
           <div className="inline-error">Prowlarr unreachable — source search unavailable</div>
+        )}
+        {sourcesAuthError && (
+          <div className="inline-error">
+            Prowlarr API key invalid — set <code>PROWLARR_API_KEY</code> in .env
+          </div>
         )}
 
         {loadingSources ? (

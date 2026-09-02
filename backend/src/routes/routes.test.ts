@@ -39,6 +39,24 @@ describe('routes', () => {
     expect(res.body).toEqual({ sources: [], unreachable: true });
   });
 
+  it('GET /api/media/:id/sources returns authError:true on an invalid Prowlarr key', async () => {
+    const deps = makeTestDeps({
+      tmdb: {
+        searchMulti: async () => [],
+        details: async () => DETAIL,
+      },
+      prowlarr: {
+        search: async () => {
+          throw new UpstreamError(401, 'Prowlarr API key invalid');
+        },
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sources: [], authError: true });
+  });
+
   it('GET /api/images/tmdb/* rejects invalid paths with 400', async () => {
     const app = createApp(makeTestDeps());
     const res = await request(app).get('/api/images/tmdb/w500/bad%00path');

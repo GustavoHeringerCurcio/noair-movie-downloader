@@ -51,9 +51,15 @@ export function createMediaRouter(deps: AppDeps): Router {
       const sources = await deps.prowlarr.search(query, category);
       res.json({ sources });
     } catch (error) {
-      if (error instanceof UpstreamError && error.status === 502) {
-        res.json({ sources: [], unreachable: true });
-        return;
+      if (error instanceof UpstreamError) {
+        if (error.status === 401) {
+          res.json({ sources: [], authError: true });
+          return;
+        }
+        if (error.status === 502) {
+          res.json({ sources: [], unreachable: true });
+          return;
+        }
       }
       throw error;
     }

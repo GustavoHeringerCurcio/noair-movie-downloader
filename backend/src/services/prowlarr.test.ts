@@ -81,4 +81,10 @@ describe('ProwlarrClient.search', () => {
     const client = createProwlarrClient({ ...CONFIG, fetchImpl });
     await expect(client.search('q', 2000)).rejects.toBeInstanceOf(UpstreamError);
   });
+
+  it('throws UpstreamError(401) on an invalid API key', async () => {
+    const fetchImpl = makeFetch([{ match: () => true, respond: () => createResponse(401, {}) }]);
+    const client = createProwlarrClient({ ...CONFIG, fetchImpl });
+    await expect(client.search('q', 2000)).rejects.toMatchObject({ status: 401 });
+  });
 });

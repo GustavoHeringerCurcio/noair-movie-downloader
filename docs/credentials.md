@@ -20,10 +20,22 @@ Only external account required: **free TMDB API key**. Everything else is self-h
 ## Boot order (Prowlarr chicken-and-egg)
 
 1. `docker compose up -d prowlarr qbittorrent postgres`
-2. Open Prowlarr UI → add trackers/indexers.
-3. Copy the Prowlarr API key → paste into `.env` as `PROWLARR_API_KEY`.
-4. Open qBittorrent Web UI once → set username/password → paste into `.env`.
-5. Fill the remaining `.env` values, then `docker compose up -d --build`.
+2. Open Prowlarr UI → **Settings → Indexers → Add Indexer** → add at least one tracker (1337x, TPB, YTS, …). Test each one. The app is tracker-agnostic; without any enabled indexer the Sources list is empty.
+3. If a public tracker fails its test with *"blocked by CloudFlare Protection"*, either pick a different one or run FlareSolverr:
+   - `docker compose up -d flaresolverr`
+   - Prowlarr UI → **Tools → FlareSolverr → Add** → URL `http://flaresolverr:8191` → set a **Tag** (e.g. `fs`) → Save.
+   - On the blocked indexer, set the same **Tag**, then Test again.
+4. Copy the Prowlarr API key (Settings → General) → paste into `.env` as `PROWLARR_API_KEY`.
+5. Open qBittorrent Web UI once → set username/password → paste into `.env`.
+6. Fill the remaining `.env` values, then `docker compose up -d --build`.
+
+### Prowlarr API key vs indexers
+
+Two separate things:
+- **Indexers** (Settings → Indexers) — what Prowlarr searches to return sources.
+- **API key** (Settings → General) — the auth value the backend sends as `X-Api-Key`.
+  A missing/wrong key makes the Detail page show *"Prowlarr API key invalid — check PROWLARR_API_KEY"*;
+  valid key but no indexers shows an empty Sources list.
 
 ## Security rules
 

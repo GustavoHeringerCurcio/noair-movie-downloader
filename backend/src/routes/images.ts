@@ -26,6 +26,7 @@ export function createImagesRouter(deps: AppDeps): Router {
     try {
       const upstream = await fetch(url, { signal: AbortSignal.timeout(15000) });
       if (!upstream.ok) {
+        console.error(`image proxy upstream error: ${url} -> HTTP ${upstream.status}`);
         res.status(502).json({ error: 'upstream error' });
         return;
       }
@@ -33,7 +34,8 @@ export function createImagesRouter(deps: AppDeps): Router {
       res.set('Cache-Control', 'public, max-age=86400');
       const body = Readable.fromWeb(upstream.body as ReadableStream);
       body.pipe(res);
-    } catch {
+    } catch (error) {
+      console.error(`image proxy fetch failed: ${url}`, error);
       res.status(502).json({ error: 'upstream error' });
     }
   });

@@ -47,8 +47,22 @@ services:
     restart: unless-stopped
     networks: [internal]
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      LOG_LEVEL: info
+      TZ: Etc/UTC
+    ports:
+      - "8191:8191"
+    restart: unless-stopped
+    networks: [internal]
+
   backend:
     build: ./backend
+    extra_hosts:
+      # Some ISP/host DNS servers return a dead BunnyCDN edge for image.tmdb.org
+      # (TCP times out). Pin a reachable edge; any BunnyCDN node serves the same images.
+      - "image.tmdb.org:152.233.22.97"
     environment:
       TMDB_API_KEY: ${TMDB_API_KEY:?set TMDB_API_KEY in .env}
       PROWLARR_URL: http://prowlarr:9696

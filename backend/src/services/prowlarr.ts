@@ -43,6 +43,9 @@ export function createProwlarrClient(config: ProwlarrClientConfig): ProwlarrClie
     } catch {
       throw new UpstreamError(502, 'Prowlarr unreachable');
     }
+    if (res.status === 401) {
+      throw new UpstreamError(401, 'Prowlarr API key invalid');
+    }
     if (!res.ok) throw new UpstreamError(502, `Prowlarr search failed (HTTP ${res.status})`);
 
     const data = (await res.json()) as ProwlarrResult[] | { results?: ProwlarrResult[] };
