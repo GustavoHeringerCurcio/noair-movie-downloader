@@ -73,6 +73,31 @@ Tests / checks: `npm test`, `npm run lint`, `npm run typecheck` in each package.
 `postgres` and `backend` are internal-only. qBittorrent requires its own login; **Prowlarr has no
 auth** — keep it on a trusted network.
 
+## Open movies in VLC (one-time setup)
+
+The Watch page plays files the browser can decode (it auto-remuxes unsupported audio and
+auto-transcodes 1080p HEVC to H.264). 4K/UHD releases and anything you'd rather watch bit-perfect
+offer an **"Open in VLC"** button. Browsers can't launch local apps on their own, so enable the
+`movie://` handler **once on Windows** (PowerShell, not in Docker):
+
+```powershell
+$vlc = @("$env:ProgramFiles\VideoLAN\VLC\vlc.exe", "${env:ProgramFiles(x86)}\VideoLAN\VLC\vlc.exe") |
+  Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $vlc) { throw "VLC not found - install it first" }
+$dir  = "$env:LOCALAPPDATA\MovieDownloader"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$wrap = "$dir\movie-open.cmd"
+$body = "@echo off`r`nset `"arg=%1`"`r`nset `"arg=%arg:*movie://=%`"`r`nstart `"`" `"$vlc`" `"%arg%`"`r`n"
+Set-Content -Path $wrap -Value $body -Encoding ASCII
+$key = "HKCU:\Software\Classes\movie\shell\open\command"
+New-Item -Path $key -Force | Out-Null
+Set-ItemProperty -Path $key -Name '(default)' -Value "`"$wrap`" `"%1`""
+Write-Host "Registered movie:// -> $vlc"
+```
+
+After that, the "Open in VLC" button launches VLC directly. Until registered, use the
+**Download file** button instead.
+
 ## Troubleshooting
 
 - **Poster/backdrop images broken (HTTP 502 in the browser console)**: the backend proxies images

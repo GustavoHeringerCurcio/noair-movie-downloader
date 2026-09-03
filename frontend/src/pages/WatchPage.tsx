@@ -1,39 +1,54 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDownloadsStore } from '../store/downloadsStore';
-import { useToastStore } from '../store/toastStore';
-import { compatStreamUrl, fileUrl, streamUrl } from '../api';
+import { fileUrl, playInfo } from '../api';
+import type { PlayInfo } from '../types';
 
-type PlayMode = 'native' | 'compat';
-
-const UNSUPPORTED_AUDIO_RE = /(ddp|eac3|ac3|dts|truehd|atmos|dd ?5 ?1|dd ?plus)/i;
+function externalLink(play: PlayInfo): string {
+  const httpUrl = `${window.location.origin}${play.playUrl}`;
+  return `movie://${httpUrl}`;
+}
 
 export function WatchPage() {
   const { infoHash = '' } = useParams();
   const downloads = useDownloadsStore((s) => s.downloads);
-  const toast = useToastStore((s) => s.toast);
   const download = downloads.find((d) => d.infoHash === infoHash.toLowerCase());
-  const [mode, setMode] = useState<PlayMode>('native');
 
-  if (!download) {
+  const [play, setPlay] = useState<PlayInfo | null>(null);
+  const [state, setState] = useState<'loading' | 'ok' | 'notfound' | 'error'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    setState('loading');
+    setPlay(null);
+    playInfo(infoHash)
+      .then((info) => {
+        if (cancelled) return;
+        setPlay(info);
+        setState('ok');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState('notfound');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [infoHash]);
+
+  if (state === 'loading') {
     return (
       <div className="page-state">
-        <p>Unknown download</p>
-        <a className="btn" href="/">
-          Back
-        </a>
+        <p>Preparing player…</p>
       </div>
     );
   }
 
-  if (!download.streamable) {
+  if (state === 'notfound' || !play) {
     return (
       <div className="page-state">
         <p className="empty-state">No playable file yet</p>
         <div className="page-actions">
-          <a className="btn btn-primary" href={fileUrl(download.infoHash)}>
-            Download file
-          </a>
           <a className="btn" href="/">
             Back
           </a>
@@ -42,50 +57,34 @@ export function WatchPage() {
     );
   }
 
-  const incomplete = download.progress < 1;
-  const src = mode === 'compat' ? compatStreamUrl(download.infoHash) : streamUrl(download.infoHash);
-  const likelyUnsupportedAudio = UNSUPPORTED_AUDIO_RE.test(download.torrentName ?? '');
-  const likelyHevc = /(x265|hevc|h ?265|10bit)/i.test(download.torrentName ?? '');
-  const streamHash = download.infoHash;
+  const incomplete = download != null && download.progress < 1;
 
-  async function copyExternalUrl(): Promise<void> {
-    const url = `${window.location.origin}${streamUrl(streamHash)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast('Stream URL copied — open it in VLC / MPC-HC (Media → Open network stream)', 'success');
-    } catch {
-      window.prompt('Open this URL in your player (VLC / MPC-HC → Open network stream):', url);
-    }
+  if (play.mode === 'player-required') {
+    return (
+      <div className="page-state">
+        <p className="empty-state">
+          This is a 4K/UHD release that can&apos;t be streamed in the browser. Open it in VLC for
+          the best playback.
+        </p>
+        <div className="page-actions">
+          <a className="btn btn-primary" href={externalLink(play)}>
+            ▶ Open in VLC
+          </a>
+          <a className="btn" href={fileUrl(infoHash)}>
+            Download file
+          </a>
+          <a className="btn" href="/">
+            Back
+          </a>
+        </div>
+        <p className="hint">First time? Run the one-time VLC setup once (see README).</p>
+      </div>
+    );
   }
 
   return (
     <div className="watch-page">
-      <video key={src} className="watch-video" src={src} controls autoPlay playsInline />
-
-      {mode === 'compat' && (
-        <div className="watch-note">
-          Compatible audio stream — audio is re-encoded to AAC on the fly. Seeking is disabled.
-        </div>
-      )}
-      {mode === 'native' && (likelyUnsupportedAudio || likelyHevc) && (
-        <div className="watch-note watch-note-warn">
-          {likelyUnsupportedAudio && (
-            <>
-              This release&apos;s audio (
-              {download.torrentName.match(UNSUPPORTED_AUDIO_RE)?.[0]}) usually isn&apos;t supported by
-              browsers — no sound is expected. Use <strong>Compatible audio</strong> below for sound (no
-              seeking).
-            </>
-          )}
-          {likelyHevc && (
-            <>
-              {' '}
-              This is an HEVC/x265 encode — Chrome can&apos;t decode it (no picture). Use{' '}
-              <strong>Open in external player</strong> or Edge/Safari.
-            </>
-          )}
-        </div>
-      )}
+      <video className="watch-video" src={play.streamUrl} controls autoPlay playsInline />
       {incomplete && (
         <div className="watch-overlay">
           <div className="watch-overlay-inner">
@@ -94,23 +93,11 @@ export function WatchPage() {
           </div>
         </div>
       )}
-
       <div className="watch-footer">
         <a className="btn" href="/">
           ← Back
         </a>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => setMode((m) => (m === 'compat' ? 'native' : 'compat'))}
-          aria-pressed={mode === 'compat'}
-        >
-          {mode === 'compat' ? '↩ Original stream (seekable)' : '🔊 Compatible audio (fix sound)'}
-        </button>
-        <button type="button" className="btn" onClick={() => void copyExternalUrl()}>
-          ↗ Open in external player
-        </button>
-        <a className="btn btn-ghost" href={fileUrl(download.infoHash)}>
+        <a className="btn btn-ghost" href={fileUrl(infoHash)}>
           Download file
         </a>
       </div>

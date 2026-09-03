@@ -105,6 +105,18 @@ export interface DownloadRecord {
   completedAt: string | null;
 }
 
+export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required';
+
+export interface PlayInfo {
+  mode: PlayMode;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  height: number | null;
+  streamUrl: string;
+  playUrl: string;
+  fileUrl: string;
+}
+
 export interface CreateDownloadPayload {
   tmdbId: number;
   mediaType: MediaType;

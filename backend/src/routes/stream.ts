@@ -1,12 +1,83 @@
 import { spawn } from 'node:child_process';
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { AppDeps } from '../deps.js';
 import { isInsideDirectory, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
-import { buildCompatCommand } from '../lib/transcode.js';
+import { probeMedia } from '../lib/probe.js';
+import { decideStreamMode } from '../lib/streamPlan.js';
+import { buildRemuxCommand, buildTranscodeCommand } from '../lib/transcode.js';
+import type { DownloadRecord } from '../types.js';
+
+function resolveFile(deps: AppDeps, record: DownloadRecord): string | null {
+  const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
+  if (!resolved) return null;
+  const absolutePath = resolveInside(deps.config.downloadDir, resolved.relative);
+  if (!isInsideDirectory(deps.config.downloadDir, absolutePath)) return null;
+  return absolutePath;
+}
+
+function mimeFor(deps: AppDeps, record: DownloadRecord): string {
+  return (
+    resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath)?.mime ??
+    'application/octet-stream'
+  );
+}
+
+function serveFfmpeg(
+  res: Response,
+  absolutePath: string,
+  mode: 'remux-audio' | 'transcode',
+): void {
+  const { args } =
+    mode === 'remux-audio'
+      ? buildRemuxCommand(absolutePath)
+      : buildTranscodeCommand(absolutePath);
+  let proc;
+  try {
+    proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    res.status(500).json({ error: 'ffmpeg not available' });
+    return;
+  }
+
+  let settled = false;
+  const finish = (): void => {
+    if (settled) return;
+    settled = true;
+    if (!res.headersSent) {
+      res.status(200).end();
+    } else if (!res.writableEnded) {
+      res.end();
+    }
+  };
+
+  const clientClose = (): void => {
+    proc?.kill('SIGKILL');
+  };
+  res.req.on('close', clientClose);
+
+  proc.on('error', (error) => {
+    console.error(`ffmpeg spawn failed (${mode}) for ${absolutePath}`, error);
+    settled = true;
+    if (!res.headersSent) res.status(500).json({ error: 'ffmpeg not available' });
+  });
+
+  proc.on('exit', (code) => {
+    if (code !== 0 && code !== null) {
+      console.error(`ffmpeg exited ${code} (${mode}) for ${absolutePath}`);
+    }
+    finish();
+  });
+
+  res.set('Content-Type', 'video/mp4');
+  res.set('Cache-Control', 'no-store');
+  proc.stdout.pipe(res);
+}
 
 export function createStreamRouter(deps: AppDeps): Router {
   const router = Router();
 
+  // Native stream — original file with Range/seek (for browsers that can decode it,
+  // and for external players). Codecs are NOT normalized.
   router.get('/stream/:infoHash', async (req, res) => {
     const infoHash = (req.params.infoHash ?? '').trim().toLowerCase();
     const record = await deps.downloads.findByInfoHash(infoHash);
@@ -14,78 +85,42 @@ export function createStreamRouter(deps: AppDeps): Router {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
-    if (!resolved) {
+    const absolutePath = resolveFile(deps, record);
+    if (!absolutePath) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const absolutePath = resolveInside(deps.config.downloadDir, resolved.relative);
-    if (!isInsideDirectory(deps.config.downloadDir, absolutePath)) {
-      res.status(404).json({ error: 'not found' });
-      return;
-    }
-    res.sendFile(absolutePath, { headers: { 'Content-Type': resolved.mime } });
+    res.sendFile(absolutePath, { headers: { 'Content-Type': mimeFor(deps, record) } });
   });
 
-  // ffmpeg remux: video copied, first audio track re-encoded to AAC so browsers
-  // that can't decode AC3/E-AC3/DTS get sound. No seeking (progressive).
-  router.get('/stream/:infoHash/compat', async (req, res) => {
+  // Browser watch stream — probes the file and serves whatever the browser can play:
+  // direct (Range), audio remux (video copy + AAC), or H.264 transcode. 4K/UHD HEVC
+  // is not transcoded; the client should route to the player-required flow instead.
+  router.get('/stream/:infoHash/watch', async (req, res) => {
     const infoHash = (req.params.infoHash ?? '').trim().toLowerCase();
     const record = await deps.downloads.findByInfoHash(infoHash);
     if (!record) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
-    if (!resolved) {
-      res.status(404).json({ error: 'not found' });
-      return;
-    }
-    const absolutePath = resolveInside(deps.config.downloadDir, resolved.relative);
-    if (!isInsideDirectory(deps.config.downloadDir, absolutePath)) {
+    const absolutePath = resolveFile(deps, record);
+    if (!absolutePath) {
       res.status(404).json({ error: 'not found' });
       return;
     }
 
-    const { args } = buildCompatCommand(absolutePath);
-    let proc;
-    try {
-      proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch {
-      res.status(500).json({ error: 'ffmpeg not available' });
+    const probe = await probeMedia(absolutePath);
+    const mode = decideStreamMode(probe ?? { videoCodec: null, audioCodec: null, height: null });
+
+    if (mode === 'direct') {
+      res.sendFile(absolutePath, { headers: { 'Content-Type': mimeFor(deps, record) } });
       return;
     }
-
-    let settled = false;
-    const finish = (status: number): void => {
-      if (settled) return;
-      settled = true;
-      if (!res.headersSent) {
-        res.status(status).end();
-      } else if (!res.writableEnded) {
-        res.end();
-      }
-    };
-
-    req.on('close', () => {
-      proc?.kill('SIGKILL');
-    });
-
-    proc.on('error', (error) => {
-      console.error(`ffmpeg spawn failed for ${infoHash}`, error);
-      finish(500);
-    });
-
-    proc.on('exit', (code) => {
-      if (code !== 0) {
-        console.error(`ffmpeg exited ${code} for ${infoHash}`);
-      }
-      finish(200);
-    });
-
-    res.set('Content-Type', 'video/mp4');
-    res.set('Cache-Control', 'no-store');
-    proc.stdout.pipe(res);
+    if (mode === 'player-required') {
+      res.status(415).json({ error: 'player-required' });
+      return;
+    }
+    serveFfmpeg(res, absolutePath, mode);
   });
 
   return router;

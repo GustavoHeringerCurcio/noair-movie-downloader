@@ -4,6 +4,8 @@ import type { MediaType } from '../types.js';
 import { UpstreamError } from '../types.js';
 import type { AppDeps } from '../deps.js';
 import { isInsideDirectory, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
+import { probeMedia } from '../lib/probe.js';
+import { decideStreamMode } from '../lib/streamPlan.js';
 
 function toIntOrNull(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -102,6 +104,39 @@ export function createDownloadsRouter(deps: AppDeps): Router {
     }
     res.download(absolutePath, path.basename(absolutePath), {
       headers: { 'Content-Type': resolved.mime },
+    });
+  });
+
+  // Playback info: codec probe + serving strategy so the UI can pick the right
+  // player before mounting <video> (direct / remux / transcode / player-required).
+  router.get('/downloads/:infoHash/playinfo', async (req, res) => {
+    const infoHash = toText(req.params.infoHash).trim().toLowerCase();
+    const record = await deps.downloads.findByInfoHash(infoHash);
+    if (!record) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
+    if (!resolved) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const absolutePath = resolveInside(deps.config.downloadDir, resolved.relative);
+    if (!isInsideDirectory(deps.config.downloadDir, absolutePath)) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const probe = await probeMedia(absolutePath);
+    const probeInfo = probe ?? { videoCodec: null, audioCodec: null, height: null };
+    const mode = decideStreamMode(probeInfo);
+    res.json({
+      mode,
+      videoCodec: probeInfo.videoCodec,
+      audioCodec: probeInfo.audioCodec,
+      height: probeInfo.height,
+      streamUrl: `/api/stream/${infoHash}/watch`,
+      playUrl: `/api/stream/${infoHash}`,
+      fileUrl: `/api/downloads/${infoHash}/file`,
     });
   });
 

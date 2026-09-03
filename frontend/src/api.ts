@@ -4,6 +4,7 @@ import type {
   MediaDetail,
   MediaItem,
   MediaType,
+  PlayInfo,
   SearchType,
   Source,
 } from './types';
@@ -36,8 +37,8 @@ export function streamUrl(infoHash: string): string {
   return `/api/stream/${encodeURIComponent(infoHash)}`;
 }
 
-export function compatStreamUrl(infoHash: string): string {
-  return `/api/stream/${encodeURIComponent(infoHash)}/compat`;
+export function playInfo(infoHash: string): Promise<PlayInfo> {
+  return request<PlayInfo>(`/api/downloads/${encodeURIComponent(infoHash)}/playinfo`);
 }
 
 export function fileUrl(infoHash: string): string {

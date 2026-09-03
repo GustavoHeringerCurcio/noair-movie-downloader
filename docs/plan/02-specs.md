@@ -55,12 +55,22 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Response: `204` on success.
 - Errors: `404` unknown `infoHash`.
 
-### S7 `GET /api/stream/:infoHash` · `GET /api/stream/:infoHash/compat`
+### S7 `GET /api/stream/:infoHash` · `GET /api/stream/:infoHash/watch`
 - Auth: none
-- Behavior (`:infoHash`): resolves `streamFilePath` (§4.4), serves the file via `res.sendFile` with automatic Range/`Accept-Ranges` support and correct `Content-Type`. Incomplete `.!qb` files are served with the type of their stripped extension. Resolved path must resolve inside `/downloads` (NFR9).
-- Behavior (`/compat`): resolves the same file, then pipes it through ffmpeg (`-c:v copy -map 0:a:0? -c:a aac -movflags frag_keyframe+empty_moov -f mp4`) as a fragmented `video/mp4`. Video is copied; the first audio track is re-encoded to **AAC** so browsers that cannot decode AC3/E-AC3/DTS/TrueHD get sound. **No Range/seek** on this stream (progressive). ffmpeg is killed on client disconnect.
-- Response: `200` video stream; `206` partial (native only); `404` no streamable file / unknown torrent.
-- Errors: `404` → `{ error: "not found" }`; `500` ffmpeg unavailable.
+- Behavior (`:infoHash`): resolves `streamFilePath` (§4.4) and serves the original file via `res.sendFile` (Range/`Accept-Ranges`, correct `Content-Type`; incomplete `.!qb` files use the stripped-extension type). Used for external players and browsers that can already decode the codecs. Path containment per NFR9.
+- Behavior (`/watch`): probes the file with `ffprobe` (`lib/probe.ts`, cached by path+size+mtime) and chooses the serving mode (`lib/streamPlan.ts`):
+  - `direct` (video h264/vp9/av1 **and** audio aac/mp3/opus/flac/none) → `sendFile` (seekable).
+  - `remux-audio` (video safe, audio ac3/eac3/dts/truehd…) → ffmpeg `-c:v copy -c:a aac` fragmented mp4.
+  - `transcode` (video hevc/x265/other at height < 2160) → ffmpeg `-c:v libx264 -preset veryfast -crf 21 -c:a aac` fragmented mp4. Transcoded streams are **progressive (no seeking)**.
+  - `player-required` (height ≥ 2160 non-browser-safe) → responds `415 { error: "player-required" }`; the UI shows the VLC/external flow instead.
+  - ffmpeg is killed on client disconnect.
+- Response: `200` video stream; `206` partial (direct only); `404` unknown torrent / no streamable file; `415` player-required; `500` ffmpeg unavailable.
+
+### S7b `GET /api/downloads/:infoHash/playinfo`
+- Auth: none
+- Behavior: resolves the streamable file, runs the same ffprobe probe, and returns the serving decision + URLs so the UI can mount `<video>` or show the player-required screen.
+- Response: `200` → `{ mode: "direct"|"remux-audio"|"transcode"|"player-required", videoCodec: string|null, audioCodec: string|null, height: number|null, streamUrl: "/api/stream/<hash>/watch", playUrl: "/api/stream/<hash>", fileUrl: "/api/downloads/<hash>/file" }`.
+- Errors: `404` unknown torrent / no streamable file.
 
 ### S8 `GET /api/images/tmdb/*path`
 - Auth: none
@@ -156,15 +166,14 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 ### Screen: Player (`/watch/:infoHash`)
 - Entry: "Watch" button from Downloads panel or Detail.
 - Elements:
-  - Full-page `<video>` with `src="/api/stream/:infoHash"`, controls, autoplay.
-  - **Audio/video codec warnings** derived from the torrent name: if it hints at AC3/E-AC3/DTS/TrueHD/Atmos ("no sound is expected — use Compatible audio") or HEVC/x265 ("Chrome can't decode — use Edge/Safari or an external player").
-  - **"Compatible audio" toggle** — switches `src` to `/api/stream/:infoHash/compat` (S7): ffmpeg re-encodes the first audio track to AAC so sound plays in the browser; video is copied; **seeking is disabled**. Toggle back to the original (seekable) stream.
-  - **"Open in external player"** — copies `http://<host>/api/stream/:infoHash` to the clipboard for pasting into VLC/MPC-HC (decodes x265/DTS natively).
+  - On load calls `S7b` (`playinfo`) to learn the serving mode.
+  - `direct` / `remux-audio` / `transcode` → full-page `<video>` with `src=playinfo.streamUrl`, controls, autoplay. Remux/transcode modes are **progressive** (no seeking); direct is seekable. No codec warnings or user-facing codec controls.
+  - `player-required` (4K/UHD HEVC) → clean panel: **"Open in VLC"** (a `movie://<http url>` deep link to the native stream; requires the one-time Windows registration in the README), **"Download file"**, back, and a one-line setup hint.
   - Overlay showing torrent state + progress while streamable but incomplete ("Buffering — download in progress").
   - Back button.
 - Actions:
-  - Seek during download → works via Range (original stream only).
-  - If `streamable` is false → error state "No playable file yet".
+  - Seek during direct play → works via Range; transcoded playback is progressive.
+  - If `playinfo` 404s → "No playable file yet".
 
 ### Component: DownloadsPanel (persistent slide-over)
 - Elements: list of `DownloadRecord` rows — poster thumb, title, state badge, progress bar, speed, ETA, actions (Watch, Download file, Remove).
