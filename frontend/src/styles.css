@@ -271,6 +271,59 @@ button {
   }
 }
 
+/* Home / browse rows */
+.home-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.home-heading {
+  margin: 0;
+  font-size: 28px;
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-section-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.home-section-error {
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
+.poster-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 150px;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.poster-row-card {
+  scroll-snap-align: start;
+}
+
+.nav-link {
+  text-decoration: none;
+}
+
+.nav-link.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Detail */
 .hero {
   position: relative;

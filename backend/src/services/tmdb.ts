@@ -2,9 +2,23 @@ import type { MediaDetail, MediaItem, MediaType, SearchType } from '../types.js'
 import { UpstreamError } from '../types.js';
 import { fetchWithRetry } from '../lib/http.js';
 
+export const DISCOVER_SECTIONS = [
+  'trending-today',
+  'trending-week',
+  'now-playing',
+  'popular-movies',
+  'top-rated-recent',
+  'airing-today',
+  'on-the-air',
+  'popular-tv',
+] as const;
+
+export type DiscoverSection = (typeof DISCOVER_SECTIONS)[number];
+
 export interface TmdbClient {
   searchMulti(q: string, type: SearchType): Promise<MediaItem[]>;
   details(id: number, type: MediaType): Promise<MediaDetail>;
+  browse(section: DiscoverSection): Promise<MediaItem[]>;
 }
 
 export interface TmdbClientConfig {
@@ -100,5 +114,65 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     };
   }
 
-  return { searchMulti, details };
+  async function browse(section: DiscoverSection): Promise<MediaItem[]> {
+    const paths = sectionPaths(section);
+    const results = await Promise.all(
+      paths.map(async (path) => {
+        const sep = path.includes('?') ? '&' : '?';
+        const url = `${config.baseUrl}${path}${sep}language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+        let res: Response;
+        try {
+          res = await fetchWithRetry(fetchImpl, url, {}, { retries: 2, baseBackoffMs: 500, timeoutMs: 10000 });
+        } catch {
+          throw new UpstreamError(502, 'TMDB unreachable');
+        }
+        if (!res.ok) throw new UpstreamError(502, `TMDB browse failed (HTTP ${res.status})`);
+        const data = (await res.json()) as { results?: TmdbSearchResult[] };
+        return (data.results ?? []).map<TmdbSearchResult>((r) => r);
+      }),
+    );
+    const seen = new Set<number>();
+    return results.flat().reduce<MediaItem[]>((acc, r) => {
+      if (seen.has(r.id)) return acc;
+      const mt = (r.media_type ?? (paths[0]?.includes('/tv/') ? 'tv' : 'movie')) as MediaType;
+      if (mt !== 'movie' && mt !== 'tv') return acc;
+      seen.add(r.id);
+      acc.push({
+        tmdbId: r.id,
+        mediaType: mt,
+        title: r.title ?? r.name ?? '',
+        year: yearFromDate(r.release_date ?? r.first_air_date),
+        posterPath: r.poster_path ?? null,
+        backdropPath: r.backdrop_path ?? null,
+        overview: r.overview ?? '',
+        voteAverage: r.vote_average ?? 0,
+      });
+      return acc;
+    }, []);
+  }
+
+  return { searchMulti, details, browse };
+}
+
+function sectionPaths(section: DiscoverSection): string[] {
+  switch (section) {
+    case 'trending-today':
+      return ['/trending/movie/day', '/trending/tv/day'];
+    case 'trending-week':
+      return ['/trending/movie/week', '/trending/tv/week'];
+    case 'now-playing':
+      return ['/movie/now_playing?region=US'];
+    case 'popular-movies':
+      return ['/movie/popular'];
+    case 'top-rated-recent':
+      return [
+        '/discover/movie?sort_by=vote_average.desc&vote_count.gte=500&primary_release_date.gte=2021-01-01',
+      ];
+    case 'airing-today':
+      return ['/tv/airing_today'];
+    case 'on-the-air':
+      return ['/tv/on_the_air'];
+    case 'popular-tv':
+      return ['/tv/popular'];
+  }
 }

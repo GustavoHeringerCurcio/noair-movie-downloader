@@ -1,5 +1,6 @@
 import type {
   CreateDownloadPayload,
+  DiscoverSection,
   DownloadRecord,
   MediaDetail,
   MediaItem,
@@ -47,6 +48,10 @@ export function fileUrl(infoHash: string): string {
 
 export function search(q: string, type: SearchType): Promise<{ items: MediaItem[] }> {
   return request<{ items: MediaItem[] }>(`/api/search?q=${encodeURIComponent(q)}&type=${type}`);
+}
+
+export function browse(section: DiscoverSection): Promise<{ items: MediaItem[] }> {
+  return request<{ items: MediaItem[] }>(`/api/browse?section=${section}`);
 }
 
 export function mediaDetails(id: number, type: MediaType): Promise<MediaDetail> {

@@ -1,5 +1,19 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
+export type DiscoverSection =
+  | 'trending-today'
+  | 'trending-week'
+  | 'now-playing'
+  | 'popular-movies'
+  | 'top-rated-recent'
+  | 'airing-today'
+  | 'on-the-air'
+  | 'popular-tv';
+
+export interface HomeSection {
+  section: DiscoverSection;
+  title: string;
+}
 
 export interface MediaItem {
   tmdbId: number;

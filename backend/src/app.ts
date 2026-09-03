@@ -6,6 +6,7 @@ import { createMediaRouter } from './routes/media.js';
 import { createDownloadsRouter } from './routes/downloads.js';
 import { createStreamRouter } from './routes/stream.js';
 import { createImagesRouter } from './routes/images.js';
+import { createBrowseRouter } from './routes/browse.js';
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
@@ -21,6 +22,7 @@ export function createApp(deps: AppDeps): Express {
   app.use('/api', createDownloadsRouter(deps));
   app.use('/api', createStreamRouter(deps));
   app.use('/api', createImagesRouter(deps));
+  app.use('/api', createBrowseRouter(deps));
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof UpstreamError) {

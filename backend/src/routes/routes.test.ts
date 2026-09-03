@@ -21,10 +21,51 @@ const DETAIL: MediaDetail = {
 const HASH = 'aa'.repeat(20);
 
 describe('routes', () => {
+  it('GET /api/browse returns items for a known section', async () => {
+    const deps = makeTestDeps({
+      tmdb: {
+        ...makeTestDeps().tmdb,
+        browse: async () => [{ ...DETAIL, overview: '' }],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/browse?section=now-playing');
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].tmdbId).toBe(27205);
+  });
+
+  it('GET /api/browse returns 400 for an unknown section', async () => {
+    const app = createApp(makeTestDeps());
+    const res = await request(app).get('/api/browse?section=bogus');
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/browse returns 400 when section is missing', async () => {
+    const app = createApp(makeTestDeps());
+    const res = await request(app).get('/api/browse');
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/browse maps an UpstreamError to 502', async () => {
+    const deps = makeTestDeps({
+      tmdb: {
+        ...makeTestDeps().tmdb,
+        browse: async () => {
+          throw new UpstreamError(502, 'TMDB unreachable');
+        },
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/browse?section=popular-movies');
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe('TMDB unreachable');
+  });
+
   it('GET /api/media/:id/sources returns unreachable:true when Prowlarr is down', async () => {
     const deps = makeTestDeps({
       tmdb: {
-        searchMulti: async () => [],
+        ...makeTestDeps().tmdb,
         details: async () => DETAIL,
       },
       prowlarr: {
@@ -42,7 +83,7 @@ describe('routes', () => {
   it('GET /api/media/:id/sources returns authError:true on an invalid Prowlarr key', async () => {
     const deps = makeTestDeps({
       tmdb: {
-        searchMulti: async () => [],
+        ...makeTestDeps().tmdb,
         details: async () => DETAIL,
       },
       prowlarr: {

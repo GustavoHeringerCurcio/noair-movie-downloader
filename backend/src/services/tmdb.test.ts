@@ -57,6 +57,80 @@ describe('TmdbClient.searchMulti', () => {
   });
 });
 
+describe('TmdbClient.browse', () => {
+  it('merges movie and tv results for trending and dedupes by id', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/trending/movie/day'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { id: 1, media_type: 'movie', title: 'Movie A', release_date: '2026-01-01' },
+              { id: 2, media_type: 'movie', title: 'Movie B', release_date: '2026-02-01' },
+            ],
+          }),
+      },
+      {
+        match: (url) => url.includes('/trending/tv/day'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { id: 1, media_type: 'tv', name: 'Show A', first_air_date: '2026-01-01' },
+              { id: 3, media_type: 'tv', name: 'Show B', first_air_date: '2026-03-01' },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const items = await client.browse('trending-today');
+    expect(items.map((i) => i.tmdbId)).toEqual([1, 2, 3]);
+    expect(items[0]).toMatchObject({ tmdbId: 1, mediaType: 'movie', title: 'Movie A', year: 2026 });
+    expect(items[1]).toMatchObject({ tmdbId: 2, mediaType: 'movie', title: 'Movie B', year: 2026 });
+    expect(items[2]).toMatchObject({ tmdbId: 3, mediaType: 'tv', title: 'Show B', year: 2026 });
+  });
+
+  it('infers media type when results omit it', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/movie/popular'),
+        respond: () =>
+          createResponse(200, {
+            results: [{ id: 10, title: 'Only Movie', release_date: '2020-05-05' }],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const items = await client.browse('popular-movies');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ tmdbId: 10, mediaType: 'movie', title: 'Only Movie', year: 2020 });
+  });
+
+  it('strips null poster fields', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/tv/airing_today'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { id: 5, media_type: 'tv', name: 'A', first_air_date: '2026-01-01', poster_path: null },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const items = await client.browse('airing-today');
+    expect(items[0]).toMatchObject({ tmdbId: 5, mediaType: 'tv', posterPath: null });
+  });
+
+  it('throws UpstreamError when one of the calls fails', async () => {
+    const fetchImpl = makeFetch([
+      { match: () => true, respond: () => createResponse(502, {}) },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.browse('trending-week')).rejects.toBeInstanceOf(UpstreamError);
+  });
+});
+
 describe('TmdbClient.details', () => {
   it('normalizes a movie detail', async () => {
     const fetchImpl = makeFetch([

@@ -90,6 +90,7 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
       details: async () => {
         throw new Error('not stubbed');
       },
+      browse: async () => [],
     },
     prowlarr: {
       search: async () => [],
