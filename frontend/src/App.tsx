@@ -1,11 +1,10 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation, NavLink } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { useDownloadsStore } from './store/downloadsStore';
 import { useUiStore } from './store/uiStore';
 import { DownloadsPanel } from './components/DownloadsPanel';
 import { Toasts } from './components/Toasts';
 import { HomePage } from './pages/HomePage';
-import { SearchPage } from './pages/SearchPage';
 import { DetailPage } from './pages/DetailPage';
 import { WatchPage } from './pages/WatchPage';
 
@@ -19,9 +18,6 @@ function Header() {
         <span className="brand-mark">▶</span> Movie Downloader
       </Link>
       <div className="header-actions">
-        <NavLink to="/search" className="btn btn-ghost nav-link">
-          Search
-        </NavLink>
         <span className={`conn-dot ${connected ? 'conn-on' : 'conn-off'}`} title={connected ? 'Live' : 'Offline'} />
         <button type="button" className="btn" onClick={() => setPanelOpen(true)}>
           Downloads{downloads.length > 0 ? ` (${downloads.length})` : ''}
@@ -51,7 +47,6 @@ function Shell() {
       <main className="app-main">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/search" element={<SearchPage />} />
           <Route path="/media/:id" element={<DetailPage />} />
           <Route path="/watch/:infoHash" element={<WatchPage />} />
         </Routes>

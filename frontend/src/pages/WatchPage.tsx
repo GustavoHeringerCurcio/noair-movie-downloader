@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDownloadsStore } from '../store/downloadsStore';
+import { useRecentsStore } from '../store/recentsStore';
 import { fileUrl, playInfo } from '../api';
 import type { PlayInfo } from '../types';
 
@@ -13,9 +14,34 @@ export function WatchPage() {
   const { infoHash = '' } = useParams();
   const downloads = useDownloadsStore((s) => s.downloads);
   const download = downloads.find((d) => d.infoHash === infoHash.toLowerCase());
+  const recordRecent = useRecentsStore((s) => s.record);
+  const recents = useRecentsStore((s) => s.recents);
 
   const [play, setPlay] = useState<PlayInfo | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'notfound' | 'error'>('loading');
+
+  useEffect(() => {
+    if (!download || !download.tmdbId || !download.mediaType) return;
+    const first = recents[0];
+    if (
+      first &&
+      first.item.tmdbId === download.tmdbId &&
+      first.item.mediaType === download.mediaType &&
+      Date.now() - first.viewedAt < 5000
+    ) {
+      return;
+    }
+    recordRecent({
+      tmdbId: download.tmdbId,
+      mediaType: download.mediaType,
+      title: download.title ?? download.torrentName,
+      year: download.year,
+      posterPath: download.posterPath,
+      backdropPath: null,
+      overview: '',
+      voteAverage: 0,
+    });
+  }, [download, recents, recordRecent]);
 
   useEffect(() => {
     let cancelled = false;

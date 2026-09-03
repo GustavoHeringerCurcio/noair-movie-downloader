@@ -8,6 +8,7 @@ import { activeFilterCount, filterSources, groupSources, sortSources } from '../
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useUiStore } from '../store/uiStore';
+import { useRecentsStore } from '../store/recentsStore';
 
 const PAGE_SIZE = 30;
 
@@ -57,6 +58,7 @@ export function DetailPage() {
   const downloads = useDownloadsStore((s) => s.downloads);
   const toast = useToastStore((s) => s.toast);
   const setPanelOpen = useUiStore((s) => s.setPanelOpen);
+  const recordRecent = useRecentsStore((s) => s.record);
 
   useEffect(() => {
     if (!Number.isFinite(id) || id <= 0) {
@@ -77,6 +79,16 @@ export function DetailPage() {
         const media = await mediaDetails(id, mediaType);
         if (cancelled) return;
         setDetail(media);
+        recordRecent({
+          tmdbId: media.tmdbId,
+          mediaType: media.mediaType,
+          title: media.title,
+          year: media.year,
+          posterPath: media.posterPath,
+          backdropPath: media.backdropPath,
+          overview: media.overview,
+          voteAverage: media.voteAverage,
+        });
       } catch (e) {
         if (cancelled) return;
         setDetailError(e instanceof Error ? e.message : 'Failed to load details');
@@ -101,7 +113,7 @@ export function DetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, mediaType]);
+  }, [id, mediaType, recordRecent]);
 
   const activeDownload = useMemo(
     () => downloads.find((d) => d.tmdbId === id && d.mediaType === mediaType),
@@ -179,7 +191,7 @@ export function DetailPage() {
         <Spinner label="Loading…" />
         <p className="inline-error">{detailError}</p>
         <button type="button" className="btn" onClick={() => navigate('/')}>
-          Back to search
+          Back home
         </button>
       </div>
     );
