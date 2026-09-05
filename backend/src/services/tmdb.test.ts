@@ -169,5 +169,65 @@ describe('TmdbClient.details', () => {
       genres: ['Sci-Fi', 'Action'],
       runtime: 148,
     });
+    expect(detail.seasons).toBeUndefined();
+  });
+
+  it('maps a tv detail seasons, dropping season 0 and empty seasons', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/tv/100'),
+        respond: () =>
+          createResponse(200, {
+            id: 100,
+            name: 'Fallout',
+            first_air_date: '2024-04-10',
+            overview: 'o',
+            vote_average: 8.3,
+            episode_run_time: [49],
+            seasons: [
+              { season_number: 0, name: 'Specials', episode_count: 5 },
+              { season_number: 1, name: 'Season 1', episode_count: 8 },
+              { season_number: 2, name: 'Season 2', episode_count: 0 },
+              { season_number: 2, name: 'Season 2', episode_count: 8 },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const detail = await client.details(100, 'tv');
+    expect(detail.seasons).toEqual([
+      { seasonNumber: 1, name: 'Season 1', episodeCount: 8 },
+      { seasonNumber: 2, name: 'Season 2', episodeCount: 8 },
+    ]);
+    expect(detail.runtime).toBe(49);
+  });
+});
+
+describe('TmdbClient.seasonEpisodes', () => {
+  it('maps episodes of a season (S12)', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/tv/100/season/1'),
+        respond: () =>
+          createResponse(200, {
+            episodes: [
+              { season_number: 1, episode_number: 1, name: 'The End', overview: 'o1', still_path: '/s1.jpg', runtime: 52, air_date: '2024-04-10' },
+              { season_number: 1, episode_number: 2, name: 'The Target', overview: 'o2', still_path: '/s2.jpg', runtime: null, air_date: '2024-04-10' },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const episodes = await client.seasonEpisodes(100, 1);
+    expect(episodes).toEqual([
+      { seasonNumber: 1, episodeNumber: 1, name: 'The End', overview: 'o1', stillPath: '/s1.jpg', runtime: 52, airDate: '2024-04-10' },
+      { seasonNumber: 1, episodeNumber: 2, name: 'The Target', overview: 'o2', stillPath: '/s2.jpg', runtime: null, airDate: '2024-04-10' },
+    ]);
+  });
+
+  it('throws 404 for a missing season', async () => {
+    const fetchImpl = makeFetch([{ match: () => true, respond: () => createResponse(404, {}) }]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.seasonEpisodes(100, 9)).rejects.toMatchObject({ status: 404 });
   });
 });

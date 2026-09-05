@@ -67,32 +67,41 @@ Execution protocol: work through tasks in order. Read the referenced docs before
   - 2s poll of qBittorrent list → merge+persist into `downloads` (sync `torrent_name`/`size_bytes`, set `completed_at` on `progress == 1`, map `eta == -1` → null, resolve `stream_file_path`/`streamable` when `content_path` known) → emit `downloads:initial` on connect and `downloads:update` every 2s.
   - **Acceptance:** a Node Socket.IO test client receives `downloads:initial` then periodic `downloads:update`; poll interval verified ≥ 2s; a torrent that completes in a test gets `completedAt` set once.
 
-## Milestone 4 — UI
+## Milestone 4 — UI (Netflix-style B&W shell + TV episodes)
 
-- [ ] **T4.1** Downloads store + panel — Read: `02-specs.md` §3
-  - Zustand store bound to Socket.IO (`downloads:initial`, `downloads:update`); `DownloadsPanel` slide-over rendering records, state badges, progress bars, speeds, Watch/Remove actions (`DELETE S6` with confirm).
-  - **Acceptance:** with backend running, panel updates live when a torrent progresses; state badge colors match spec.
+> Design authority for this milestone: `.opencode/plans/2026-09-05-netflix-black-white-redesign.md` + `02-specs.md` §3 (rewritten 2026-09-05). The former DownloadsPanel slide-over / left sidebar / poster-grid model is obsolete.
 
-- [ ] **T4.2** Search page — Read: `02-specs.md` §3, S1
-  - Search input + type filter + poster grid via `/api/search`; loading skeleton; empty/error states.
-  - **Acceptance:** typing "inception" + Enter renders a poster grid from real TMDB data; clicking a card routes to Detail.
-
-- [ ] **T4.3** Detail page — Read: `02-specs.md` §3, S3, S4, D14
-  - Hero (backdrop/title/year/genres/overview), Sources list (`SourceRow`) capped at 30 with "Load more", regex filter input (client-side, invalid regex → no filter + inline warning), Download button → `POST S4`; toast on `201`/`409`; "Watch" link if already downloading.
-  - **Acceptance:** real Prowlarr sources render sorted by seeders; typing `1080p|x264` filters the list live; a filter that hides everything shows the "no match" empty state; >30 sources paginate with Load more; clicking Download adds a torrent and it appears in the Downloads panel.
-
-- [ ] **T4.4** Player page — Read: `02-specs.md` §3, S7, S10
-  - `/watch/:infoHash` full-page `<video>` with `src=/api/stream/:infoHash`, autoplay, buffering overlay while `state` is not complete but `streamable`; "Download file" button (S10) for codecs the browser can't play; "No playable file yet" when `streamable` is false.
-  - **Acceptance:** with a partially or fully downloaded torrent, video plays and seeks in the browser; an `.mkv` (H.264) torrent plays; a "Download file" click downloads the file as an attachment for external playback.
+- [ ] **T4.1** Shell, header, tokens — Read: `02-specs.md` §3 "Shell", D15
+  - Strict-grayscale tokens; remove the centered `1280px` `.app-main` and violet gradients (full-bleed layout, `--gutter: 4%`); delete `components/ui/*`, `AppSidebar`, `hooks/use-mobile` + unused deps; `AppHeader` transparent→black gradient on scroll with Home·Downloads·Settings nav, search toggle, download-count badge, mobile bottom-sheet.
+  - **Acceptance:** no sidebar anywhere; header solid black after scrolling; no hue in tokens; `npm run typecheck && npm test && npm run build` green after test updates (delete `AppSidebar.test.tsx`, rewrite `HomePage.test.tsx`).
+- [ ] **T4.2** Home rails + search overlay — Read: `02-specs.md` §3 Home/Search overlay, S1
+  - Hero (grayscaled `hero.gif` w/ fallback), **My Downloads** · **Recently Viewed** · Trending · Best Movies · Best Series as 16:9 `TitleCard` rails with clipped right edge + hover action panels + progress; full-screen search overlay (focus trap, Esc).
+  - **Acceptance:** peeking last card invites scroll; search overlay opens/clears/focus-restores; rail titles as specified.
+- [ ] **T4.3** Detail page (movie friendly/advanced + TV seasons/episodes) — Read: `02-specs.md` §3 Detail, S3/S4/S12, D14/D16
+  - Movie: friendly ▶ Download (most-seeded, disabled until S3 resolves) + Advanced `SourcePickerModal` (v1 filters/sort/group/30-row load-more) + Watch/trash.
+  - TV: season dropdown (default = active-download season else lowest) → lazy cached `S3?season=N` + `S12` episodes; per-episode friendly (most-seeded covering source, exact preferred, partial packs labeled, **never auto-whole-season**), no-source → toast + Advanced pre-scoped `season=N&episode=M`; Download season = most-seeded full-season pack; trash → `DELETE S6?deleteFiles=true`.
+  - **Acceptance:** Fallout renders seasons/episodes; friendly episode with only a pack source opens Advanced instead of silently downloading the season; downloads persist `seasonNumber/episodeNumber/backdropPath`.
+- [ ] **T4.4** Downloads page, Player + episode deep-link, Settings restyle — Read: `02-specs.md` §3 Player/Pages, S13
+  - `/downloads` monochrome rows (Watch/Pause/Resume/Download file/Remove w/ confirm); `/watch/:infoHash?episode=SxxExx` auto-selects the matching file from the pack using the **S13 server-tagged** file list (`lib/episode.ts` only as fallback); Settings restyle; Socket.IO store drives all live states.
+  - **Acceptance:** deep link auto-plays the right episode from a downloaded pack; `/downloads` updates live; player 404/`player-required` flows unchanged.
+- [ ] **T4.5** Confirm-download UX (C-DL1) — Read: `02-specs.md` §3 "UX layer", `.opencode/plans/2026-09-05-netflix-black-white-redesign.md` PART C
+  - `usePrimaryAction` (CTA state machine: not owned / downloading / streamable / complete) + `useSourceSearch` (context cache + AbortController); `ConfirmDownloadSheet` (`[Start]` `[Advanced…]`) shown before any friendly download; `Looking for best source…` state while searching.
+  - **Acceptance:** tapping Download never auto-starts; sheet names exact release (title, quality, size, seeders, indexer); Advanced from the sheet opens the pre-scoped picker.
+- [ ] **T4.6** Downloads tabs + resume (C-DL2) — Read: `02-specs.md` §3 "UX layer"
+  - `/downloads` tabs `All | Downloading | Ready to watch`; `store/playbackStore` resume (`Resume from mm:ss` / `Restart`) and recents-on-play; stall-retry + `Next: S0NE0M` in player; delete confirm with file-impact count.
+  - **Acceptance:** resume/restart appears after re-opening a watched file; tabs reflect state; stall guard offers Retry; pack-delete confirm names file count.
+- [ ] **T4.7** Resilience + inline first-run + a11y (C-DL3) — Read: `02-specs.md` §3 "UX layer"
+  - `StatusBanner` on socket drop (keeps last snapshot), rail inline Retry, search Trending suggestions + recent-search chips, empty-My-Downloads 3-step guidance, global keys (`/`, `Esc`), skip-to-content, `aria-live` toasts, reduced-motion pass.
+  - **Acceptance:** disconnecting the backend shows the banner with the list intact; first-run empty states guide; keyboard-only + reduced-motion passes on rails/overlay/player.
 
 ## Milestone 5 — Wiring & polish
 
 - [ ] **T5.1** Docker Compose end-to-end — Read: `00-index.md` D9, `01-architecture.md` §3
   - Full `docker compose up --build`; backend + frontend build; verify search → download → progress → watch in one run.
-  - **Acceptance:** from the browser: search a movie, pick a source, see live progress in panel, stream it while downloading, remove it. All 5 services healthy.
+  - **Acceptance:** from the browser: search a movie, pick a source, see live progress in My Downloads/Home rail, stream it while downloading, remove it. All 5 services healthy.
 
 - [ ] **T5.2** Empty/error/loading states + branding — Read: `02-specs.md` §3
-  - Add all specified empty states, error toasts, loading skeletons, page title/favicon, responsive Downloads panel.
+  - Add all specified empty states, error toasts, loading skeletons, page title/favicon; all pages (Header/Home/Detail/Downloads/Watch/Settings) responsive; grayscale-only styling.
   - **Acceptance:** every state defined in `02-specs.md` §3 renders (verified manually: no sources, no results, qBittorrent down → clean errors, not crashes).
 
 - [ ] **T5.3** Hardening (nice-to-haves) — Read: `02-specs.md` §4

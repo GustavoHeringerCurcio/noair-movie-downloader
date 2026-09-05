@@ -7,6 +7,7 @@ import type {
   MediaType,
   PlayInfo,
   SearchType,
+  SeasonEpisodesResponse,
   Source,
   StreamFileInfo,
 } from './types';
@@ -66,12 +67,22 @@ export function mediaDetails(id: number, type: MediaType): Promise<MediaDetail> 
   return request<MediaDetail>(`/api/media/${id}?type=${type}`);
 }
 
+export function seasonEpisodes(id: number, season: number): Promise<SeasonEpisodesResponse> {
+  return request<SeasonEpisodesResponse>(`/api/media/${id}/season/${season}?type=tv`);
+}
+
 export function sources(
   id: number,
   type: MediaType,
+  context?: { season?: number; episode?: number },
 ): Promise<{ sources: Source[]; unreachable?: boolean; authError?: boolean }> {
+  const params = new URLSearchParams({ type });
+  if (context?.season != null) {
+    params.set('season', String(context.season));
+    if (context.episode != null) params.set('episode', String(context.episode));
+  }
   return request<{ sources: Source[]; unreachable?: boolean; authError?: boolean }>(
-    `/api/media/${id}/sources?type=${type}`,
+    `/api/media/${id}/sources?${params.toString()}`,
   );
 }
 

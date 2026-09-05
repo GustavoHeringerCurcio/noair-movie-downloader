@@ -4,6 +4,31 @@ import type { DownloadUpdate } from '../db/downloadsRepo.js';
 import { toCanonicalState } from '../services/qbittorrent.js';
 import { isPlaceholderInfoHash } from '../services/prowlarr.js';
 import { existsOnDisk, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
+import { episodeKeyFromFilename, parseCoverage } from '../lib/releaseParser.js';
+
+/**
+ * NB-11: legacy TV rows predate season_number/episode_number. Once the torrent
+ * is known, infer the label once from the release name (or the resolved stream
+ * file basename) so pre-upgrade season packs still drive the default season
+ * and Play-from-pack flows.
+ */
+function inferTvLabel(record: { mediaType: string | null; seasonNumber: number | null }, torrentName: string, streamFilePath: string | null): Pick<DownloadUpdate, 'seasonNumber' | 'episodeNumber'> {
+  if (record.mediaType !== 'tv' || record.seasonNumber !== null) return {};
+  const coverage = parseCoverage(torrentName);
+  if (coverage && coverage.length > 0) {
+    const first = coverage[0]!;
+    if (first.episodes) {
+      const [from, to] = first.episodes;
+      if (from === to) return { seasonNumber: first.season, episodeNumber: from };
+    }
+    return { seasonNumber: first.season };
+  }
+  if (streamFilePath) {
+    const key = episodeKeyFromFilename(streamFilePath.split('/').pop() ?? streamFilePath);
+    if (key) return { seasonNumber: key.season, episodeNumber: key.episode };
+  }
+  return {};
+}
 
 export async function pollOnce(deps: AppDeps): Promise<void> {
   const torrents = await deps.qbittorrent.listTorrents();
@@ -40,10 +65,16 @@ export async function pollOnce(deps: AppDeps): Promise<void> {
       contentPath,
     };
 
+    let resolvedStreamPath = storedStreamPath;
     if (contentPath && !storedIsValid) {
       const resolved = resolveStreamForServing(deps.config.downloadDir, contentPath, storedStreamPath);
       update.streamFilePath = resolved ? resolved.relative : null;
+      resolvedStreamPath = resolved ? resolved.relative : storedStreamPath;
     }
+
+    const label = inferTvLabel(record, torrent.name || record.torrentName, resolvedStreamPath);
+    if (label.seasonNumber !== undefined) update.seasonNumber = label.seasonNumber;
+    if (label.episodeNumber !== undefined) update.episodeNumber = label.episodeNumber;
 
     if (torrent.progress >= 1 && !record.completedAt) {
       update.completedAt = new Date();

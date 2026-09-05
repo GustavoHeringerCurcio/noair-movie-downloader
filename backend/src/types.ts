@@ -23,6 +23,32 @@ export interface MediaDetail {
   voteAverage: number;
   genres: string[];
   runtime: number | null;
+  seasons?: TvSeasonSummary[] | null;
+}
+
+export interface TvSeasonSummary {
+  seasonNumber: number;
+  name: string;
+  episodeCount: number;
+}
+
+export interface TvEpisode {
+  seasonNumber: number;
+  episodeNumber: number;
+  name: string;
+  overview: string;
+  stillPath: string | null;
+  runtime: number | null;
+  airDate: string | null;
+}
+
+/**
+ * Which seasons/episodes a release covers, parsed from its title.
+ * `episodes: null` means a whole season. `season: 0` is never produced.
+ */
+export interface Coverage {
+  season: number;
+  episodes: [number, number] | null;
 }
 
 export interface Source {
@@ -43,6 +69,7 @@ export interface Source {
   group: string | null;
   cleanTitle: string;
   audioCodec: 'AAC' | 'AC3' | 'E-AC3' | 'DTS' | 'TrueHD' | 'FLAC' | 'Opus' | 'MP3' | 'Atmos' | null;
+  coverage: Coverage[] | null;
 }
 
 export type TorrentState =
@@ -63,6 +90,9 @@ export interface DownloadRecord {
   title: string | null;
   year: number | null;
   posterPath: string | null;
+  backdropPath: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
   infoHash: string;
   torrentName: string;
   indexer: string | null;
@@ -91,6 +121,9 @@ export interface CreateDownloadInput {
   title: string | null;
   year: number | null;
   posterPath: string | null;
+  backdropPath?: string | null;
+  seasonNumber?: number | null;
+  episodeNumber?: number | null;
   infoHash: string;
   magnetUri: string;
   torrentName: string;

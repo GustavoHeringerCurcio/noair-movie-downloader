@@ -8,6 +8,9 @@ interface DownloadRow {
   title: string | null;
   year: number | null;
   poster_path: string | null;
+  backdrop_path: string | null;
+  season_number: number | null;
+  episode_number: number | null;
   info_hash: string;
   torrent_name: string;
   indexer: string | null;
@@ -37,6 +40,9 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
     title: row.title,
     year: row.year,
     posterPath: row.poster_path,
+    backdropPath: row.backdrop_path,
+    seasonNumber: row.season_number,
+    episodeNumber: row.episode_number,
     infoHash: row.info_hash,
     torrentName: row.torrent_name,
     indexer: row.indexer,
@@ -72,6 +78,8 @@ export interface DownloadUpdate {
   contentPath?: string | null;
   streamFilePath?: string | null;
   completedAt?: Date | null;
+  seasonNumber?: number | null;
+  episodeNumber?: number | null;
 }
 
 const UPDATE_COLUMNS: Record<keyof DownloadUpdate, string> = {
@@ -86,6 +94,8 @@ const UPDATE_COLUMNS: Record<keyof DownloadUpdate, string> = {
   contentPath: 'content_path',
   streamFilePath: 'stream_file_path',
   completedAt: 'completed_at',
+  seasonNumber: 'season_number',
+  episodeNumber: 'episode_number',
 };
 
 export interface DownloadsRepository {
@@ -102,9 +112,10 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
   async function insert(input: CreateDownloadInput): Promise<DownloadRecord> {
     const result = await pool.query<DownloadRow>(
       `INSERT INTO downloads
-        (tmdb_id, media_type, title, year, poster_path, info_hash, torrent_name, indexer,
+        (tmdb_id, media_type, title, year, poster_path, backdrop_path, season_number,
+         episode_number, info_hash, torrent_name, indexer,
          resolution, source, codec, hdr, is_dolby_vision)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
         input.tmdbId,
@@ -112,6 +123,9 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
         input.title,
         input.year,
         input.posterPath,
+        input.backdropPath ?? null,
+        input.seasonNumber ?? null,
+        input.episodeNumber ?? null,
         input.infoHash,
         input.torrentName,
         input.indexer,

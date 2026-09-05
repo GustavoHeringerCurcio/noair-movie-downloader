@@ -11,6 +11,7 @@ import {
 } from '../lib/streaming.js';
 import { probeMedia } from '../lib/probe.js';
 import { decideStreamMode } from '../lib/streamPlan.js';
+import { episodeKeyFromFilename } from '../lib/releaseParser.js';
 
 function toIntOrNull(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -49,7 +50,9 @@ export function createDownloadsRouter(deps: AppDeps): Router {
   });
 
   // Lists the playable video files inside a torrent so the UI can offer an
-  // episode/file picker for season packs (and multi-file releases).
+  // episode/file picker for season packs (and multi-file releases). Each file
+  // is tagged with its season/episode (parsed server-side, S13) so the client
+  // never re-implements episode parsing.
   router.get('/downloads/:infoHash/files', async (req, res) => {
     const infoHash = toText(req.params.infoHash).trim().toLowerCase();
     const record = await deps.downloads.findByInfoHash(infoHash);
@@ -61,7 +64,14 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       res.status(404).json({ error: 'not ready' });
       return;
     }
-    const files = listStreamableFiles(deps.config.downloadDir, record.contentPath);
+    const files = listStreamableFiles(deps.config.downloadDir, record.contentPath).map((file) => {
+      const key = episodeKeyFromFilename(path.basename(file.relative));
+      return {
+        ...file,
+        seasonNumber: key ? key.season : null,
+        episodeNumber: key ? key.episode : null,
+      };
+    });
     res.json({ files });
   });
 
@@ -100,6 +110,9 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       title: toText(body.title) || null,
       year: toIntOrNull(body.year),
       posterPath: toText(body.posterPath) || null,
+      backdropPath: toText(body.backdropPath) || null,
+      seasonNumber: toIntOrNull(body.seasonNumber),
+      episodeNumber: toIntOrNull(body.episodeNumber),
       infoHash,
       magnetUri,
       torrentName,

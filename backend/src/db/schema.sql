@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS downloads (
   title text,
   year integer,
   poster_path text,
+  backdrop_path text,
+  season_number integer,
+  episode_number integer,
   info_hash text UNIQUE NOT NULL,
   torrent_name text NOT NULL,
   indexer text,
@@ -26,6 +29,9 @@ ALTER TABLE downloads ADD COLUMN IF NOT EXISTS source text;
 ALTER TABLE downloads ADD COLUMN IF NOT EXISTS codec text;
 ALTER TABLE downloads ADD COLUMN IF NOT EXISTS hdr boolean NOT NULL DEFAULT false;
 ALTER TABLE downloads ADD COLUMN IF NOT EXISTS is_dolby_vision boolean NOT NULL DEFAULT false;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS backdrop_path text;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS season_number integer;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS episode_number integer;
 
 CREATE TABLE IF NOT EXISTS settings (
   key text PRIMARY KEY,

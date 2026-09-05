@@ -1,3 +1,5 @@
+import type { Coverage } from '../types.js';
+
 export type ReleaseResolution = '2160p' | '1080p' | '720p' | '480p';
 export type ReleaseSource = 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip';
 export type ReleaseCodec = 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX';
@@ -11,6 +13,7 @@ export interface ParsedRelease {
   group: string | null;
   cleanTitle: string;
   audioCodec: ReleaseAudioCodec | null;
+  coverage: Coverage[] | null;
 }
 
 export type ReleaseAudioCodec =
@@ -45,6 +48,145 @@ function detectAudioCodec(norm: string): ReleaseAudioCodec | null {
     if (re.test(norm)) return codec;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Season / episode coverage
+// ---------------------------------------------------------------------------
+
+export interface FilenameEpisodeKey {
+  season: number;
+  episode: number;
+}
+
+const SEASON_EP_RE = /\bs(\d{1,2})e(\d{1,3})(?:\s*[-–]\s*e?(\d{1,3}))?\b/gi;
+const X_EP_RE = /\b(\d{1,2})x(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?\b/gi;
+const SX_EP_RE = /\bs(\d{1,2})x(\d{1,3})\b/gi;
+const SEASON_RANGE_RE = /\bs(\d{1,2})\s*[-–]\s*s(\d{1,2})\b/gi;
+const SEASON_RE = /\bs(\d{1,2})\b/gi;
+const WORD_SEASON_EP_RE = /\bseason\s+(\d{1,2})\s+episode\s+(\d{1,3})\b/gi;
+const WORD_SEASON_RE = /\bseason\s+(\d{1,2})\b/gi;
+
+const WHOLE_SERIES_RE =
+  /\b(complete|full|whole)\s+series\b|\bseries\s+complete\b|complete\s+collection|all\s+seasons|the\s+complete\s+series\b/i;
+
+interface RawSpan {
+  season: number;
+  from: number | null;
+  to: number | null;
+}
+
+function mergeCoverage(spans: RawSpan[]): Coverage[] {
+  const bySeason = new Map<number, RawSpan[]>();
+  for (const span of spans) {
+    const list = bySeason.get(span.season);
+    if (list) list.push(span);
+    else bySeason.set(span.season, [span]);
+  }
+  const merged: Coverage[] = [];
+  for (const [season, seasonSpans] of bySeason) {
+    const anyWholeSeason = seasonSpans.some((s) => s.from === null || s.to === null);
+    if (anyWholeSeason) {
+      merged.push({ season, episodes: null });
+      continue;
+    }
+    const from = Math.min(...seasonSpans.map((s) => s.from as number));
+    const to = Math.max(...seasonSpans.map((s) => s.to as number));
+    merged.push({ season, episodes: [from, to] });
+  }
+  merged.sort(
+    (a, b) =>
+      a.season - b.season ||
+      ((a.episodes ? a.episodes[0] : 0) - (b.episodes ? b.episodes[0] : 0)),
+  );
+  return merged;
+}
+
+/**
+ * Extracts which seasons/episodes a release covers from a normalized title.
+ * Returns null when no season/episode marker is present (coverage unknown —
+ * the UI treats such results as Advanced-picker only).
+ */
+export function parseCoverage(norm: string): Coverage[] | null {
+  let work = norm;
+  const spans: RawSpan[] = [];
+
+  const take = (re: RegExp, fn: (m: RegExpExecArray) => RawSpan | RawSpan[] | null): void => {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(work)) !== null) {
+      const result = fn(m);
+      if (result) {
+        for (const span of Array.isArray(result) ? result : [result]) {
+          if (span && span.season > 0) spans.push(span);
+        }
+      }
+      work = work.slice(0, m.index) + ' '.repeat(m[0].length) + work.slice(m.index + m[0].length);
+    }
+  };
+
+  take(WORD_SEASON_EP_RE, (m) => ({ season: Number(m[1]), from: Number(m[2]), to: Number(m[2]) }));
+  take(SEASON_EP_RE, (m) => ({
+    season: Number(m[1]),
+    from: Number(m[2]),
+    to: m[3] != null ? Number(m[3]) : Number(m[2]),
+  }));
+  take(X_EP_RE, (m) => ({
+    season: Number(m[1]),
+    from: Number(m[2]),
+    to: m[3] != null ? Number(m[3]) : Number(m[2]),
+  }));
+  take(SX_EP_RE, (m) => ({ season: Number(m[1]), from: Number(m[2]), to: Number(m[2]) }));
+  take(SEASON_RANGE_RE, (m) => {
+    const from = Number(m[1]);
+    const to = Number(m[2]);
+    if (from > to) return null;
+    const out: RawSpan[] = [];
+    for (let season = from; season <= to; season += 1) out.push({ season, from: null, to: null });
+    return out;
+  });
+  take(SEASON_RE, (m) => ({ season: Number(m[1]), from: null, to: null }));
+  take(WORD_SEASON_RE, (m) => ({ season: Number(m[1]), from: null, to: null }));
+
+  if (spans.length === 0) return null;
+  return mergeCoverage(spans);
+}
+
+/** True when the title claims to cover every season (e.g. "Complete Series"). */
+export function isWholeSeriesTitle(title: string): boolean {
+  return WHOLE_SERIES_RE.test(normalizeTitle(title));
+}
+
+/** `coverageCovers(s, N)` → whole season N; `coverageCovers(s, N, M)` → episode M of season N. */
+export function coverageCovers(coverage: Coverage[] | null, season: number, episode?: number): boolean {
+  if (!coverage || coverage.length === 0) return false;
+  const sameSeason = coverage.filter((c) => c.season === season);
+  if (sameSeason.length === 0) return false;
+  if (episode == null) return sameSeason.some((c) => c.episodes === null);
+  return sameSeason.some(
+    (c) => c.episodes === null || (episode >= c.episodes[0] && episode <= c.episodes[1]),
+  );
+}
+
+/** Whether a coverage includes a full (unbroken) season pack. */
+export function isFullSeason(coverage: Coverage[] | null, season: number): boolean {
+  return coverage != null && coverage.some((c) => c.season === season && c.episodes === null);
+}
+
+/** Parses a file/name basename into a season/episode key (used by S13 tagging). */
+export function episodeKeyFromFilename(name: string): FilenameEpisodeKey | null {
+  const base = name.replace(/\.!qb$/i, '');
+  const m = /\bs(\d{1,2})e(\d{1,3})\b/i.exec(base);
+  if (!m) return null;
+  const season = Number(m[1]);
+  const episode = Number(m[2]);
+  if (season <= 0 || episode <= 0) return null;
+  return { season, episode };
+}
+
+/** Pads a season number to the canonical `S01` query token. */
+export function seasonQueryToken(season: number): string {
+  return `S${String(season).padStart(2, '0')}`;
 }
 
 function normalizeTitle(title: string): string {
@@ -173,5 +315,5 @@ export function parseReleaseTitle(title: string): ParsedRelease {
   const cleanTitle = buildCleanTitle(title, group);
   const audioCodec = detectAudioCodec(norm);
 
-  return { resolution, source, codec, hdr, isDolbyVision, group, cleanTitle, audioCodec };
+  return { resolution, source, codec, hdr, isDolbyVision, group, cleanTitle, audioCodec, coverage: parseCoverage(norm) };
 }

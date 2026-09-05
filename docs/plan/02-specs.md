@@ -23,28 +23,32 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 ### S2 `GET /api/media/:id`
 - Auth: none
 - Request: query `type: "movie" | "tv"` (required).
-- Response: `200` → `{ tmdbId: number, mediaType: string, title: string, year: number|null, overview: string, posterPath: string|null, backdropPath: string|null, voteAverage: number, genres: string[], runtime: number|null }`
+- Response: `200` → `{ tmdbId: number, mediaType: string, title: string, year: number|null, overview: string, posterPath: string|null, backdropPath: string|null, voteAverage: number, genres: string[], runtime: number|null }`. For `type=tv`, additionally `seasons: TvSeasonSummary[]` where `TvSeasonSummary = { seasonNumber: number, name: string, episodeCount: number }` — excludes season `0` (specials) and any season with `episodeCount <= 0`.
 - Errors: `400` missing/invalid `type`; `502` TMDB unreachable.
 
 ### S3 `GET /api/media/:id/sources`
 - Auth: none
-- Request: query `type: "movie" | "tv"` (required).
-- Behavior: builds query `"<title> <year>"` from the media record; calls Prowlarr with category `2000` (movie) or `5000` (tv); dedupes by `infoHash`; sorts seeders desc; guarantees every result has `magnetUri` (Prowlarr magnet if present, else built — §4.3).
+- Request: query `type: "movie" | "tv"` (required). For TV, optional `season: int` and `episode: int`.
+- Behavior: builds the Prowlarr query from the media record per context, calls Prowlarr with category `2000` (movie) or `5000` (tv), dedupes by `infoHash`, sorts seeders desc, guarantees every result has `magnetUri` (§4.3).
+  - no `season` → `"<title> <year>"` (movies, and whole-show/TV fallback).
+  - `season=N` (TV) → `"<title> S<NN>"` (returns season packs and episode releases together).
+  - `season=N&episode=M` (TV) → `"<title> S<NN>E<MM>"` (single-episode search / Advanced scoping).
+  - **Season gating**: when `season=N` is present, drop results whose parsed `coverage` is non-null and does not include season `N` (prevents e.g. a S02 pack appearing under the S01 tab); `coverage: null` results pass through.
 - Response: `200` → `{ sources: Source[] }`
-  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string, ageHours: number|null, resolution: "2160p"|"1080p"|"720p"|"480p"|null, source: "REMUX"|"BluRay"|"WEB-DL"|"WEBRip"|"BDRip"|"BRRip"|"HDTV"|"DVDRip"|null, codec: "x264"|"x265"|"AV1"|"XviD"|"DivX"|null, hdr: boolean, isDolbyVision: boolean, group: string|null, cleanTitle: string, audioCodec: "AAC"|"AC3"|"E-AC3"|"DTS"|"TrueHD"|"FLAC"|"Opus"|"MP3"|"Atmos"|null }` — the last nine fields are parsed from the release title by `lib/releaseParser.ts` (Prowlarr returns only `age`; quality metadata must be parsed).
+  - `Source`: `{ indexerId: number, indexer: string, title: string, sizeBytes: number, seeders: number, leechers: number, infoHash: string, magnetUri: string, ageHours: number|null, resolution: "2160p"|"1080p"|"720p"|"480p"|null, source: "REMUX"|"BluRay"|"WEB-DL"|"WEBRip"|"BDRip"|"BRRip"|"HDTV"|"DVDRip"|null, codec: "x264"|"x265"|"AV1"|"XviD"|"DivX"|null, hdr: boolean, isDolbyVision: boolean, group: string|null, cleanTitle: string, audioCodec: "AAC"|"AC3"|"E-AC3"|"DTS"|"TrueHD"|"FLAC"|"Opus"|"MP3"|"Atmos"|null }` — quality fields parsed from the release title by `lib/releaseParser.ts` (Prowlarr returns only `age`) — **plus `coverage: Coverage[] | null`** where `Coverage = { season: number, episodes: [number, number] | null }`; `episodes === null` means the release covers a whole season; `null` coverage means the title was unparseable (UI: Advanced-picker only, never auto-selected). Parsed per §4.5. Files inside a downloaded torrent are matched to episodes by the S13 file-list tags (no client-side parser).
 - Errors: `502` Prowlarr unreachable (return `{ sources: [], unreachable: true }` and log if only empty).
 
 ### S4 `POST /api/downloads`
 - Auth: none
-- Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string }`
-- Behavior: adds the source to qBittorrent (category `stream`, savepath `/downloads`, `sequentialDownload=true`, `firstLastPiecePriority=true`, `rename=<torrentName>` — required for playback-before-complete and for hash adoption, §4.2), then inserts a `downloads` row keyed by `info_hash`. `magnetUri` may be a real magnet **or a Prowlarr torrent-download URL** (§4.3); `infoHash` may be a `url-` placeholder in the latter case — the poll adopts qBittorrent's real hash by torrent name (S9).
+- Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, backdropPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string, seasonNumber?: number|null, episodeNumber?: number|null }`
+- Behavior: adds the source to qBittorrent (category `stream`, savepath `/downloads`, `sequentialDownload=true`, `firstLastPiecePriority=true`, `rename=<torrentName>` — required for playback-before-complete and for hash adoption, §4.2), then inserts a `downloads` row keyed by `info_hash`. `magnetUri` may be a real magnet **or a Prowlarr torrent-download URL** (§4.3); `infoHash` may be a `url-` placeholder in the latter case — the poll adopts qBittorrent's real hash by torrent name (S9). `seasonNumber`/`episodeNumber` label the download (episode-level friendly downloads); `backdropPath` is stored so 16:9 cards have a landscape image.
 - Response: `201` → `DownloadRecord` (shape below).
 - Errors: `409` if `info_hash` already exists; `502` qBittorrent unreachable/add failed.
 
 ### S5 `GET /api/downloads`
 - Auth: none
 - Response: `200` → `{ downloads: DownloadRecord[] }`
-- `DownloadRecord`: `{ id: number, tmdbId: number|null, mediaType: string|null, title: string|null, year: number|null, posterPath: string|null, infoHash: string, torrentName: string, indexer: string|null, sizeBytes: number, state: string, progress: number, downloadSpeed: number, uploadSpeed: number, etaSeconds: number|null, ratio: number, contentPath: string|null, streamFilePath: string|null, streamable: boolean, createdAt: string, completedAt: string|null }`
+- `DownloadRecord`: `{ id: number, tmdbId: number|null, mediaType: string|null, title: string|null, year: number|null, posterPath: string|null, backdropPath: string|null, seasonNumber: number|null, episodeNumber: number|null, infoHash: string, torrentName: string, indexer: string|null, sizeBytes: number, state: string, progress: number, downloadSpeed: number, uploadSpeed: number, etaSeconds: number|null, ratio: number, contentPath: string|null, streamFilePath: string|null, streamable: boolean, createdAt: string, completedAt: string|null }`
   - `state` values: one of `queued | fetching-metadata | downloading | stalled | paused | checking | seeding | error | unknown` (see §4.2 mapping).
   - `progress`: `0.0–1.0`. `streamable`: true iff a streamable file is resolvable (§4.4).
 
@@ -96,6 +100,19 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Response: `204`.
 - Errors: `404` unknown `infoHash`; `502` qBittorrent unreachable/failed.
 
+### S12 `GET /api/media/:id/season/:seasonNumber`
+- Auth: none
+- Request: params `id`, `seasonNumber`; query `type=tv` (required).
+- Behavior: fetches `/tv/{id}/season/{n}` from TMDB and maps each episode to `TvEpisode`.
+- Response: `200` → `{ season: TvSeasonSummary, episodes: TvEpisode[] }` where `TvEpisode = { seasonNumber: number, episodeNumber: number, name: string, overview: string, stillPath: string|null, runtime: number|null, airDate: string|null }`. Empty season → `episodes: []`.
+- Errors: `400` missing/invalid `type` or `seasonNumber`; `404` season not found; `502` TMDB unreachable.
+
+### S13 `GET /api/downloads/:infoHash/files`
+- Auth: none
+- Behavior: resolves the torrent's `content_path` and lists its playable video files (same resolver as §4.4). Each file's basename is parsed server-side with the §4.5 regex so the UI never re-implements episode parsing.
+- Response: `200` → `{ files: StreamFileInfo[] }` where `StreamFileInfo = { relative: string, mime: string, size: number, complete: boolean, seasonNumber: number|null, episodeNumber: number|null }`.
+- Errors: `404` unknown `infoHash` or `content_path` not ready.
+
 ## 2. Data model
 
 Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver: `pg`.
@@ -123,6 +140,9 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 | `stream_file_path` | text | no | resolved video file path, relative to `/downloads` |
 | `created_at` | timestamptz NOT NULL DEFAULT now() | yes | |
 | `completed_at` | timestamptz | no | |
+| `backdrop_path` | text | no | TMDB backdrop path (16:9 cards); null for legacy rows |
+| `season_number` | int | no | TV only; null for movies/legacy |
+| `episode_number` | int | no | TV only; null for movies/legacy and whole-season downloads |
 
 ### Table: `settings`
 | Column | Type | Required | Notes |
@@ -130,66 +150,72 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 | `key` | text PK | yes | e.g. `stream_dir`, `poll_interval_ms` |
 | `value` | jsonb NOT NULL | yes | |
 
-- Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1.
+- Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1. The schema file must **also** run idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements for any column added after first release (`backdrop_path`, `season_number`, `episode_number`) so existing named volumes upgrade on boot.
 
 ## 3. UI / CLI
 
-Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player). The Downloads panel is a persistent right-hand slide-over reachable from the header on every page.
+Visual language (D15): **strict black & white, Netflix-style**. Fixed top header 68px that is transparent at the top of the page and fades to a black gradient (then solid `#000`) on scroll. Layout is full-bleed (no centered max-width column); content gutters are `4%`. Cards are **16:9 landscape title cards** sourcing `/api/images/tmdb/w1280<backdropPath>`; rails bleed to the viewport edge so the rightmost card is clipped mid-card to invite horizontal scroll; hover scales the card and reveals a white-ringed action panel. All colors are grayscale tokens (`--bg #000`, surfaces, `#fff/#e5e5e5/#b3b3b3/#808080`); state chips/progress/seeders map to luminance, never hue.
 
-### Screen: Search (`/`)
-- Entry: app root.
-- Elements:
-  - Search input — debounced 300ms, submits on Enter.
-  - Media type filter — `All | Movies | TV`.
-  - Poster grid — `PosterCard` (poster image, title, year). Image src = `/api/images/tmdb/<posterPath>`.
-  - Loading skeleton while `GET /api/search` is in flight.
-- Actions:
-  - Submit → fetch `S1` → render grid; on error show inline message, keep last results.
-  - Click card → navigate `/media/:id?type=<mediaType>`.
-  - Empty results → "No results for '<q>'".
+Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/downloads`, `/settings`.
+
+### Shell: AppHeader (replaces the sidebar)
+- Fixed 68px, content padded `0 4%`; transparent at `scrollY≈0`, fades to `linear-gradient(#000, rgba(0,0,0,.6), transparent)` then solid `#000` while scrolling (rAF-throttled).
+- Left: wordmark → `/`. Nav links: **Home · Downloads · Settings** (`NavLink`, 14px, `#e5e5e5`, active white).
+- Right: backend connection dot, live download-count badge, search toggle (opens overlay), settings gear.
+- Mobile: hamburger → bottom-sheet with the same links + search.
+
+### Screen: Home (`/`)
+- Sections top→bottom: **Hero** (static brand GIF, grayscaled via CSS; fallback TMDB `w1280` backdrop → black gradient) → **My Downloads** (named so because resume positions are deferred, D15) → **Recently Viewed** → **Trending This Week** → **Best Movies** → **Best Series**.
+- Rail card = `TitleCard` (16:9 landscape backdrop; hover `scale(1.15)` + 1px white ring + dark panel with lucide Play/Download/More Info; white progress bar when downloading).
+- My Downloads sources `DownloadRecord` (progress + quality chip when known); Recently Viewed sources the recents store.
+
+### Screen: Search overlay (all pages)
+- Trigger: header search icon. Fixed `#000` overlay, `role="dialog"`, focus trap, Esc/× closes, focus restored to trigger.
+- Big input (debounced 300ms → S1), `All | Movies | TV` segmented control, landscape-card result grid.
+- Empty: "No results for '<q>'".
 
 ### Screen: Media Detail (`/media/:id`)
-- Entry: click from Search.
-- Elements:
-  - Hero — backdrop image (`w1280`), title, year, genres, vote, overview, runtime.
-  - "Sources" section — list of `SourceRow`: quality chips (resolution/source/codec/HDR/DoVi parsed from the title), indexer, title, size (humanized), seeders/leechers, "Download" button.
-  - **Structured filter bar** (client-side): Resolution (2160p/1080p/720p/480p), Source (REMUX/BluRay/WEB-DL/WEBRip/BRRip…), Codec (x264/x265/AV1/…), Indexer (multi-select from results), Min seeders, Size range (GB), plus an **advanced regex** input (matches `Source.title`, e.g. `1080p|x264`, `-CAM`; invalid regex → no filter + inline warning).
-  - **Sort** control — seeders (default) / size / age / resolution / size-per-seeder.
-  - **Grouping** — identical releases across indexers (same `cleanTitle+resolution+source+codec`) collapse into one row by default, with an indexer dropdown on the row (default = most seeders); a "Show duplicates" toggle reveals the raw list.
-  - Count line ("N results · M shown" + grouped-duplicate count) and active-filter count with a "Clear all" button.
-  - Source list capped at **30 visible rows** with a "Load more" button revealing the next 30 (from the final filtered/sorted/grouped list).
-  - Loading spinner while `S3` in flight; empty state "No sources found" (distinct from "No sources match your filters").
-- Actions:
-  - Download → `POST S4` → on `201`, stay on page; toast "Added to downloads" and open the panel. On `409` toast "Already downloading".
-  - If the current media already has an active download, show a "Watch" button first (links to `/watch/:infoHash`).
+- Hero: `w1280` backdrop, title, meta row (year · genres · runtime · rating; TV adds "N Seasons"), overview, grayscale overlays.
+- **Movie**: primary ▶ **Download** (friendly: most-seeded S3 movie source; disabled + spinner until the on-mount S3 fetch resolves) · **Advanced** (opens `SourcePickerModal`) · if an active download exists → **Watch** + trash.
+- **TV**:
+  - Season dropdown — default = season with an active download, else the lowest `seasonNumber` with `episodeCount > 0` (S2). Season change → one lazy `S3?season=N` search (cached per `title|season`, request-id guarded, skeleton rows) + `S12` episodes.
+  - Episode rows: still thumb (`w500`), big episode number, title, runtime, overview, availability chip; hover highlight.
+    - **Friendly download** (`ArrowDownToLine`): most-seeded source whose `coverage` covers the episode — exact single-episode releases preferred; a partial pack is allowed and labeled `E0X–E0Y`; **never** auto-downloads a whole season. No exact source → info toast + Advanced pre-scoped `season=N&episode=M`.
+    - Episode inside an active full-season download → **Play** (→ `/watch/:hash?episode=SxxExx`) instead of download.
+  - Season header: **Download season** → most-seeded full-season pack (`coverage … episodes === null`); if active → progress + Watch + trash.
+  - **Advanced** (`SlidersHorizontal`): `SourcePickerModal` listing **all** Prowlarr results for the current season/episode scope, including `coverage: null` releases (never auto-picked; shown with their release title). Reuses v1 structured filters (resolution/source/codec/indexer/min-seeders/size/regex), sort, cross-indexer grouping + "Show duplicates", count line, and 30-row "Load more".
+- Actions (both types): friendly/advanced download → `POST S4`; `201` toast "Added to downloads"; `409` toast "Already downloading". Trash → confirm → `DELETE S6?deleteFiles=true`.
 
-### Screen: Player (`/watch/:infoHash`)
-- Entry: "Watch" button from Downloads panel or Detail.
-- Elements:
-  - On load calls `S7b` (`playinfo`) to learn the serving mode.
-  - `direct` / `remux-audio` / `transcode` → full-page `<video>` with `src=playinfo.streamUrl`, controls, autoplay. Remux/transcode modes are **progressive** (no seeking); direct is seekable. No codec warnings or user-facing codec controls.
-  - `player-required` (4K/UHD HEVC) → clean panel: **"Open in VLC"** (a `movie://<http url>` deep link to the native stream; requires the one-time Windows registration in the README), **"Download file"**, back, and a one-line setup hint.
-  - Overlay showing torrent state + progress while streamable but incomplete ("Buffering — download in progress").
-  - Back button.
-- Actions:
-  - Seek during direct play → works via Range; transcoded playback is progressive.
-  - If `playinfo` 404s → "No playable file yet".
+### Screen: Player (`/watch/:infoHash`[`?episode=SxxExx`])
+- Optional `?episode=SxxExx` (TV, season-pack downloads): after the S13 file list loads, auto-select the first file whose server-parsed `seasonNumber`/`episodeNumber` matches; no match → normal file-picker state.
+- Otherwise unchanged: `S7b` mode decision; `direct`/`remux-audio`/`transcode` `<video>`; `player-required` → "Open in VLC" (`movie://`), "Download file", back; buffering overlay while incomplete; back button; multi-file picker for packs.
+- `playinfo` 404 → "No playable file yet".
 
-### Component: DownloadsPanel (persistent slide-over)
-- Elements: list of `DownloadRecord` rows — poster thumb, title, state badge, progress bar, speed, ETA, actions (Watch, Download file, Remove).
-- State badges (§4.2): `queued`=gray, `fetching-metadata`=blue, `downloading`=blue spinner, `stalled`=amber, `paused`=orange, `checking`=purple, `seeding`=green, `error`=red, `unknown`=gray.
-- Actions:
-  - Watch → navigate `/watch/:infoHash` (only when `streamable`; disabled otherwise).
-  - Download file → `S10` attachment download, for codecs the browser can't play (external player).
-  - Remove → confirm dialog → `DELETE S6?deleteFiles=true`.
-- Data: fed by Socket.IO `downloads:initial`/`downloads:update`; updates mutate Zustand store.
+### Pages: Downloads (`/downloads`) and Settings (`/settings`)
+- Downloads rows: 16:9 thumb, title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality chip, progress bar, speed/ETA, actions **Watch · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`).
+- Settings: existing System/Configuration/About cards, restyled; no new functionality.
+- Data for both: Socket.IO `downloads:initial` / `downloads:update` → Zustand store.
+
+### Grayscale state mapping (replaces §4.2 colors)
+Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `downloading` #fff + spinner, `stalled` #808080, `paused` #e5e5e5 outline, `checking` #b3b3b3, `seeding` #fff, `error` #fff on #000 border, `unknown` #555. No hue in any state.
+
+### UX layer (client-side, no new endpoints — PART C of the 2026-09-05 plan)
+- **ConfirmDownloadSheet (C-DL1):** every friendly download (movie / season / episode) first shows a sheet naming the exact pick — release title, resolution/source/codec, size, seeders, indexer — with `[Start]` and `[Advanced…]`. Sources resolve in the background (cache keyed `title|season|episode`, AbortController); while unresolved the CTA reads `Looking for best source…`. No silent auto-start.
+- **Resume (C-DL2):** `store/playbackStore` persists `{infoHash, file, seconds}` to `localStorage` every ~5s of playback. On return to the same file the player offers `Resume from mm:ss` / `Restart`. Local only; no server round-trip. Recents are marked on play start.
+- **Downloads tabs:** `All | Downloading | Ready to watch`, preserving arrival context; tabular numerals for speed/ETA; delete confirm states file impact (pack deletes warn they remove all contained episode files).
+- **TV sticky sub-bar:** while the episode list scrolls, a toolbar under the header shows back, compact title, season selector, **Download season N**, **Advanced**.
+- **Resilience:** socket-drop banner (`Reconnecting… · Retry now`) with the last snapshot retained; rail errors get inline Retry; Settings gains **Copy diagnostics**.
+- **First-run (C-DL3):** empty My Downloads shows `1 Search · 2 Download · 3 Watch`; search overlay opens with a Trending suggestion grid and recent-search chips.
+- **Player:** buffering overlay `Ready to stream · NN%`; ~20s stall guard offers **Retry stream** (re-probe S7b); `player-required` → 3-step VLC sheet + copy-URL; `Next: S0NE0M` deep-link when watching inside a downloaded pack.
+- **Accessibility:** `/` opens search, `Esc` closes top layer, arrows scroll a focused rail, skip-to-content, `aria-live` toast region, `prefers-reduced-motion` respected.
 
 ## 4. Provider / integration behavior
 
 ### 4.1 TMDB
 - Base URL: `https://api.themoviedb.org/3`
 - Auth: `api_key` query param (v3), key from `TMDB_API_KEY`.
-- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`.
+- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`; `GET /tv/{id}/season/{n}` (S12).
+- TV seasons: from `GET /tv/{id}` map `seasons` to `TvSeasonSummary[]`, dropping `season_number === 0` and `episode_count <= 0` (S2). Episodes from `/tv/{id}/season/{n}` map `still_path` → `stillPath`, `runtime`, `air_date` → `airDate`.
 - Images: `https://image.tmdb.org/t/p/{w500|w1280}/{path}` (proxied, S8).
 - Timeouts: 10s connect/read. Retries: 2, exponential backoff (0.5s, 1s).
 - Error mapping: non-2xx or network → throw `UpstreamError` → routes respond `502`.
@@ -246,7 +272,7 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
   9. `udp://explodie.org:6969/announce`
   Format: `&tr=<urlencode(tracker)>` for each.
 - Error mapping: `401` → `UpstreamError(401)` (invalid key); non-200/network → `UpstreamError` → `502`; empty array → `{ sources: [] }`.
-- Quirks: category `5000` covers episodes; a TV source's `title` may be an episode pack — UI must display it as-is; no season/episode parsing in v1. Only indexers that expose `infoHash` in search results (e.g. YTS API) populate it; others rely on the `downloadUrl` proxy path above.
+- Quirks: category `5000` covers episodes; a TV source's `title` may be a season pack, a partial pack, or a single episode — the parser (§4.5) derives `coverage` so the UI can label it; `coverage: null` releases are shown in the Advanced picker only. Only indexers that expose `infoHash` in search results (e.g. YTS API) populate it; others rely on the `downloadUrl` proxy path above.
 
 ### 4.4 Streaming file resolver
 - Input: `infoHash` + `contentPath`.
@@ -258,6 +284,15 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 - MIME: map by extension (`.mkv`→`video/x-matroska`, `.mp4`→`video/mp4`, `.webm`→`video/webm`, `.ts`→`video/mp2t`, others→`application/octet-stream`); strip `.!qb` before mapping.
 - Path containment: resolve against `/downloads` and verify the absolute path stays inside it; reject with `404` otherwise (NFR9).
 - Serve with `res.sendFile` (native Range support).
+
+### 4.5 Season/episode coverage parsing
+- `lib/releaseParser.ts` parses a release `title` into `coverage: Coverage[] | null`:
+  - Tokens handled: `S01`, `S01E01`, `S01E01-E05`, `S01E01-05`, `S01-S02`, `Season 1`, `01x03`, `Complete` / `Complete Series`. A whole-series pack is normalized to one entry per aired season (resolved from S2 at serve time); anything unparseable returns `null` (Advanced-only in the UI).
+  - `Coverage = { season: number, episodes: [number, number] | null }`; `episodes === null` means a whole season.
+- Pure predicates (single source of truth, unit-tested in `backend/src/lib/releaseParser.test.ts`):
+  - `coverageCovers(coverage, season, episode?)` — season scope matches `episodes === null`; episode scope matches a contained episode.
+  - `isFullSeason(coverage, season)` — any entry with `episodes === null`.
+- Downloaded-torrent file matching: the S13 file-list endpoint tags every `StreamFileInfo` with `seasonNumber`/`episodeNumber` parsed server-side from the file basename via the same `SxxExx` regex — the UI reads tags for `/watch?episode=` auto-select and episode→file mapping. No client-side parser duplication; a minimal `frontend/src/lib/episode.ts` fallback is allowed only when a file has no server tag.
 
 ## 5. Canonical naming (single source of truth)
 | Term | Canonical name |
@@ -277,3 +312,7 @@ Routes (React Router): `/` (Search), `/media/:id?type=` (Detail), `/watch/:infoH
 | Backend stream route | `/api/stream/:infoHash` |
 | Backend file-download route | `/api/downloads/:infoHash/file` |
 | Realtime channel | Socket.IO events `downloads:initial` / `downloads:update` |
+| Season/episode coverage of a release | `coverage` (`Coverage[] \| null`, §4.5) |
+| TV download label | `seasonNumber` / `episodeNumber` |
+| Landscape image path stored on downloads | `backdropPath` |
+| Episode-deep-link param on Watch | `/watch/:infoHash?episode=SxxExx` |

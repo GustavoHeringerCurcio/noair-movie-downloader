@@ -21,6 +21,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     group: 'GalaxyRG265',
     cleanTitle: 'blade runner',
     audioCodec: null,
+    coverage: null,
     ...overrides,
   };
 }

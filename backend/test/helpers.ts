@@ -61,6 +61,9 @@ export function makeDownloadRecord(overrides: Partial<DownloadRecord> = {}): Dow
     title: 'Inception',
     year: 2010,
     posterPath: '/abc.jpg',
+    backdropPath: null,
+    seasonNumber: null,
+    episodeNumber: null,
     infoHash: 'a'.repeat(40),
     torrentName: 'Inception.2010.1080p',
     indexer: '1337x',
@@ -96,6 +99,7 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
         throw new Error('not stubbed');
       },
       browse: async () => [],
+      seasonEpisodes: async () => [],
     },
     prowlarr: {
       search: async () => [],

@@ -57,6 +57,34 @@ describe('GET /api/downloads/:infoHash/files', () => {
     expect(res.body.files[0]!.mime).toBe('video/x-matroska');
   });
 
+  it('tags each file with its server-parsed season/episode (S13)', async () => {
+    const { app } = setupSeasonPack();
+    const res = await request(app).get(`/api/downloads/${HASH}/files`);
+    expect(res.body.files.map((f: { seasonNumber: number | null; episodeNumber: number | null }) => [f.seasonNumber, f.episodeNumber])).toEqual([
+      [1, 1],
+      [1, 2],
+      [1, 3],
+    ]);
+  });
+
+  it('leaves season/episode null for files without an episode marker', async () => {
+    const downloadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'movie-files-'));
+    const folder = path.join(downloadDir, 'Some.Movie.2024');
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, 'Some.Movie.2024.mkv'), Buffer.alloc(500));
+    const deps = makeTestDeps({
+      config: { ...makeTestDeps().config, downloadDir },
+      downloads: {
+        ...makeTestDeps().downloads,
+        findByInfoHash: async () =>
+          makeDownloadRecord({ infoHash: HASH, contentPath: folder }),
+      },
+    });
+    const res = await request(createApp(deps)).get(`/api/downloads/${HASH}/files`);
+    expect(res.status).toBe(200);
+    expect(res.body.files[0]).toMatchObject({ seasonNumber: null, episodeNumber: null });
+  });
+
   it('404s when the content path is not yet known', async () => {
     const deps = makeTestDeps({
       downloads: {

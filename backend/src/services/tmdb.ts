@@ -1,4 +1,4 @@
-import type { MediaDetail, MediaItem, MediaType, SearchType } from '../types.js';
+import type { MediaDetail, MediaItem, MediaType, SearchType, TvEpisode, TvSeasonSummary } from '../types.js';
 import { UpstreamError } from '../types.js';
 import { fetchWithRetry } from '../lib/http.js';
 
@@ -10,6 +10,7 @@ export interface TmdbClient {
   searchMulti(q: string, type: SearchType): Promise<MediaItem[]>;
   details(id: number, type: MediaType): Promise<MediaDetail>;
   browse(section: DiscoverSection): Promise<MediaItem[]>;
+  seasonEpisodes(id: number, seasonNumber: number): Promise<TvEpisode[]>;
 }
 
 export interface TmdbClientConfig {
@@ -44,6 +45,24 @@ interface TmdbDetails {
   runtime?: number | null;
   episode_run_time?: number[];
   genres?: { name?: string }[];
+  seasons?: TmdbSeasonDto[];
+}
+
+interface TmdbSeasonDto {
+  season_number?: number;
+  name?: string | null;
+  episode_count?: number;
+  poster_path?: string | null;
+}
+
+interface TmdbEpisodeDto {
+  season_number?: number;
+  episode_number?: number;
+  name?: string | null;
+  overview?: string | null;
+  still_path?: string | null;
+  runtime?: number | null;
+  air_date?: string | null;
 }
 
 function yearFromDate(date: string | null | undefined): number | null {
@@ -91,7 +110,18 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     }
     if (!res.ok) throw new UpstreamError(502, `TMDB ${type} ${id} failed (HTTP ${res.status})`);
     const d = (await res.json()) as TmdbDetails;
-    return {
+    const seasons: TvSeasonSummary[] | undefined =
+      type === 'tv'
+        ? (d.seasons ?? [])
+            .filter((s) => (s.season_number ?? 0) > 0 && (s.episode_count ?? 0) > 0)
+            .map((s) => ({
+              seasonNumber: s.season_number as number,
+              name: s.name || `Season ${s.season_number}`,
+              episodeCount: s.episode_count as number,
+            }))
+            .sort((a, b) => a.seasonNumber - b.seasonNumber)
+        : undefined;
+    const detail: MediaDetail = {
       tmdbId: d.id,
       mediaType: type,
       title: d.title ?? d.name ?? '',
@@ -103,6 +133,32 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
       genres: (d.genres ?? []).map((g) => g.name ?? '').filter(Boolean),
       runtime: type === 'movie' ? (d.runtime ?? null) : (d.episode_run_time?.[0] ?? null),
     };
+    if (seasons !== undefined) detail.seasons = seasons;
+    return detail;
+  }
+
+  async function seasonEpisodes(id: number, seasonNumber: number): Promise<TvEpisode[]> {
+    const url = `${config.baseUrl}/tv/${id}/season/${seasonNumber}?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+    let res: Response;
+    try {
+      res = await fetchWithRetry(fetchImpl, url, {}, { retries: 2, baseBackoffMs: 500, timeoutMs: 10000 });
+    } catch {
+      throw new UpstreamError(502, 'TMDB unreachable');
+    }
+    if (res.status === 404) throw new UpstreamError(404, 'season not found');
+    if (!res.ok) throw new UpstreamError(502, `TMDB season ${seasonNumber} failed (HTTP ${res.status})`);
+    const data = (await res.json()) as { episodes?: TmdbEpisodeDto[] };
+    return (data.episodes ?? [])
+      .filter((e) => (e.episode_number ?? 0) > 0)
+      .map((e) => ({
+        seasonNumber: Number(e.season_number ?? seasonNumber),
+        episodeNumber: e.episode_number as number,
+        name: e.name ?? '',
+        overview: e.overview ?? '',
+        stillPath: e.still_path ?? null,
+        runtime: e.runtime ?? null,
+        airDate: e.air_date ?? null,
+      }));
   }
 
   async function browse(section: DiscoverSection): Promise<MediaItem[]> {
@@ -142,7 +198,7 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     }, []);
   }
 
-  return { searchMulti, details, browse };
+  return { searchMulti, details, browse, seasonEpisodes };
 }
 
 function sectionPaths(section: DiscoverSection): string[] {
