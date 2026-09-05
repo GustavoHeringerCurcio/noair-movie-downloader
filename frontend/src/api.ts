@@ -2,6 +2,8 @@ import type {
   CreateDownloadPayload,
   DiscoverSection,
   DownloadRecord,
+  ImageProvider,
+  MediaArt,
   MediaDetail,
   MediaItem,
   MediaType,
@@ -34,6 +36,43 @@ export function posterUrl(posterPath: string | null): string | null {
 
 export function backdropUrl(backdropPath: string | null): string | null {
   return backdropPath ? `/api/images/tmdb/w1280${backdropPath}` : null;
+}
+
+export interface ArtworkSettings {
+  provider: ImageProvider;
+  fanartConfigured: boolean;
+}
+
+export function fetchSettings(): Promise<{ artwork: ArtworkSettings }> {
+  return request<{ artwork: ArtworkSettings }>('/api/settings');
+}
+
+export function saveArtworkProvider(provider: ImageProvider): Promise<{ artwork: ArtworkSettings }> {
+  return request<{ artwork: ArtworkSettings }>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ artwork: { provider } }),
+  });
+}
+
+export interface CardArtSource {
+  backdropPath: string | null;
+  posterPath: string | null;
+  art?: MediaArt | null;
+}
+
+/**
+ * Candidate card images for a given artwork provider. Each provider list is
+ * intentionally pure — a FanArt source is never mixed with a TMDB source, so a
+ * broken/missing provider degrades to the placeholder instead of silently
+ * swapping providers.
+ */
+export function cardImages(item: CardArtSource, provider: ImageProvider): string[] {
+  if (provider === 'fanart') {
+    const thumb = item.art?.thumbUrl;
+    return thumb ? [thumb] : [];
+  }
+  const list = [backdropUrl(item.backdropPath), posterUrl(item.posterPath)];
+  return list.filter((v): v is string => Boolean(v));
 }
 
 export function streamUrl(infoHash: string, file?: string): string {

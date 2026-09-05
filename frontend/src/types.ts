@@ -1,6 +1,7 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
 export type DiscoverSection = 'trending-week' | 'best-movies' | 'best-tv';
+export type ImageProvider = 'tmdb' | 'fanart';
 
 export interface HomeSection {
   section: DiscoverSection;
@@ -153,6 +154,7 @@ export interface DownloadRecord {
   codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
   hdr: boolean;
   isDolbyVision: boolean;
+  art?: MediaArt | null;
 }
 
 export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required';

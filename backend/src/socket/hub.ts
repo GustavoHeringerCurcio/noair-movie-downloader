@@ -5,6 +5,7 @@ import { toCanonicalState } from '../services/qbittorrent.js';
 import { isPlaceholderInfoHash } from '../services/prowlarr.js';
 import { existsOnDisk, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
 import { episodeKeyFromFilename, parseCoverage } from '../lib/releaseParser.js';
+import { enrichDownloads } from '../lib/enrich.js';
 
 /**
  * NB-11: legacy TV rows predate season_number/episode_number. Once the torrent
@@ -87,7 +88,8 @@ export async function pollOnce(deps: AppDeps): Promise<void> {
 export function attachSocket(io: Server, deps: AppDeps): void {
   io.on('connection', async (socket) => {
     try {
-      const downloads = await deps.downloads.list();
+      const records = await deps.downloads.list();
+      const downloads = await enrichDownloads(records, deps);
       socket.emit('downloads:initial', { downloads });
     } catch (error) {
       console.error('failed to send downloads:initial', error);
@@ -103,7 +105,8 @@ export function startPollLoop(deps: AppDeps, io: Server, intervalMs: number): No
       console.error('qBittorrent poll failed', error);
     }
     try {
-      const downloads = await deps.downloads.list();
+      const records = await deps.downloads.list();
+      const downloads = await enrichDownloads(records, deps);
       io.emit('downloads:update', { downloads });
     } catch (error) {
       console.error('failed to emit downloads:update', error);

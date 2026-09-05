@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { humanEta, humanSize, humanSpeed } from './api';
+import { cardImages, humanEta, humanSize, humanSpeed } from './api';
 
 describe('humanSize', () => {
   it('formats byte sizes', () => {
@@ -25,5 +25,36 @@ describe('humanEta', () => {
     expect(humanEta(45)).toBe('45s');
     expect(humanEta(125)).toBe('2m 5s');
     expect(humanEta(3700)).toBe('1h 1m');
+  });
+});
+
+describe('cardImages', () => {
+  it('returns TMDB backdrop then poster in TMDB mode', () => {
+    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: '/p.jpg' }, 'tmdb');
+    expect(srcs).toHaveLength(2);
+    expect(srcs[0]).toContain('/api/images/tmdb/w1280/b.jpg');
+    expect(srcs[1]).toContain('/api/images/tmdb/w500/p.jpg');
+  });
+
+  it('keeps a single TMDB source when the poster is missing', () => {
+    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: null }, 'tmdb');
+    expect(srcs).toEqual([expect.stringContaining('/api/images/tmdb/w1280/b.jpg')]);
+  });
+
+  it('returns only the Fanart thumb in FanArt mode even when TMDB art exists', () => {
+    const srcs = cardImages(
+      {
+        backdropPath: '/b.jpg',
+        posterPath: '/p.jpg',
+        art: { thumbUrl: 'https://fanart.tv/key.jpg', logoUrl: null },
+      },
+      'fanart',
+    );
+    expect(srcs).toEqual(['https://fanart.tv/key.jpg']);
+  });
+
+  it('returns no sources when FanArt has no thumb — TMDB is never a fallback', () => {
+    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: '/p.jpg', art: null }, 'fanart');
+    expect(srcs).toEqual([]);
   });
 });

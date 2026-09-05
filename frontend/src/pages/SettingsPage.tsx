@@ -1,4 +1,8 @@
+import { useEffect, type ReactNode } from 'react';
 import { useDownloadsStore } from '@/store/downloadsStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { useToastStore } from '@/store/toastStore';
+import type { ImageProvider } from '@/types';
 
 const CONFIG_KEYS: Array<{ key: string; description: string }> = [
   { key: 'TMDB_API_KEY', description: 'Metadata & images provider' },
@@ -16,6 +20,43 @@ function diagnostics(): string {
 
 export function SettingsPage() {
   const connected = useDownloadsStore((s) => s.connected);
+  const provider = useSettingsStore((s) => s.provider);
+  const fanartConfigured = useSettingsStore((s) => s.fanartConfigured);
+  const ready = useSettingsStore((s) => s.ready);
+  const saving = useSettingsStore((s) => s.saving);
+  const loadSettings = useSettingsStore((s) => s.load);
+  const saveProvider = useSettingsStore((s) => s.saveProvider);
+  const toast = useToastStore((s) => s.toast);
+
+  useEffect(() => {
+    if (!ready) void loadSettings();
+  }, [ready, loadSettings]);
+
+  async function changeProvider(next: ImageProvider): Promise<void> {
+    if (next === provider || saving) return;
+    try {
+      await saveProvider(next);
+      toast('Artwork source updated', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  function artworkButton(option: ImageProvider, label: string, hint: string, disabled = false): ReactNode {
+    const active = provider === option && !disabled;
+    return (
+      <button
+        type="button"
+        className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+        aria-pressed={active}
+        disabled={disabled || saving}
+        onClick={() => void changeProvider(option)}
+      >
+        <span className="artwork-option-label">{label}</span>
+        <span className="artwork-option-hint">{hint}</span>
+      </button>
+    );
+  }
 
   function copyDiagnostics(): void {
     void navigator.clipboard.writeText(diagnostics()).then(
@@ -28,6 +69,32 @@ export function SettingsPage() {
     <div className="page">
       <h1 className="page-title">Settings</h1>
       <p className="page-sub">System status and configuration reference.</p>
+
+      <section className="settings-card">
+        <h2>Artwork source</h2>
+        <p className="settings-note">
+          Titles load artwork only from the selected provider — nothing silently falls back to the
+          other one. Titles the provider has no art for simply show a placeholder.
+        </p>
+        {!fanartConfigured && (
+          <p className="settings-note settings-note-warn">
+            FanArt.tv needs a key: add <code>FANART_API_KEY</code> to <code>.env</code> and restart.
+          </p>
+        )}
+        <div className="artwork-options" role="group" aria-label="Artwork source">
+          {artworkButton(
+            'tmdb',
+            'TMDB',
+            'Backdrops and posters from TMDB (requires TMDB_API_KEY)',
+          )}
+          {artworkButton(
+            'fanart',
+            'FanArt.tv',
+            'Key art and logos from FanArt.tv',
+            !fanartConfigured,
+          )}
+        </div>
+      </section>
 
       <section className="settings-card">
         <h2>System</h2>

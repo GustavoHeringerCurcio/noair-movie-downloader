@@ -139,16 +139,30 @@ ul {
 .app-header.scrolled {
   background: var(--bg);
 }
-.app-header.scrim .header-inner::before {
+.app-header::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 150px;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.5) 60%,
+    rgba(0, 0, 0, 0) 100%
+  );
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.app-header.scrim::before {
+  opacity: 1;
 }
 
 .header-inner {
   position: relative;
+  z-index: 1;
   width: 100%;
   max-width: none;
   padding: 0 var(--gutter);
@@ -1609,6 +1623,34 @@ ul {
 .settings-note {
   color: var(--text-3);
   font-size: 13px;
+}
+.settings-note-warn {
+  color: var(--white);
+  margin-top: 6px;
+}
+.artwork-options {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.artwork-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 12px 16px;
+  min-width: 200px;
+}
+.artwork-option-label {
+  font-weight: 600;
+  font-size: 15px;
+}
+.artwork-option-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  font-weight: 400;
 }
 
 /* --------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { createPool } from './db/pool.js';
 import { runSchema } from './db/migrate.js';
 import { createDownloadsRepository } from './db/downloadsRepo.js';
+import { createSettingsRepository } from './db/settingsRepo.js';
 import { createTmdbClient } from './services/tmdb.js';
 import { createFanartClient } from './services/fanart.js';
 import { createProwlarrClient } from './services/prowlarr.js';
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
       category: 'stream',
     }),
     downloads: createDownloadsRepository(pool),
+    settings: createSettingsRepository(pool),
     fanart: config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null,
   };
 

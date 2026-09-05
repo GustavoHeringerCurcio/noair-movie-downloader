@@ -120,6 +120,7 @@ export interface DownloadRecord {
   codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
   hdr: boolean;
   isDolbyVision: boolean;
+  art?: MediaArt | null;
 }
 
 export interface CreateDownloadInput {

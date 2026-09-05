@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { TitleCard } from './TitleCard';
+import { useSettingsStore } from '../store/settingsStore';
 import type { MediaItem } from '../types';
 
 const FULL: MediaItem = {
@@ -31,22 +32,36 @@ function renderCard(item: MediaItem): void {
   );
 }
 
+function cardMedia(): HTMLImageElement | null {
+  return document.querySelector('.title-card-media') as HTMLImageElement | null;
+}
+
+function setProvider(provider: 'tmdb' | 'fanart'): void {
+  useSettingsStore.setState({ provider, fanartConfigured: provider === 'fanart', ready: true });
+}
+
+beforeEach(() => {
+  setProvider('tmdb');
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
 describe('TitleCard', () => {
-  it('prioritizes Fanart.tv key art over TMDB artwork', () => {
+  it('renders Fanart key art in FanArt mode and never the TMDB backdrop', () => {
+    setProvider('fanart');
     renderCard(FANART_ART);
-    const img = document.querySelector('.title-card-media') as HTMLImageElement | null;
+    const img = cardMedia();
     expect(img?.src).toBe('https://fanart.tv/keyart.jpg');
+    expect(img?.src).not.toContain('/api/images/tmdb/');
     expect(screen.getByRole('button', { name: /inception/i })).toBeInTheDocument();
   });
 
-  it('falls back to the TMDB backdrop and fills the full 16:9 card', () => {
+  it('uses the TMDB backdrop as the tile image', () => {
     renderCard(FULL);
-    const img = document.querySelector('.title-card-media') as HTMLImageElement | null;
+    const img = cardMedia();
     expect(img?.src).toContain('/api/images/tmdb/w1280/backdrop.jpg');
     expect(screen.queryByRole('button', { name: /more info/i })).not.toBeInTheDocument();
   });
@@ -55,6 +70,23 @@ describe('TitleCard', () => {
     renderCard(NO_ART);
     expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
     expect(screen.getByRole('button', { name: /inception/i })).toBeInTheDocument();
+  });
+
+  it('never falls back to a TMDB backdrop in FanArt mode when key art is missing', () => {
+    setProvider('fanart');
+    renderCard(FULL);
+    expect(cardMedia()).toBeNull();
+    expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
+  });
+
+  it('does not swap to TMDB art when the FanArt image fails to load', () => {
+    setProvider('fanart');
+    renderCard(FANART_ART);
+    const img = cardMedia()!;
+    fireEvent.error(img);
+    expect(cardMedia()?.src).toBe('https://fanart.tv/keyart.jpg');
+    const all = Array.from(document.querySelectorAll<HTMLImageElement>('.title-card-media'));
+    expect(all.every((i) => i.src.includes('fanart.tv'))).toBe(true);
   });
 
   it('renders an optional primary quick action without any info button', () => {

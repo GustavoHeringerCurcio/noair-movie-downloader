@@ -10,13 +10,16 @@ import { SettingsPage } from './pages/SettingsPage';
 import { DetailPage } from './pages/DetailPage';
 import { WatchPage } from './pages/WatchPage';
 import { useDownloadsStore } from './store/downloadsStore';
+import { useSettingsStore } from './store/settingsStore';
 
 function Shell() {
   const connect = useDownloadsStore((s) => s.connect);
+  const loadSettings = useSettingsStore((s) => s.load);
 
   useEffect(() => {
     connect();
-  }, [connect]);
+    void loadSettings();
+  }, [connect, loadSettings]);
 
   return (
     <div className="app">

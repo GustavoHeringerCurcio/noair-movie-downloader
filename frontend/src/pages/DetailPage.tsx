@@ -33,6 +33,7 @@ import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
+import { useImageProvider } from '../store/settingsStore';
 import type { DownloadRecord } from '../types';
 
 const PAGE_SIZE = 30;
@@ -485,7 +486,9 @@ export function DetailPage() {
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'Remove failed', 'error'));
   }
 
-  const backdrop = backdropUrl(detail?.backdropPath ?? null);
+  const provider = useImageProvider();
+  const backdrop =
+    provider === 'fanart' ? detail?.art?.thumbUrl ?? null : backdropUrl(detail?.backdropPath ?? null);
 
   if (detailError || !detail) {
     return (
@@ -509,7 +512,7 @@ export function DetailPage() {
         <div className="hero-overlay-l" aria-hidden="true" />
         <div className="hero-overlay-b" aria-hidden="true" />
         <div className="dh-content">
-          {detail.art?.logoUrl ? (
+          {provider === 'fanart' && detail.art?.logoUrl ? (
             <>
               <img className="dh-logo" src={detail.art.logoUrl} alt="" />
               <h1 className="sr-only">{detail.title}</h1>

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app.js';
 import { makeDownloadRecord, makeTestDeps } from '../../test/helpers.js';
+import { clearArtCache } from '../lib/enrich.js';
 import { UpstreamError } from '../types.js';
 import type { MediaDetail } from '../types.js';
 
@@ -21,6 +22,10 @@ const DETAIL: MediaDetail = {
 const HASH = 'aa'.repeat(20);
 
 describe('routes', () => {
+  beforeEach(() => {
+    clearArtCache();
+  });
+
   it('GET /api/browse returns items for a known section', async () => {
     const deps = makeTestDeps({
       tmdb: {
@@ -199,6 +204,40 @@ describe('routes', () => {
     const app = createApp(deps);
     const res = await request(app).post(`/api/downloads/${HASH}/pause`);
     expect(res.status).toBe(204);
+  });
+
+  it('GET /api/downloads attaches Fanart art to rows in Fanart mode only', async () => {
+    const record = makeDownloadRecord({ infoHash: HASH });
+    const fanart = {
+      getMovieArt: async () => ({ thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' }),
+      getTvArt: async () => ({ thumbUrl: null, logoUrl: null }),
+    };
+    const list = async () => [record];
+
+    const fanartApp = createApp(
+      makeTestDeps({
+        fanart,
+        downloads: { ...makeTestDeps().downloads, list },
+        settings: { get: async () => ({ provider: 'fanart' }), set: async () => {} },
+      }),
+    );
+    const fanartRes = await request(fanartApp).get('/api/downloads');
+    expect(fanartRes.status).toBe(200);
+    expect(fanartRes.body.downloads[0].art).toEqual({
+      thumbUrl: 'https://fanart.tv/t.jpg',
+      logoUrl: 'https://fanart.tv/l.png',
+    });
+
+    const tmdbApp = createApp(
+      makeTestDeps({
+        fanart,
+        downloads: { ...makeTestDeps().downloads, list },
+        settings: { get: async () => ({ provider: 'tmdb' }), set: async () => {} },
+      }),
+    );
+    const tmdbRes = await request(tmdbApp).get('/api/downloads');
+    expect(tmdbRes.status).toBe(200);
+    expect(tmdbRes.body.downloads[0].art).toBeUndefined();
   });
 
   it('POST /api/downloads persists season/episode and backdrop', async () => {

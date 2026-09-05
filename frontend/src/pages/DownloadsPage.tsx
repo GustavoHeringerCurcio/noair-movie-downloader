@@ -14,6 +14,8 @@ import {
 import { StateBadge } from '../components/StateBadge';
 import { DownloadQualityChips } from '../components/DownloadQualityChips';
 import { EmptyState } from '../components/EmptyState';
+import { cardImages } from '../api';
+import { useImageProvider } from '../store/settingsStore';
 import type { DownloadRecord } from '../types';
 
 type Tab = 'all' | 'downloading' | 'ready';
@@ -36,6 +38,7 @@ export function DownloadsPage() {
   const removeLocal = useDownloadsStore((s) => s.removeLocal);
   const toast = useToastStore((s) => s.toast);
   const navigate = useNavigate();
+  const provider = useImageProvider();
   const [tab, setTab] = useState<Tab>('all');
 
   const ordered = useMemo(
@@ -121,22 +124,15 @@ export function DownloadsPage() {
         <p className="empty-state">No downloads match this filter.</p>
       ) : (
         <ul className="downloads-list">
-          {visible.map((d) => (
-            <li key={d.infoHash} className="download-row">
-              {d.backdropPath || d.posterPath ? (
-                <img
-                  className="download-thumb"
-                  src={
-                    d.backdropPath
-                      ? `/api/images/tmdb/w1280${d.backdropPath}`
-                      : `/api/images/tmdb/w500${d.posterPath}`
-                  }
-                  alt=""
-                  loading="lazy"
-                />
-              ) : (
-                <div className="download-thumb skeleton" aria-hidden="true" />
-              )}
+          {visible.map((d) => {
+            const srcs = cardImages(d, provider);
+            return (
+              <li key={d.infoHash} className="download-row">
+                {srcs.length > 0 ? (
+                  <img className="download-thumb" src={srcs[0]} alt="" loading="lazy" />
+                ) : (
+                  <div className="download-thumb skeleton" aria-hidden="true" />
+                )}
 
               <div className="download-info">
                 <div>
@@ -196,7 +192,8 @@ export function DownloadsPage() {
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowDownToLine, Play, Download } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MediaItem } from '../types';
-import { backdropUrl, posterUrl } from '../api';
+import { cardImages } from '../api';
+import { useImageProvider } from '../store/settingsStore';
 
 export interface TitleCardPrimary {
   label: string;
@@ -37,18 +38,16 @@ function glyphFor(type?: 'download' | 'play' | 'down'): JSX.Element {
 
 export function TitleCard({ item, progress, primary }: TitleCardProps) {
   const navigate = useNavigate();
+  const provider = useImageProvider();
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
 
-  const sources = useMemo(() => {
-    const list = [item.art?.thumbUrl, backdropUrl(item.backdropPath), posterUrl(item.posterPath)];
-    return list.filter((v): v is string => Boolean(v));
-  }, [item]);
+  const sources = useMemo(() => cardImages(item, provider), [item, provider]);
   const [srcIndex, setSrcIndex] = useState(0);
 
   useEffect(() => {
     setSrcIndex(0);
-  }, [item.tmdbId, item.mediaType]);
+  }, [item.tmdbId, item.mediaType, provider]);
 
   const src = srcIndex < sources.length ? sources[srcIndex] : null;
 

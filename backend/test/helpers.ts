@@ -121,6 +121,10 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
       adoptInfoHash: async () => {},
       remove: async () => {},
     },
+    settings: {
+      get: async () => null,
+      set: async () => {},
+    },
   };
   return { ...base, ...overrides };
 }
