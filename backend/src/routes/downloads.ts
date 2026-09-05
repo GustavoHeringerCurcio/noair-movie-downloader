@@ -10,7 +10,9 @@ import {
   resolvePlaybackFile,
 } from '../lib/streaming.js';
 import { probeMedia } from '../lib/probe.js';
-import { decideStreamMode } from '../lib/streamPlan.js';
+import { probeMediaInfo, listSidecarSubtitles } from '../lib/mediaInfo.js';
+import { decidePlaybackMode, decideStreamMode } from '../lib/streamPlan.js';
+import { cleanupTorrentPackages } from '../lib/packages.js';
 import { episodeKeyFromFilename } from '../lib/releaseParser.js';
 import { enrichDownloads } from '../lib/enrich.js';
 
@@ -141,6 +143,7 @@ export function createDownloadsRouter(deps: AppDeps): Router {
     } catch (error) {
       console.error(`qBittorrent delete failed for ${infoHash}`, error);
     }
+    cleanupTorrentPackages(deps.config.packageDir, infoHash, deps.config.downloadDir, record.contentPath);
     await deps.downloads.remove(infoHash);
     res.status(204).end();
   });
@@ -191,16 +194,25 @@ export function createDownloadsRouter(deps: AppDeps): Router {
     }
     const probe = await probeMedia(absolutePath);
     const probeInfo = probe ?? { videoCodec: null, audioCodec: null, height: null };
-    const mode = decideStreamMode(probeInfo);
+    const media = await probeMediaInfo(absolutePath);
+    const sidecars = absolutePath ? listSidecarSubtitles(absolutePath) : [];
+    const mode = media ? decidePlaybackMode(media, { sidecarSubtitles: sidecars.length }) : decideStreamMode(probeInfo);
     const qs = file ? toQueryString({ file }) : '';
     res.json({
       mode,
       videoCodec: probeInfo.videoCodec,
       audioCodec: probeInfo.audioCodec,
       height: probeInfo.height,
+      container: media?.container ?? null,
+      durationSeconds: media?.durationSeconds ?? null,
+      video: media?.video ?? null,
+      audioTracks: media?.audioTracks ?? [],
+      subtitleTracks: media?.subtitleTracks ?? [],
+      sidecarSubtitles: sidecars,
       streamUrl: `/api/stream/${infoHash}/watch${qs}`,
       playUrl: `/api/stream/${infoHash}${qs}`,
       fileUrl: `/api/downloads/${infoHash}/file${qs}`,
+      manifestUrl: mode === 'hls' ? `/api/playback/${infoHash}/hls/master.m3u8${qs}` : null,
     });
   });
 

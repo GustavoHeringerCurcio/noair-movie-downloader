@@ -123,7 +123,7 @@ System design for `movie-downloader-qbitorrent`. Owns: components, data flow, bo
 
 ## 5. Non-functional requirements
 - NFR1: qBittorrent poll interval is exactly 2s; never poll faster.
-- NFR2: Streamed files support seeking (Range) and start before download completes.
+- NFR2: Playback is gated on full download: files are served (Range) only once they are complete — `.!qb` partials are never exposed. Completed files support seeking (Range).
 - NFR3: Backend must not crash if Prowlarr, qBittorrent, or TMDB is unreachable — return a clean HTTP error, keep serving other routes.
 - NFR4: Backend boots only after Postgres is healthy (compose healthcheck + connection retry).
 - NFR5: Secrets (TMDB key, qBittorrent creds, Prowlarr key) exist only in `.env` (gitignored) and are never sent to the browser.

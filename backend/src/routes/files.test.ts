@@ -11,6 +11,11 @@ vi.mock('../lib/probe.js', () => ({
   probeMedia: vi.fn(),
 }));
 
+vi.mock('../lib/mediaInfo.js', () => ({
+  probeMediaInfo: vi.fn(async () => null),
+  listSidecarSubtitles: vi.fn(() => []),
+}));
+
 import { probeMedia } from '../lib/probe.js';
 
 const HASH = 'cd'.repeat(20);

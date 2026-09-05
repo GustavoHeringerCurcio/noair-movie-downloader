@@ -1,6 +1,6 @@
 # Movie Downloader
 
-Self-hosted web app that searches movies/TV via **TMDB**, finds torrent/magnet sources via **Prowlarr**, downloads them with **qBittorrent**, shows live progress, and streams the video in-browser while it downloads.
+Self-hosted web app that searches movies/TV via **TMDB**, finds torrent/magnet sources via **Prowlarr**, downloads them with **qBittorrent**, shows live progress, and plays the finished video in the browser (or in your own desktop player).
 
 The full plan lives in `docs/plan/`. Agent rules: `AGENTS.md`.
 
@@ -73,30 +73,22 @@ Tests / checks: `npm test`, `npm run lint`, `npm run typecheck` in each package.
 `postgres` and `backend` are internal-only. qBittorrent requires its own login; **Prowlarr has no
 auth** — keep it on a trusted network.
 
-## Open movies in VLC (one-time setup)
+## Open movies in your local player (one-time setup)
 
-The Watch page plays files the browser can decode (it auto-remuxes unsupported audio and
-auto-transcodes 1080p HEVC to H.264). 4K/UHD releases and anything you'd rather watch bit-perfect
-offer an **"Open in VLC"** button. Browsers can't launch local apps on their own, so enable the
-`movie://` handler **once on Windows** (PowerShell, not in Docker):
+Downloads play in the browser as soon as the file is fully downloaded. Codecs the browser can't
+decode (4K/HEVC, exotic audio) show an **"Open in your player"** button instead. Browsers can't
+launch desktop apps on their own, so the app uses a `movie://` link your machine must be told how to
+open.
 
-```powershell
-$vlc = @("$env:ProgramFiles\VideoLAN\VLC\vlc.exe", "${env:ProgramFiles(x86)}\VideoLAN\VLC\vlc.exe") |
-  Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $vlc) { throw "VLC not found - install it first" }
-$dir  = "$env:LOCALAPPDATA\MovieDownloader"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$wrap = "$dir\movie-open.cmd"
-$body = "@echo off`r`nset `"arg=%1`"`r`nset `"arg=%arg:*movie://=%`"`r`nstart `"`" `"$vlc`" `"%arg%`"`r`n"
-Set-Content -Path $wrap -Value $body -Encoding ASCII
-$key = "HKCU:\Software\Classes\movie\shell\open\command"
-New-Item -Path $key -Force | Out-Null
-Set-ItemProperty -Path $key -Name '(default)' -Value "`"$wrap`" `"%1`""
-Write-Host "Registered movie:// -> $vlc"
-```
+- Open **Settings → Local player**, pick your player (VLC / MPV / MPC-HC / PotPlayer), and click
+  **Download installer (.cmd)**.
+- Run the downloaded `.cmd` once **on the machine where that player is installed** (Windows). It
+  auto-locates the player, writes a small wrapper, and registers the `movie://` handler for your
+  user.
+- The **Player** buttons on the Watch and Downloads pages then open the file directly in your local
+  player. Use the **Download uninstaller** button anytime to remove the handler.
 
-After that, the "Open in VLC" button launches VLC directly. Until registered, use the
-**Download file** button instead.
+Until it's registered, the **Download file** button is the fallback.
 
 ## Troubleshooting
 

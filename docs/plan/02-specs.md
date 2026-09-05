@@ -61,20 +61,20 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 
 ### S7 `GET /api/stream/:infoHash` · `GET /api/stream/:infoHash/watch`
 - Auth: none
-- Behavior (`:infoHash`): resolves `streamFilePath` (§4.4) and serves the original file via `res.sendFile` (Range/`Accept-Ranges`, correct `Content-Type`; incomplete `.!qb` files use the stripped-extension type). Used for external players and browsers that can already decode the codecs. Path containment per NFR9.
-- Behavior (`/watch`): probes the file with `ffprobe` (`lib/probe.ts`, cached by path+size+mtime) and chooses the serving mode (`lib/streamPlan.ts`):
+- Behavior (`:infoHash`): resolves `streamFilePath` (§4.4) and serves the original file via `res.sendFile` (Range/`Accept-Ranges`, correct `Content-Type`). Used for external players and browsers that can already decode the codecs. Playback is gated on completion: **incomplete `.!qb` files are never resolved or served** — only fully-downloaded video is playable (§4.4 resolver ignores `.!qb`). Path containment per NFR9.
+- Behavior (`/watch`): probes the complete file with `ffprobe` (`lib/probe.ts`, cached by path+size+mtime) and chooses the serving mode (`lib/streamPlan.ts`):
   - `direct` (video h264/vp9/av1 **and** audio aac/mp3/opus/flac/none) → `sendFile` (seekable).
   - `remux-audio` (video safe, audio ac3/eac3/dts/truehd…) → ffmpeg `-c:v copy -c:a aac` fragmented mp4.
   - `transcode` (video hevc/x265/other at height < 2160) → ffmpeg `-c:v libx264 -preset veryfast -crf 21 -c:a aac` fragmented mp4. Transcoded streams are **progressive (no seeking)**.
-  - `player-required` (height ≥ 2160 non-browser-safe) → responds `415 { error: "player-required" }`; the UI shows the VLC/external flow instead.
+  - `player-required` (height ≥ 2160 non-browser-safe) → responds `415 { error: "player-required" }`; the UI shows the external-player flow instead.
   - ffmpeg is killed on client disconnect.
-- Response: `200` video stream; `206` partial (direct only); `404` unknown torrent / no streamable file; `415` player-required; `500` ffmpeg unavailable.
+- Response: `200` video stream; `206` partial (direct only); `404` unknown torrent / no complete streamable file; `415` player-required; `500` ffmpeg unavailable.
 
 ### S7b `GET /api/downloads/:infoHash/playinfo`
 - Auth: none
-- Behavior: resolves the streamable file, runs the same ffprobe probe, and returns the serving decision + URLs so the UI can mount `<video>` or show the player-required screen.
-- Response: `200` → `{ mode: "direct"|"remux-audio"|"transcode"|"player-required", videoCodec: string|null, audioCodec: string|null, height: number|null, streamUrl: "/api/stream/<hash>/watch", playUrl: "/api/stream/<hash>", fileUrl: "/api/downloads/<hash>/file" }`.
-- Errors: `404` unknown torrent / no streamable file.
+- Behavior: resolves a fully-downloaded streamable file, runs the shallow probe + a full `lib/mediaInfo.ts` probe (video/height/HDR, every audio track with language/channels/default, every subtitle track text-vs-bitmap, duration, container) and scans for sidecar subtitle files next to the video. Returns the serving decision + track metadata + URLs.
+- Response: `200` → `{ mode: "direct"|"hls"|"remux-audio"|"transcode"|"player-required", videoCodec: string|null, audioCodec: string|null, height: number|null, container: string|null, durationSeconds: number|null, video: {codec,width,height,hdr}|null, audioTracks: [{index,codec,language,title,channels,default}], subtitleTracks: [{index,codec,kind:"text"|"bitmap",language,title,default}], sidecarSubtitles: [{name,language}], streamUrl: "/api/stream/<hash>/watch", playUrl: "/api/stream/<hash>", fileUrl: "/api/downloads/<hash>/file", manifestUrl: string|null }` (`manifestUrl` set when `mode === "hls"` → `/api/playback/<hash>/hls/master.m3u8`, see S14).
+- Errors: `404` unknown torrent / no complete streamable file.
 
 ### S8 `GET /api/images/tmdb/*path`
 - Auth: none
@@ -86,13 +86,13 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - On connect, server emits `downloads:initial` with `{ downloads: DownloadRecord[] }`.
 - Every 2s, server emits `downloads:update` with `{ downloads: DownloadRecord[] }`.
 - Client never sends messages (subscribe-only).
-- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, **adopts the real qBittorrent `hash` for any `downloads` row keyed by a `url-` placeholder by matching `torrent_name`** (torrents added via a Prowlarr download URL have no infohash up-front), resolves `stream_file_path`/`streamable` whenever `content_path` is known and the stored `stream_file_path` is null **or no longer exists on disk**, sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
+- During each poll cycle the server: syncs `torrent_name`/`size_bytes` from qBittorrent, **adopts the real qBittorrent `hash` for any `downloads` row keyed by a `url-` placeholder by matching `torrent_name`** (torrents added via a Prowlarr download URL have no infohash up-front), resolves `stream_file_path`/`streamable` only when a **fully-downloaded (non-`.!qb`) video file** exists under `content_path` (never for partials), sets `completed_at` on `progress == 1` transition, and maps `eta == -1` to null before emitting.
 
 ### S10 `GET /api/downloads/:infoHash/file`
 - Auth: none
-- Behavior: resolves the same media file as `S7` but streams it as an attachment (`Content-Disposition: attachment; filename="<basename>"`). Used for external playback when the browser can't play the codec. Path containment per NFR9.
+- Behavior: resolves the same fully-downloaded media file as `S7` but streams it as an attachment (`Content-Disposition: attachment; filename="<basename>"`). Used as the fallback for external playback when the browser can't decode a codec or no `movie://` handler is registered. Path containment per NFR9.
 - Response: `200` file download (no Range guarantee needed).
-- Errors: `404` unknown `infoHash` / no resolvable file.
+- Errors: `404` unknown `infoHash` / no complete resolvable file.
 
 ### S11 `POST /api/downloads/:infoHash/pause` · `POST /api/downloads/:infoHash/resume`
 - Auth: none
@@ -112,6 +112,15 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Behavior: resolves the torrent's `content_path` and lists its playable video files (same resolver as §4.4). Each file's basename is parsed server-side with the §4.5 regex so the UI never re-implements episode parsing.
 - Response: `200` → `{ files: StreamFileInfo[] }` where `StreamFileInfo = { relative: string, mime: string, size: number, complete: boolean, seasonNumber: number|null, episodeNumber: number|null }`.
 - Errors: `404` unknown `infoHash` or `content_path` not ready.
+
+### S14 HLS web package (browser-player upgrade, Shaka)
+- Auth: none. Only complete files resolve.
+- `GET /api/playback/:infoHash/hls/status` (`?file=` optional): resolves the file, ensures a package run is started (idempotent, one ffmpeg job per file), returns `{ phase: "packaging"|"ready"|"failed", progress: 0–1, error: string|null }`.
+- `GET /api/playback/:infoHash/hls/master.m3u8`: when ready → the authored master playlist (`application/vnd.apple.mpegurl`); while packaging → `202` + status body; failed → the failed status.
+- `DELETE /api/playback/:infoHash/hls`: deletes the cached package (used for a failed-package retry).
+- `GET /api/playback/pkg/:key/*`: serves the package's segments/init/subtitle files. `key` must match a package key (hash + slug); paths are containment-checked.
+- Packaging (`lib/hls.ts` + `lib/packages.ts`, cache root `PACKAGE_DIR` default `/packages` on a `packages` compose volume): ffmpeg stream-copies video, re-encodes each audio track to AAC into a separate HLS audio rendition, converts embedded text + sidecar subtitles to WebVTT, then writes `video/main.m3u8`, `audio/<idx>/main.m3u8`, `subs/<id>.{vtt,m3u8}` and a `master.m3u8` with EXT-X-MEDIA AUDIO/SUBTITLES groups. Done marker makes cached packages reusable across restarts. Packages are removed on torrent delete (S6).
+- Watch plays `mode:"hls"` through **Shaka Player** (lazy-loaded `shaka-player`, its own controls overlay with audio-language/subtitle menus) after polling `status`; packaging/failure states show progress or external-player/Download-file fallbacks.
 
 ## 2. Data model
 
@@ -188,12 +197,12 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 
 ### Screen: Player (`/watch/:infoHash`[`?episode=SxxExx`])
 - Optional `?episode=SxxExx` (TV, season-pack downloads): after the S13 file list loads, auto-select the first file whose server-parsed `seasonNumber`/`episodeNumber` matches; no match → normal file-picker state.
-- Otherwise unchanged: `S7b` mode decision; `direct`/`remux-audio`/`transcode` `<video>`; `player-required` → "Open in VLC" (`movie://`), "Download file", back; buffering overlay while incomplete; back button; multi-file picker for packs.
-- `playinfo` 404 → "No playable file yet".
+- Playback is gated on completion (D8): a torrent that has no fully-downloaded video yet shows a *waiting* state with download % that reloads automatically once `streamable` flips true. `S7b` mode decision; `direct`/`remux-audio`/`transcode` `<video>`; `player-required` → "Open in your player" (`movie://`), "Download file", back; an always-visible **Player** topbar icon opens the current file in the local player; multi-file picker for packs (only completed files are listed).
+- `playinfo` 404 → "No playable file yet" (or the waiting state above while the download runs).
 
 ### Pages: Downloads (`/downloads`) and Settings (`/settings`)
-- Downloads rows: 16:9 thumb, title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality chip, progress bar, speed/ETA, actions **Watch · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`).
-- Settings: existing System/Configuration/About cards, restyled; no new functionality.
+- Downloads rows: 16:9 thumb, title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality chip, progress bar, speed/ETA, actions **Watch · Player (S7 native, `movie://`) · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`). Watch/Player are disabled until `streamable` (a fully-downloaded file exists).
+- Settings: existing System/Configuration/About cards + **Local player** card — choose VLC/MPV/MPC-HC/PotPlayer (localStorage hint) and download a `.cmd` installer/uninstaller that registers the `movie://` handler on the user's machine.
 - Data for both: Socket.IO `downloads:initial` / `downloads:update` → Zustand store.
 
 ### Grayscale state mapping (replaces §4.2 colors)

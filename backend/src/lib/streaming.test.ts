@@ -44,7 +44,7 @@ describe('resolveStreamFile', () => {
     expect(result!.mime).toBe('video/x-matroska');
   });
 
-  it('prefers the complete file over its .!qb twin', () => {
+  it('ignores a complete file only after the .!qb twin is gone (single complete file wins)', () => {
     const downloadDir = makeTempDir('dl-');
     const contentPath = path.join(downloadDir, 'movie');
     fs.mkdirSync(contentPath);
@@ -54,14 +54,12 @@ describe('resolveStreamFile', () => {
     expect(path.basename(result!.absolutePath)).toBe('a.mkv');
   });
 
-  it('falls back to the .!qb twin when incomplete only', () => {
+  it('returns null while only an incomplete .!qb file exists', () => {
     const downloadDir = makeTempDir('dl-');
     const contentPath = path.join(downloadDir, 'movie');
     fs.mkdirSync(contentPath);
     writeFile(contentPath, 'a.mkv.!qb', 800);
-    const result = resolveStreamFile(contentPath, downloadDir);
-    expect(path.basename(result!.absolutePath)).toBe('a.mkv.!qb');
-    expect(result!.mime).toBe('video/x-matroska');
+    expect(resolveStreamFile(contentPath, downloadDir)).toBeNull();
   });
 
   it('handles a single-file contentPath', () => {
@@ -87,7 +85,7 @@ describe('resolveStreamFile', () => {
 });
 
 describe('resolveStreamForServing', () => {
-  it('refreshes when the stored path is stale (renamed after completion)', () => {
+  it('rejects a stale stored .!qb path while a complete file exists', () => {
     const downloadDir = makeTempDir('dl-');
     const contentPath = path.join(downloadDir, 'movie');
     fs.mkdirSync(contentPath);
@@ -98,13 +96,22 @@ describe('resolveStreamForServing', () => {
     expect(result!.mime).toBe('video/x-matroska');
   });
 
-  it('keeps the stored path when it still exists', () => {
+  it('returns null when only the stored path is a partial .!qb file', () => {
     const downloadDir = makeTempDir('dl-');
     const contentPath = path.join(downloadDir, 'movie');
     fs.mkdirSync(contentPath);
     writeFile(contentPath, 'a.mkv.!qb', 1000);
     const result = resolveStreamForServing(downloadDir, contentPath, 'movie/a.mkv.!qb');
-    expect(result!.relative).toBe('movie/a.mkv.!qb');
+    expect(result).toBeNull();
+  });
+
+  it('keeps the stored path when it still exists and is complete', () => {
+    const downloadDir = makeTempDir('dl-');
+    const contentPath = path.join(downloadDir, 'movie');
+    fs.mkdirSync(contentPath);
+    writeFile(contentPath, 'a.mkv', 1000);
+    const result = resolveStreamForServing(downloadDir, contentPath, 'movie/a.mkv');
+    expect(result!.relative).toBe('movie/a.mkv');
   });
 
   it('returns null when no content path is known', () => {
@@ -125,7 +132,7 @@ describe('listStreamableFiles', () => {
     expect(files.map((f) => f.complete)).toEqual([true, true, true]);
   });
 
-  it('marks .!qb files as incomplete and prefers the complete twin', () => {
+  it('excludes .!qb partial files so only completed episodes are listed', () => {
     const downloadDir = makeTempDir('dl-');
     const contentPath = path.join(downloadDir, 'show.s01');
     fs.mkdirSync(contentPath);
@@ -133,9 +140,8 @@ describe('listStreamableFiles', () => {
     writeFile(contentPath, 'S01E01.mkv', 500);
     writeFile(contentPath, 'S01E02.mkv.!qb', 300);
     const files = listStreamableFiles(downloadDir, contentPath);
-    expect(files).toHaveLength(2);
+    expect(files).toHaveLength(1);
     expect(files[0]).toMatchObject({ relative: 'show.s01/S01E01.mkv', complete: true });
-    expect(files[1]).toMatchObject({ relative: 'show.s01/S01E02.mkv.!qb', complete: false });
   });
 
   it('returns [] for a non-video or missing content path', () => {

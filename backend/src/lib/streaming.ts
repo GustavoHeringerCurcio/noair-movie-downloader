@@ -32,6 +32,13 @@ export interface StreamableFileInfo {
   complete: boolean;
 }
 
+/**
+ * Playback only happens after a file has fully downloaded: qBittorrent names an
+ * in-progress file `x.mkv.!qb` and renames it to `x.mkv` when complete. Every
+ * resolver below ignores `.!qb` files, so a torrent is only "streamable" once a
+ * complete file exists on disk. (Kept here for extension/MIME mapping when an
+ * old stored path still carries the suffix.)
+ */
 function stripIncompleteSuffix(name: string): string {
   return name.endsWith('.!qb') ? name.slice(0, -4) : name;
 }
@@ -48,6 +55,11 @@ export function isVideoFileName(name: string): boolean {
 
 export function mimeForFile(filePath: string): string {
   return MIME_BY_EXT[extensionOf(filePath)] ?? 'application/octet-stream';
+}
+
+/** Whether the file on disk is fully downloaded (no `.!qb` suffix). */
+export function isCompleteFileName(name: string): boolean {
+  return !name.endsWith('.!qb');
 }
 
 export function resolveInside(downloadDir: string, relativePath: string): string {
@@ -67,11 +79,15 @@ interface Candidate {
   complete: boolean;
 }
 
+/**
+ * Lists fully-downloaded video files under a torrent's content path. Incomplete
+ * `.!qb` files are never candidates — playback is gated on completion.
+ */
 function listCandidates(contentPath: string): Candidate[] {
   const stat = fs.statSync(contentPath);
   if (stat.isFile()) {
-    if (isVideoFileName(contentPath)) {
-      return [{ absolutePath: contentPath, size: stat.size, baseName: contentPath, complete: !contentPath.endsWith('.!qb') }];
+    if (isVideoFileName(contentPath) && isCompleteFileName(contentPath)) {
+      return [{ absolutePath: contentPath, size: stat.size, baseName: contentPath, complete: true }];
     }
     return [];
   }
@@ -82,29 +98,18 @@ function listCandidates(contentPath: string): Candidate[] {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
-      } else if (entry.isFile() && isVideoFileName(entry.name)) {
+      } else if (entry.isFile() && isVideoFileName(entry.name) && isCompleteFileName(entry.name)) {
         candidates.push({
           absolutePath: full,
           size: fs.statSync(full).size,
-          baseName: stripIncompleteSuffix(entry.name),
-          complete: !entry.name.endsWith('.!qb'),
+          baseName: entry.name,
+          complete: true,
         });
       }
     }
   };
   walk(contentPath);
   return candidates;
-}
-
-function preferCompleteOverIncomplete(candidates: Candidate[]): Candidate[] {
-  const completeByBase = new Map<string, Candidate>();
-  for (const c of candidates) {
-    if (c.complete && c.size > 0) completeByBase.set(c.baseName, c);
-  }
-  return candidates.filter((c) => {
-    const completeTwin = completeByBase.get(c.baseName);
-    return !completeTwin || c.complete;
-  });
 }
 
 function chooseBest(candidates: Candidate[]): Candidate | null {
@@ -121,13 +126,11 @@ function chooseBest(candidates: Candidate[]): Candidate | null {
 
 function resolveCandidates(contentPath: string): Candidate[] | null {
   if (!contentPath) return null;
-  let candidates: Candidate[];
   try {
-    candidates = listCandidates(contentPath);
+    return listCandidates(contentPath);
   } catch {
     return null;
   }
-  return preferCompleteOverIncomplete(candidates);
 }
 
 export function listStreamableFiles(downloadDir: string, contentPath: string): StreamableFileInfo[] {
@@ -170,25 +173,29 @@ export interface StreamServingResult {
   mime: string;
 }
 
+/**
+ * Resolves the playable file for a torrent. A stored `stream_file_path` is kept
+ * only while it still exists AND points at a complete file (never a `.!qb`
+ * partial); otherwise it is recomputed from the content path. Returns null when
+ * the torrent has no fully-downloaded video yet.
+ */
 export function resolveStreamForServing(
   downloadDir: string,
   contentPath: string | null,
   storedStreamFilePath: string | null,
 ): StreamServingResult | null {
   if (!contentPath) return null;
-  if (storedStreamFilePath && existsOnDisk(resolveInside(downloadDir, storedStreamFilePath))) {
-    return { relative: storedStreamFilePath, mime: mimeForFile(storedStreamFilePath) };
+  if (storedStreamFilePath) {
+    const storedAbsolute = resolveInside(downloadDir, storedStreamFilePath);
+    if (isCompleteFileName(storedStreamFilePath) && existsOnDisk(storedAbsolute)) {
+      return { relative: storedStreamFilePath, mime: mimeForFile(storedStreamFilePath) };
+    }
   }
   const resolved = resolveStreamFile(contentPath, downloadDir);
   if (!resolved) return null;
   return { relative: relativeToDownloadDir(downloadDir, resolved.absolutePath), mime: resolved.mime };
 }
 
-/**
- * Resolves a specific file (episode) inside a torrent, chosen by its relative
- * path. The path must belong to the torrent's own streamable file list so a
- * caller cannot serve arbitrary files from elsewhere under the download dir.
- */
 /**
  * Resolves the file to serve for a torrent. An explicit episode choice (its
  * relative path) is honored only if it belongs to the torrent's own file list;

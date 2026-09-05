@@ -36,7 +36,11 @@ export interface AppConfig {
   qbittorrentPass: string;
   databaseUrl: string;
   downloadDir: string;
+  /** Root for the HLS package cache produced for completed files (Playback). */
+  packageDir: string;
   pollIntervalMs: number;
+  fanartMinGapMs: number;
+  artWarmIntervalMs: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -58,7 +62,10 @@ export function loadConfig(): AppConfig {
     qbittorrentPass: requireEnv('QBITTORRENT_PASS'),
     databaseUrl: requireEnv('DATABASE_URL'),
     downloadDir: optionalEnv('DOWNLOAD_DIR', '/downloads'),
+    packageDir: optionalEnv('PACKAGE_DIR', '/packages'),
     pollIntervalMs: 2000,
+    fanartMinGapMs: parseInt(optionalEnv('FANART_MIN_GAP_MS', '800'), 10),
+    artWarmIntervalMs: parseInt(optionalEnv('ART_WARM_INTERVAL_MS', String(12 * 60 * 60 * 1000)), 10),
   };
 }
 
