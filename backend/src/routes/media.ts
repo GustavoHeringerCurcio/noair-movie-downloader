@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { MediaType } from '../types.js';
 import { UpstreamError } from '../types.js';
+import { filterSourcesToMedia } from '../lib/releaseFilter.js';
 import type { AppDeps } from '../deps.js';
 
 function parseType(value: unknown): MediaType | null {
@@ -48,7 +49,8 @@ export function createMediaRouter(deps: AppDeps): Router {
       const detail = await deps.tmdb.details(id, type);
       const query = `${detail.title}${detail.year ? ` ${detail.year}` : ''}`.trim();
       const category: 2000 | 5000 = type === 'movie' ? 2000 : 5000;
-      const sources = await deps.prowlarr.search(query, category);
+      const all = await deps.prowlarr.search(query, category);
+      const sources = filterSourcesToMedia(all, { title: detail.title, year: detail.year });
       res.json({ sources });
     } catch (error) {
       if (error instanceof UpstreamError) {

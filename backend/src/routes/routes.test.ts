@@ -62,8 +62,47 @@ describe('routes', () => {
     expect(res.body.error).toBe('TMDB unreachable');
   });
 
-  it('GET /api/media/:id/sources returns unreachable:true when Prowlarr is down', async () => {
+  it('GET /api/media/:id/sources filters out releases for a different year of the same title', async () => {
+    const source = (title: string) => ({
+      indexerId: 1,
+      indexer: 'YTS',
+      title,
+      sizeBytes: 0,
+      seeders: 0,
+      leechers: 0,
+      infoHash: 'b'.repeat(40),
+      magnetUri: 'magnet:?xt=urn:btih:' + 'b'.repeat(40),
+      ageHours: null,
+      resolution: '1080p',
+      source: 'WEB-DL',
+      codec: 'x264',
+      hdr: false,
+      isDolbyVision: false,
+      group: null,
+      cleanTitle: 'the odyssey',
+      audioCodec: null,
+    });
     const deps = makeTestDeps({
+      tmdb: {
+        ...makeTestDeps().tmdb,
+        details: async () => ({ ...DETAIL, title: 'The Odyssey', year: 2026 }),
+      },
+      prowlarr: {
+        search: async () => [
+          source('The.Odyssey.2026.1080p.WEB-DL'),
+          source('The.Odyssey.1969.720p'),
+          source('The.Odyssey.2026.REMUX.2160p'),
+        ],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    const titles = res.body.sources.map((s: { title: string }) => s.title);
+    expect(titles).toEqual(['The.Odyssey.2026.1080p.WEB-DL', 'The.Odyssey.2026.REMUX.2160p']);
+  });
+
+  it('GET /api/media/:id/sources returns unreachable:true when Prowlarr is down', async () => {    const deps = makeTestDeps({
       tmdb: {
         ...makeTestDeps().tmdb,
         details: async () => DETAIL,
