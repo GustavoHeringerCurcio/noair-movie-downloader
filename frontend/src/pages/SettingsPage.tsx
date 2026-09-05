@@ -1,8 +1,15 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useToastStore } from '@/store/toastStore';
 import type { ImageProvider } from '@/types';
+import {
+  PLAYER_CHOICES,
+  buildOpenerCmd,
+  buildUninstallerCmd,
+  readPlayerPreference,
+  savePlayerPreference,
+} from '@/lib/openerInstaller';
 import type { AudioLang } from '@/types';
 import { AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel } from '@/lib/audio';
 
@@ -31,10 +38,29 @@ export function SettingsPage() {
   const saveProvider = useSettingsStore((s) => s.saveProvider);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
   const toast = useToastStore((s) => s.toast);
+  const [player, setPlayer] = useState<string>(() => readPlayerPreference() ?? 'vlc');
 
   useEffect(() => {
     if (!ready) void loadSettings();
   }, [ready, loadSettings]);
+
+  function downloadScript(name: string, text: string): void {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function changePlayer(id: string): void {
+    if (id === player) return;
+    setPlayer(id);
+    savePlayerPreference(id);
+    toast(`Local player: ${PLAYER_CHOICES.find((p) => p.id === id)?.label ?? id}`, 'info');
+  }
 
   async function changeProvider(next: ImageProvider): Promise<void> {
     if (next === provider || saving) return;
@@ -107,6 +133,49 @@ export function SettingsPage() {
             'Key art and logos from FanArt.tv',
             !fanartConfigured,
           )}
+        </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>Local player</h2>
+        <p className="settings-note">
+          Browsers can’t launch desktop apps by themselves. The “Player” buttons on the Watch and
+          Downloads pages use a <code>movie://</code> link that your machine needs to know how to
+          open. Pick the player you want, download the one-time installer, and run it on this
+          computer (the machine where the player is installed).
+        </p>
+        <div className="artwork-options" role="group" aria-label="Local player">
+          {PLAYER_CHOICES.map((choice) => {
+            const active = player === choice.id;
+            return (
+              <button
+                key={choice.id}
+                type="button"
+                className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={active}
+                onClick={() => changePlayer(choice.id)}
+              >
+                <span className="artwork-option-label">{choice.label}</span>
+                <span className="artwork-option-hint">{choice.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="settings-actions" style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-white btn-sm"
+            onClick={() => downloadScript('install-movie-player.cmd', buildOpenerCmd(player))}
+          >
+            Download installer (.cmd)
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => downloadScript('uninstall-movie-player.cmd', buildUninstallerCmd())}
+          >
+            Download uninstaller
+          </button>
         </div>
       </section>
 

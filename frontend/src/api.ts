@@ -93,9 +93,36 @@ export function streamUrl(infoHash: string, file?: string): string {
   return `/api/stream/${encodeURIComponent(infoHash)}${qs}`;
 }
 
+/**
+ * Custom-scheme URL that hands an HTTP Range stream to a local player
+ * (VLC/MPV/…) once the `movie://` handler is registered (see Settings → Local
+ * player). The browser can never launch a native app on its own — this only
+ * triggers when a protocol handler exists on the user's machine.
+ */
+export function externalPlayerUrl(infoHash: string, file?: string): string {
+  const http = `${window.location.origin}${streamUrl(infoHash, file)}`;
+  return `movie://${http}`;
+}
+
 export function playInfo(infoHash: string, file?: string): Promise<PlayInfo> {
   const qs = file ? `?file=${encodeURIComponent(file)}` : '';
   return request<PlayInfo>(`/api/downloads/${encodeURIComponent(infoHash)}/playinfo${qs}`);
+}
+
+export interface PackageStatus {
+  phase: 'idle' | 'packaging' | 'ready' | 'failed';
+  progress: number;
+  error: string | null;
+}
+
+export function packageStatus(infoHash: string, file?: string): Promise<PackageStatus> {
+  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
+  return request<PackageStatus>(`/api/playback/${encodeURIComponent(infoHash)}/hls/status${qs}`);
+}
+
+export function clearPackage(infoHash: string, file?: string): Promise<void> {
+  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
+  return request<void>(`/api/playback/${encodeURIComponent(infoHash)}/hls${qs}`, { method: 'DELETE' });
 }
 
 export function fileUrl(infoHash: string, file?: string): string {

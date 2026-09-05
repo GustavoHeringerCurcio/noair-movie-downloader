@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent as ReactSyntheticEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileDown, Play, RotateCw } from 'lucide-react';
+import { ArrowLeft, FileDown, MonitorPlay, Play, RotateCw } from 'lucide-react';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { usePlaybackStore } from '../store/playbackStore';
-import { downloadFiles, fileUrl, humanSize, playInfo } from '../api';
+import {
+  clearPackage,
+  downloadFiles,
+  externalPlayerUrl,
+  fileUrl,
+  humanSize,
+  packageStatus,
+  playInfo,
+} from '../api';
 import type { PlayInfo, StreamFileInfo } from '../types';
 import { episodeKeyFromFilename, parseEpisodeToken } from '../lib/episode';
-
-function externalLink(play: PlayInfo): string {
-  const httpUrl = `${window.location.origin}${play.playUrl}`;
-  return `movie://${httpUrl}`;
-}
+import { ShakaPlayer } from '../components/ShakaPlayer';
 
 function baseName(relative: string): string {
   return relative.split('/').pop() ?? relative;
 }
+
+type PackagePhase = 'idle' | 'packaging' | 'ready' | 'failed';
 
 export function WatchPage() {
   const { infoHash = '' } = useParams();
@@ -36,6 +42,10 @@ export function WatchPage() {
   const [resumeSeconds, setResumeSeconds] = useState<number | null>(null);
   const [startAt, setStartAt] = useState<number | null>(null);
   const [stall, setStall] = useState(false);
+  const [pkgPhase, setPkgPhase] = useState<PackagePhase>('idle');
+  const [pkgProgress, setPkgProgress] = useState(0);
+  const [pkgFailed, setPkgFailed] = useState(false);
+  const [pkgTick, setPkgTick] = useState(0);
   const lastSave = useRef(0);
   const stallTimer = useRef<number | undefined>(undefined);
 
@@ -94,6 +104,9 @@ export function WatchPage() {
     setFiles([]);
     setResumeSeconds(null);
     setStartAt(null);
+    setPkgPhase('idle');
+    setPkgFailed(false);
+    setPkgProgress(0);
 
     async function load(): Promise<void> {
       try {
@@ -123,7 +136,7 @@ export function WatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [infoHash, episodeKey, requestedFile, resolveFile, getPosition]);
+  }, [infoHash, episodeKey, requestedFile, resolveFile, getPosition, download?.streamable]);
 
   const openFile = useCallback(
     (file: string | null) => {
@@ -133,6 +146,9 @@ export function WatchPage() {
       setSelectedFile(file);
       setResumeSeconds(null);
       setStartAt(null);
+      setPkgPhase('idle');
+      setPkgFailed(false);
+      setPkgProgress(0);
       playInfo(infoHash, file ?? undefined)
         .then((info) => {
           if (cancelled) return;
@@ -154,10 +170,7 @@ export function WatchPage() {
 
   useEffect(() => () => window.clearTimeout(stallTimer.current), []);
 
-  const incomplete = download != null && download.progress < 1;
-
-  function onTimeUpdate(e: ReactSyntheticEvent<HTMLVideoElement>): void {
-    const video = e.currentTarget;
+  function saveProgress(video: HTMLVideoElement): void {
     const now = Date.now();
     if (now - lastSave.current < 5000) return;
     lastSave.current = now;
@@ -172,8 +185,53 @@ export function WatchPage() {
     }, 20000);
   }
 
+  function onTimeUpdate(e: ReactSyntheticEvent<HTMLVideoElement>): void {
+    saveProgress(e.currentTarget);
+  }
+
   function onPlaying(): void {
     setStall(false);
+  }
+
+  const isHls = play != null && play.mode === 'hls';
+
+  useEffect(() => {
+    if (!isHls) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    setPkgFailed(false);
+    const poll = async (): Promise<void> => {
+      try {
+        const status = await packageStatus(infoHash, selectedFile ?? undefined);
+        if (cancelled) return;
+        if (status.phase === 'ready') {
+          setPkgPhase('ready');
+        } else if (status.phase === 'failed') {
+          setPkgPhase('failed');
+          setPkgFailed(true);
+        } else {
+          setPkgPhase('packaging');
+          setPkgProgress(status.progress);
+          timer = window.setTimeout(poll, 2000);
+        }
+      } catch {
+        if (!cancelled) {
+          setPkgPhase('failed');
+          setPkgFailed(true);
+        }
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isHls, infoHash, selectedFile, pkgTick]);
+
+  function retryHls(): void {
+    void clearPackage(infoHash, selectedFile ?? undefined)
+      .catch(() => undefined)
+      .then(() => setPkgTick((t) => t + 1));
   }
 
   if (state === 'loading') {
@@ -186,9 +244,19 @@ export function WatchPage() {
   }
 
   if (state === 'notfound' || (files.length <= 1 && !play)) {
+    const waiting = download != null && !download.streamable;
     return (
       <div className="page-state">
-        <p className="empty-state">No playable file yet.</p>
+        <p className="empty-state">
+          {waiting
+            ? 'This download isn’t finished yet. It becomes playable here once the file has fully downloaded.'
+            : 'No playable file yet.'}
+        </p>
+        {waiting && (
+          <p className="empty-state" style={{ marginTop: 0 }}>
+            Progress {Math.round((download?.progress ?? 0) * 100)}%
+          </p>
+        )}
         <button type="button" className="btn btn-white" onClick={() => navigate(-1)}>
           Back
         </button>
@@ -245,16 +313,17 @@ export function WatchPage() {
     return (
       <div className="page-state">
         <p className="empty-state">
-          This is a 4K/UHD release that can’t be streamed in the browser. Open it in VLC:
+          This release can’t be decoded in the browser. Play it bit-perfect in your own player (VLC,
+          MPV, …) instead:
         </p>
         <ol className="guide-steps">
-          <li className="guide-step">Install VLC once</li>
-          <li className="guide-step">Click “Open in VLC”</li>
+          <li className="guide-step">Set up your local player once (Settings → Local player)</li>
+          <li className="guide-step">Click “Open in your player”</li>
           <li className="guide-step">Done</li>
         </ol>
         <div className="page-state" style={{ minHeight: 'auto', flexDirection: 'row' }}>
-          <a className="btn btn-white" href={externalLink(play)}>
-            <Play size={18} fill="currentColor" /> Open in VLC
+          <a className="btn btn-white" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
+            <MonitorPlay size={18} /> Open in your player
           </a>
           <a className="btn btn-outline" href={fileUrl(infoHash, selectedFile ?? undefined)}>
             <FileDown size={18} /> Download file
@@ -276,18 +345,27 @@ export function WatchPage() {
           </button>
           <span className="watch-file-name">{baseName(selectedFile ?? play.streamUrl)}</span>
         </div>
-        {files.length > 1 && (
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            onClick={() => {
-              setPlay(null);
-              setSelectedFile(null);
-            }}
+        <div className="watch-topbar-actions">
+          <a
+            className="btn btn-outline btn-sm"
+            href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}
+            title="Play this file in your local player (VLC / MPV) — requires one-time setup in Settings"
           >
-            All {files.length} files
-          </button>
-        )}
+            <MonitorPlay size={15} /> Player
+          </a>
+          {files.length > 1 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => {
+                setPlay(null);
+                setSelectedFile(null);
+              }}
+            >
+              All {files.length} files
+            </button>
+          )}
+        </div>
       </div>
 
       {resumeSeconds != null && startAt === null && (
@@ -302,33 +380,59 @@ export function WatchPage() {
         </div>
       )}
 
-      {resumeSeconds == null && (
-        <video
-          className="watch-video"
-          src={play.streamUrl}
-          controls
-          autoPlay
-          playsInline
-          onLoadedMetadata={(e) => {
-            if (startAt != null && startAt > 0) {
-              const v = e.currentTarget;
-              if (Number.isFinite(v.duration) && startAt < v.duration) v.currentTime = startAt;
-            }
-            setStartAt(null);
-          }}
-          onTimeUpdate={onTimeUpdate}
-          onPlaying={onPlaying}
-        />
-      )}
+      {resumeSeconds == null &&
+        (isHls ? (
+          pkgPhase === 'ready' && !pkgFailed ? (
+            <ShakaPlayer
+              key={play.manifestUrl ?? 'hls'}
+              manifestUrl={play.manifestUrl ?? ''}
+              resumeAt={startAt}
+              onTick={(video) => saveProgress(video)}
+              onPlayback={onPlaying}
+              onStarted={() => setStartAt(null)}
+              onError={() => setPkgFailed(true)}
+            />
+          ) : pkgPhase === 'failed' || pkgFailed ? (
+            <div className="watch-overlay">
+              <span>Couldn’t prepare a browser-playable copy.</span>
+              <button type="button" className="btn btn-white btn-sm" onClick={retryHls}>
+                <RotateCw size={14} /> Retry
+              </button>
+              <a className="btn btn-outline btn-sm" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
+                <MonitorPlay size={15} /> Open in your player
+              </a>
+              <a className="btn btn-outline btn-sm" href={fileUrl(infoHash, selectedFile ?? undefined)}>
+                <FileDown size={15} /> Download file
+              </a>
+            </div>
+          ) : (
+            <div className="watch-overlay">
+              <span className="spinner spinner-sm" aria-hidden="true" />
+              <span>
+                Preparing a browser-friendly copy… {Math.round(pkgProgress * 100)}% (one-time, then
+                cached)
+              </span>
+            </div>
+          )
+        ) : (
+          <video
+            className="watch-video"
+            src={play.streamUrl}
+            controls
+            autoPlay
+            playsInline
+            onLoadedMetadata={(e) => {
+              if (startAt != null && startAt > 0) {
+                const v = e.currentTarget;
+                if (Number.isFinite(v.duration) && startAt < v.duration) v.currentTime = startAt;
+              }
+              setStartAt(null);
+            }}
+            onTimeUpdate={onTimeUpdate}
+            onPlaying={onPlaying}
+          />
+        ))}
 
-      {incomplete && (
-        <div className="watch-overlay">
-          <span className="spinner spinner-sm" aria-hidden="true" />
-          <span>
-            Streaming while downloading — {Math.round(download.progress * 100)}%
-          </span>
-        </div>
-      )}
       {stall && (
         <div className="watch-overlay">
           <span>Stream stalled.</span>

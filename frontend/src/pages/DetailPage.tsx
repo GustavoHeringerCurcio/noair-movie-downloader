@@ -548,6 +548,11 @@ export function DetailPage() {
   const backdrop =
     provider === 'fanart' ? detail?.art?.thumbUrl ?? null : backdropUrl(detail?.backdropPath ?? null);
 
+  const [heroArtFailed, setHeroArtFailed] = useState({ media: false, logo: false });
+  useEffect(() => {
+    setHeroArtFailed({ media: false, logo: false });
+  }, [backdrop, detail?.art?.logoUrl]);
+
   if (detailError || !detail) {
     return (
       <div className="page-state">
@@ -566,13 +571,20 @@ export function DetailPage() {
   return (
     <div className="detail-page">
       <section className="detail-hero">
-        {backdrop && <img className="hero-media" src={backdrop} alt="" />}
+        {backdrop && !heroArtFailed.media && (
+          <img className="hero-media" src={backdrop} alt="" onError={() => setHeroArtFailed((s) => ({ ...s, media: true }))} />
+        )}
         <div className="hero-overlay-l" aria-hidden="true" />
         <div className="hero-overlay-b" aria-hidden="true" />
         <div className="dh-content">
-          {provider === 'fanart' && detail.art?.logoUrl ? (
+          {provider === 'fanart' && detail.art?.logoUrl && !heroArtFailed.logo ? (
             <>
-              <img className="dh-logo" src={detail.art.logoUrl} alt="" />
+              <img
+                className="dh-logo"
+                src={detail.art.logoUrl}
+                alt=""
+                onError={() => setHeroArtFailed((s) => ({ ...s, logo: true }))}
+              />
               <h1 className="sr-only">{detail.title}</h1>
             </>
           ) : (

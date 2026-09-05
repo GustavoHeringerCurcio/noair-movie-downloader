@@ -179,7 +179,7 @@ export interface DownloadRecord {
   art?: MediaArt | null;
 }
 
-export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required';
+export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required' | 'hls';
 
 export interface StreamFileInfo {
   relative: string;
@@ -190,14 +190,53 @@ export interface StreamFileInfo {
   episodeNumber: number | null;
 }
 
+export interface VideoTrackInfo {
+  index: number;
+  codec: string | null;
+  width: number | null;
+  height: number | null;
+  hdr: boolean;
+}
+
+export interface AudioTrackInfo {
+  index: number;
+  codec: string | null;
+  language: string | null;
+  title: string | null;
+  channels: number | null;
+  default: boolean;
+}
+
+export interface SubtitleTrackInfo {
+  index: number;
+  codec: string | null;
+  kind: 'text' | 'bitmap';
+  language: string | null;
+  title: string | null;
+  default: boolean;
+}
+
+export interface SidecarSubtitle {
+  name: string;
+  language: string | null;
+}
+
 export interface PlayInfo {
   mode: PlayMode;
   videoCodec: string | null;
   audioCodec: string | null;
   height: number | null;
+  container: string | null;
+  durationSeconds: number | null;
+  video: VideoTrackInfo | null;
+  audioTracks: AudioTrackInfo[];
+  subtitleTracks: SubtitleTrackInfo[];
+  sidecarSubtitles: SidecarSubtitle[];
   streamUrl: string;
   playUrl: string;
   fileUrl: string;
+  /** Present when mode === 'hls': HLS master playlist for the Shaka player. */
+  manifestUrl: string | null;
 }
 
 export interface CreateDownloadPayload {

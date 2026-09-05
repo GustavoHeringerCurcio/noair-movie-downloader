@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileDown, Download } from 'lucide-react';
+import { Play, Pause, Trash2, FileDown, Download, MonitorPlay } from 'lucide-react';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import {
   removeDownload,
   pauseDownload,
   resumeDownload,
+  externalPlayerUrl,
   fileUrl,
   humanSpeed,
   humanEta,
@@ -113,7 +114,7 @@ export function DownloadsPage() {
       {ordered.length === 0 ? (
         <EmptyState
           title="Nothing downloaded yet"
-          hint="Search for a movie or show and start a download — stream it here before it finishes."
+          hint="Search for a movie or show and start a download — it becomes watchable here once the file has fully downloaded."
           steps={['1 · Search', '2 · Download', '3 · Watch']}
           icon={<Download size={22} />}
           actionLabel="Browse movies"
@@ -165,6 +166,15 @@ export function DownloadsPage() {
                   >
                     <Play size={15} fill="currentColor" /> Watch
                   </button>
+                  {d.streamable && (
+                    <a
+                      className="btn btn-outline btn-sm"
+                      href={externalPlayerUrl(d.infoHash)}
+                      title="Open in your local player (VLC / MPV) — requires one-time setup in Settings"
+                    >
+                      <MonitorPlay size={14} /> Player
+                    </a>
+                  )}
                   {d.state === 'paused' ? (
                     <button type="button" className="btn btn-outline btn-sm" onClick={() => handleResume(d)}>
                       <Play size={14} fill="currentColor" /> Resume
