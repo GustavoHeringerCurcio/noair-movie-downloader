@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { DiscoverSection, MediaItem, MediaType, SearchType } from '../types';
-import { browse, search } from '../api';
-import { PosterCard } from '../components/PosterCard';
-import { SearchBar } from '../components/SearchBar';
+import type { DiscoverSection, DownloadRecord, MediaItem } from '../types';
+import { browse } from '../api';
+import { TitleCard, type TitleCardPrimary } from '../components/TitleCard';
+import { HeroBillboard } from '../components/HeroBillboard';
 import { SectionRail } from '../components/SectionRail';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
-import type { DownloadRecord } from '../types';
 
 interface SectionState {
   items: MediaItem[];
@@ -25,12 +24,26 @@ const emptyState = (): SectionState => ({ items: [], loading: true, error: null 
 
 function qualityLabel(d: DownloadRecord): string {
   const parts: string[] = [];
+  if (d.seasonNumber != null) parts.push(`S${String(d.seasonNumber).padStart(2, '0')}${d.episodeNumber != null ? `E${String(d.episodeNumber).padStart(2, '0')}` : ''}`);
   if (d.resolution) parts.push(d.resolution);
   if (d.source) parts.push(d.source);
   if (d.codec) parts.push(d.codec);
   if (d.isDolbyVision) parts.push('DoVi');
   else if (d.hdr) parts.push('HDR');
   return parts.join(' · ');
+}
+
+function toMediaItem(d: DownloadRecord): MediaItem {
+  return {
+    tmdbId: d.tmdbId ?? 0,
+    mediaType: d.mediaType ?? 'movie',
+    title: d.title ?? d.torrentName,
+    year: d.year,
+    posterPath: d.posterPath,
+    backdropPath: d.backdropPath ?? null,
+    overview: '',
+    voteAverage: 0,
+  };
 }
 
 export function HomePage() {
@@ -42,7 +55,7 @@ export function HomePage() {
     Object.fromEntries(HOME_SECTIONS.map((s) => [s.section, emptyState()])),
   );
 
-  useEffect(() => {
+  const loadSections = useCallback(() => {
     let cancelled = false;
     setSections(Object.fromEntries(HOME_SECTIONS.map((s) => [s.section, emptyState()])));
     for (const s of HOME_SECTIONS) {
@@ -62,234 +75,97 @@ export function HomePage() {
     };
   }, []);
 
-  // ---- search state ---------------------------------------------------------
-  const [query, setQuery] = useState('');
-  const [type, setType] = useState<SearchType>('all');
-  const [results, setResults] = useState<MediaItem[]>([]);
-  const [resultsLoading, setResultsLoading] = useState(false);
-  const [resultsError, setResultsError] = useState<string | null>(null);
-  const [searchedTerm, setSearchedTerm] = useState<string>('');
-  const debounceRef = useRef<number | undefined>(undefined);
-  const searchSeqRef = useRef(0);
+  useEffect(() => {
+    return loadSections();
+  }, [loadSections]);
 
-  const searching = useMemo(() => {
-    const q = query.trim();
-    return q.length > 0 && searchedTerm === q;
-  }, [query, searchedTerm]);
+  const orderedDownloads = useMemo(() => {
+    const done = downloads.filter((d) => d.progress >= 1 || d.state === 'seeding');
+    const busy = downloads.filter((d) => !(d.progress >= 1 || d.state === 'seeding'));
+    const byTime = (a: DownloadRecord, b: DownloadRecord): number =>
+      (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt);
+    return [...done.sort(byTime), ...busy.sort(byTime)];
+  }, [downloads]);
 
-  function runSearch(term: string, mediaType: SearchType): void {
-    const trimmed = term.trim();
-    const seq = ++searchSeqRef.current;
-    window.clearTimeout(debounceRef.current);
-    if (!trimmed) {
-      setResults([]);
-      setSearchedTerm('');
-      setResultsError(null);
-      setResultsLoading(false);
-      return;
+  const completed = orderedDownloads.filter((d) => d.progress >= 1 || d.state === 'seeding').length;
+  const active = orderedDownloads.length - completed;
+
+  function primaryFor(d: DownloadRecord): TitleCardPrimary | null {
+    if (d.streamable && d.progress >= 1) {
+      return { label: 'Watch', icon: 'play', onClick: () => navigate(`/watch/${d.infoHash}`) };
     }
-    setResultsLoading(true);
-    setResultsError(null);
-    setSearchedTerm(trimmed);
-    search(trimmed, mediaType)
-      .then((res) => {
-        if (searchSeqRef.current !== seq) return;
-        setResults(res.items);
-        setResultsLoading(false);
-      })
-      .catch((e: unknown) => {
-        if (searchSeqRef.current !== seq) return;
-        setResults([]);
-        setResultsError(e instanceof Error ? e.message : 'Search failed');
-        setResultsLoading(false);
-      });
-  }
-
-  function handleQueryChange(value: string): void {
-    setQuery(value);
-    window.clearTimeout(debounceRef.current);
-    const trimmed = value.trim();
-    if (!trimmed) {
-      searchSeqRef.current += 1;
-      setResults([]);
-      setSearchedTerm('');
-      setResultsError(null);
-      setResultsLoading(false);
-      return;
-    }
-    debounceRef.current = window.setTimeout(() => {
-      runSearch(trimmed, type);
-    }, 300);
-  }
-
-  function handleTypeChange(next: SearchType): void {
-    setType(next);
-    if (query.trim()) runSearch(query.trim(), next);
-  }
-
-  function clearSearch(): void {
-    searchSeqRef.current += 1;
-    window.clearTimeout(debounceRef.current);
-    setQuery('');
-    setResults([]);
-    setSearchedTerm('');
-    setResultsError(null);
-    setResultsLoading(false);
-  }
-
-  // ---- derived browse data ---------------------------------------------------
-  const completed = useMemo(
-    () =>
-      downloads
-        .filter((d) => d.progress >= 1 || d.state === 'seeding')
-        .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt)),
-    [downloads],
-  );
-  const inProgress = useMemo(
-    () =>
-      downloads
-        .filter((d) => !(d.progress >= 1 || d.state === 'seeding'))
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [downloads],
-  );
-  const downloadsCount = downloads.length;
-
-  function openDownload(d: DownloadRecord): void {
     if (d.streamable) {
-      navigate(`/watch/${d.infoHash}`);
-      return;
+      return {
+        label: 'Watch now',
+        icon: 'play',
+        onClick: () => navigate(`/watch/${d.infoHash}`),
+      };
     }
-    if (d.tmdbId && d.mediaType) {
-      navigate(`/media/${d.tmdbId}?type=${d.mediaType}`);
+    if (d.progress < 1) {
+      return { label: 'Manage', icon: 'down', onClick: () => navigate('/downloads') };
     }
+    return null;
   }
 
-  function openDetail(item: { tmdbId: number; mediaType: MediaType }): void {
-    navigate(`/media/${item.tmdbId}?type=${item.mediaType}`);
-  }
+  const detailNav = (item: MediaItem): string => `/media/${item.tmdbId}?type=${item.mediaType}`;
 
-  // ---- render -----------------------------------------------------------------
   return (
-    <div className="home-page">
-      <div className="home-hero">
-        <h1 className="home-title">Movie Downloader</h1>
-        <p className="home-tagline">Find it. Download it. Watch it instantly.</p>
-        <SearchBar
-          query={query}
-          type={type}
-          onQueryChange={handleQueryChange}
-          onTypeChange={handleTypeChange}
-          onClear={clearSearch}
-        />
+    <>
+      <HeroBillboard />
+      <div className="rails">
+        <SectionRail
+          title="My Downloads"
+          subtitle={downloads.length > 0 ? `${completed} ready · ${active} downloading` : undefined}
+          count={orderedDownloads.length}
+          emptyHint="Nothing downloaded yet. 1 Search · 2 Download · 3 Watch — start by searching above."
+        >
+          {orderedDownloads.map((d) => (
+            <TitleCard
+              key={d.infoHash}
+              item={toMediaItem(d)}
+              progress={d.progress < 1 ? d.progress : null}
+              quality={qualityLabel(d) || (d.progress < 1 ? `${Math.round(d.progress * 100)}%` : undefined) || undefined}
+              primary={primaryFor(d)}
+              onOpenDetail={() => navigate(detailNav(toMediaItem(d)))}
+            />
+          ))}
+        </SectionRail>
+
+        <SectionRail
+          title="Recently Viewed"
+          subtitle={recents.length > 0 ? `${recents.length} titles` : undefined}
+          count={recents.length}
+          emptyHint="Titles you open from search or browsing will appear here."
+        >
+          {recents.map(({ item }) => (
+            <TitleCard
+              key={`${item.mediaType}-${item.tmdbId}`}
+              item={item}
+              primary={null}
+              onOpenDetail={() => navigate(detailNav(item))}
+            />
+          ))}
+        </SectionRail>
+
+        {HOME_SECTIONS.map((s) => {
+          const state = sections[s.section];
+          return (
+            <SectionRail
+              key={s.section}
+              title={s.title}
+              count={state.items.length}
+              loading={state.loading}
+              error={state.error}
+              onRetry={loadSections}
+              emptyHint="Nothing here yet."
+            >
+              {state.items.map((item) => (
+                <TitleCard key={`${item.mediaType}-${item.tmdbId}`} item={item} primary={null} />
+              ))}
+            </SectionRail>
+          );
+        })}
       </div>
-
-      {searching ? (
-        <div className="search-results">
-          <div className="search-results-head">
-            <h2 className="rail-title">Results for &ldquo;{searchedTerm}&rdquo;</h2>
-            <span className="rail-subtitle">
-              {resultsLoading ? 'Searching…' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`}
-            </span>
-          </div>
-
-          {resultsError ? (
-            <div className="inline-error">Search failed: {resultsError}</div>
-          ) : resultsLoading ? (
-            <div className="poster-grid" aria-hidden="true">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="poster-card skeleton" />
-              ))}
-            </div>
-          ) : results.length === 0 ? (
-            <div className="empty-state">No results for &ldquo;{searchedTerm}&rdquo;</div>
-          ) : (
-            <div className="poster-grid">
-              {results.map((item) => (
-                <button
-                  key={`${item.mediaType}-${item.tmdbId}`}
-                  type="button"
-                  className="poster-link"
-                  onClick={() => openDetail(item)}
-                >
-                  <PosterCard item={item} />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="browse">
-          <SectionRail
-            title="Downloads"
-            subtitle={`${completed.length} downloaded${inProgress.length > 0 ? ` · ${inProgress.length} in progress` : ''}`}
-            count={downloadsCount}
-            emptyHint="Search for a movie and start a download to see it here."
-          >
-            {[...completed, ...inProgress].map((d) => (
-              <button
-                key={d.infoHash}
-                type="button"
-                className="poster-link"
-                onClick={() => openDownload(d)}
-                aria-label={`${d.title ?? d.torrentName}${qualityLabel(d)}${d.progress >= 1 ? '' : ` (${Math.round(d.progress * 100)}% downloaded)`}`}
-              >
-                <PosterCard
-                  item={{
-                    tmdbId: d.tmdbId ?? 0,
-                    mediaType: d.mediaType ?? 'movie',
-                    title: d.title ?? d.torrentName,
-                    year: d.year,
-                    posterPath: d.posterPath,
-                    backdropPath: null,
-                    overview: '',
-                    voteAverage: 0,
-                  }}
-                  progress={d.progress < 1 ? d.progress : null}
-                  subtitle={qualityLabel(d) || null}
-                />
-              </button>
-            ))}
-          </SectionRail>
-
-          <SectionRail
-            title="Recently Viewed"
-            subtitle={recents.length > 0 ? `${recents.length} titles` : undefined}
-            count={recents.length}
-            emptyHint="Movies you open from search or browsing will appear here."
-          >
-            {recents.map(({ item }) => (
-              <button key={`${item.mediaType}-${item.tmdbId}`} type="button" className="poster-link" onClick={() => openDetail(item)}>
-                <PosterCard item={item} />
-              </button>
-            ))}
-          </SectionRail>
-
-          {HOME_SECTIONS.map((s) => {
-            const state = sections[s.section];
-            return (
-              <SectionRail
-                key={s.section}
-                title={s.title}
-                count={state.items.length}
-                loading={state.loading}
-                error={state.error}
-                emptyHint="Nothing here yet."
-              >
-                {state.items.map((item) => (
-                  <button
-                    key={`${item.mediaType}-${item.tmdbId}`}
-                    type="button"
-                    className="poster-link"
-                    onClick={() => openDetail(item)}
-                  >
-                    <PosterCard item={item} />
-                  </button>
-                ))}
-              </SectionRail>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    </>
   );
 }

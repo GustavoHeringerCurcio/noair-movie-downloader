@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { HomePage } from './HomePage';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
+import { useSearchStore } from '../store/searchStore';
 import type { DownloadRecord, MediaItem } from '../types';
 
 const ITEM: MediaItem = {
@@ -13,7 +14,7 @@ const ITEM: MediaItem = {
   title: 'Inception',
   year: 2010,
   posterPath: '/qL9BmNyBAtPX5N9dXmY1Qa4fPv.jpg',
-  backdropPath: null,
+  backdropPath: '/backdrop.jpg',
   overview: 'A thief who steals corporate secrets.',
   voteAverage: 8.4,
 };
@@ -26,7 +27,7 @@ function makeDownload(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
     title: 'Shawshank Redemption',
     year: 1994,
     posterPath: '/x.jpg',
-    backdropPath: null,
+    backdropPath: '/backdrop.jpg',
     seasonNumber: null,
     episodeNumber: null,
     infoHash: 'a'.repeat(40),
@@ -69,6 +70,7 @@ beforeEach(() => {
   window.localStorage.clear();
   useDownloadsStore.setState({ downloads: [], connected: false });
   useRecentsStore.setState({ recents: [] });
+  useSearchStore.setState({ open: false, query: '', type: 'all', recentSearches: [] });
 });
 
 afterEach(() => {
@@ -77,7 +79,7 @@ afterEach(() => {
 });
 
 describe('HomePage', () => {
-  it('renders downloads, recents and discover rails on load', async () => {
+  it('renders My Downloads, Recently Viewed and the three browse rails', async () => {
     stubFetch();
     render(
       <MemoryRouter>
@@ -85,19 +87,15 @@ describe('HomePage', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Downloads')).toBeInTheDocument();
     expect(screen.getByText('Recently Viewed')).toBeInTheDocument();
-
+    expect((await screen.findAllByText('My Downloads')).length).toBeGreaterThan(0);
     expect(await screen.findByText('Trending This Week')).toBeInTheDocument();
-    expect((await screen.findAllByText('Inception')).length).toBeGreaterThan(0);
     expect(screen.getByText('Best Movies')).toBeInTheDocument();
     expect(screen.getByText('Best Series')).toBeInTheDocument();
-    expect(screen.queryByText('Popular Movies')).not.toBeInTheDocument();
-    expect(screen.queryByText('Top Rated (Recent)')).not.toBeInTheDocument();
-    expect(screen.queryByText('Popular TV')).not.toBeInTheDocument();
+    expect((await screen.findAllByText('Inception')).length).toBeGreaterThan(0);
   });
 
-  it('shows empty-state hints for downloads and recents when nothing exists yet', async () => {
+  it('shows a hero and empty-state hints when nothing exists yet', async () => {
     stubFetch();
     render(
       <MemoryRouter>
@@ -105,41 +103,16 @@ describe('HomePage', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText(/start a download to see it here/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /find it\. download it/i })).toBeInTheDocument();
+    expect(await screen.findByText(/nothing downloaded yet/i)).toBeInTheDocument();
     expect(screen.getByText(/will appear here/i)).toBeInTheDocument();
   });
 
-  it('replaces rails with live search results while typing, then clears back to browse', async () => {
-    stubFetch();
-    render(
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>,
-    );
-
-    const input = screen.getByLabelText(/search movies and tv/i);
-    fireEvent.change(input, { target: { value: 'inception' } });
-
-    expect(await screen.findByText(/Results for “inception”/i)).toBeInTheDocument();
-    expect((await screen.findAllByText('Inception')).length).toBeGreaterThan(0);
-    expect(screen.queryByText('Downloads')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /clear search/i }));
-
-    expect(await screen.findByText('Downloads')).toBeInTheDocument();
-    expect(screen.queryByText(/Results for/i)).not.toBeInTheDocument();
-  });
-
-  it('renders completed downloads alongside live in-progress progress', async () => {
+  it('renders completed and in-progress downloads in the My Downloads rail', async () => {
     stubFetch();
     useDownloadsStore.setState({
       downloads: [
-        makeDownload({
-          id: 1,
-          infoHash: 'b'.repeat(40),
-          progress: 0.42,
-          state: 'downloading',
-        }),
+        makeDownload({ infoHash: 'b'.repeat(40), progress: 0.42, state: 'downloading' }),
         makeDownload({
           id: 2,
           infoHash: 'c'.repeat(40),
@@ -147,6 +120,7 @@ describe('HomePage', () => {
           state: 'seeding',
           title: 'The Godfather',
           year: 1972,
+          streamable: true,
         }),
       ],
     });
@@ -157,9 +131,10 @@ describe('HomePage', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Downloading 42%')).toBeInTheDocument();
+    expect(screen.getByText('Shawshank Redemption')).toBeInTheDocument();
     expect(await screen.findByText('The Godfather')).toBeInTheDocument();
-    expect(screen.getByText('1972')).toBeInTheDocument();
+    const watchButtons = await screen.findAllByRole('button', { name: /watch/i });
+    expect(watchButtons.length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows recently viewed movies from the recents store', async () => {

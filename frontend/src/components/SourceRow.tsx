@@ -10,26 +10,22 @@ interface SourceRowProps {
   disabledLabel?: string;
 }
 
-function chipClass(kind: string): string {
-  return `chip chip-${kind}`;
-}
-
 function QualityChips({ source }: { source: Source }) {
-  const chips: Array<{ text: string; cls: string }> = [];
-  if (source.resolution) chips.push({ text: source.resolution, cls: 'res' });
-  if (source.source) chips.push({ text: source.source, cls: 'src' });
-  if (source.codec) chips.push({ text: source.codec, cls: 'codec' });
-  if (source.isDolbyVision) chips.push({ text: 'DoVi', cls: 'hdr' });
-  else if (source.hdr) chips.push({ text: 'HDR', cls: 'hdr' });
+  const chips: string[] = [];
+  if (source.resolution) chips.push(source.resolution);
+  if (source.source) chips.push(source.source);
+  if (source.codec) chips.push(source.codec);
+  if (source.isDolbyVision) chips.push('DoVi');
+  else if (source.hdr) chips.push('HDR');
   if (chips.length === 0) return null;
   return (
-    <span className="source-chips">
-      {chips.map((c) => (
-        <span key={c.text} className={chipClass(c.cls)}>
-          {c.text}
+    <>
+      {chips.map((text) => (
+        <span key={text} className="chip">
+          {text}
         </span>
       ))}
-    </span>
+    </>
   );
 }
 
@@ -46,11 +42,11 @@ export function SourceRow({ source, variants, onDownload, disabled, disabledLabe
         <div className="source-row-title" title={selected.title}>
           {selected.title}
         </div>
-        <QualityChips source={selected} />
         <div className="source-row-meta">
+          <QualityChips source={selected} />
           {multi ? (
             <select
-              className="indexer-select"
+              className="sort-select"
               value={selected.indexer}
               onChange={(e) => setSelectedIndexer(e.target.value)}
               aria-label="Choose indexer"
@@ -62,19 +58,19 @@ export function SourceRow({ source, variants, onDownload, disabled, disabledLabe
               ))}
             </select>
           ) : (
-            <span className="source-indexer">{selected.indexer || 'unknown'}</span>
+            <span>{selected.indexer || 'unknown'}</span>
           )}
           <span>{humanSize(selected.sizeBytes)}</span>
-          <span className="source-seeds">
-            <span className="seed-icon">▲</span> {selected.seeders}
-            <span className="leech-icon">▼</span> {selected.leechers}
+          <span>
+            <span className="seed-up">▲ {selected.seeders}</span>
+            <span className="leech-dn"> ▼ {selected.leechers}</span>
           </span>
-          {selected.group && <span className="source-group">{selected.group}</span>}
+          {selected.ageHours != null && <span>{Math.max(1, Math.round(selected.ageHours / 24))}d</span>}
         </div>
       </div>
       <button
         type="button"
-        className="btn btn-primary"
+        className="btn btn-outline btn-sm"
         onClick={() => onDownload(selected)}
         disabled={disabled}
         title={disabled && disabledLabel ? disabledLabel : undefined}

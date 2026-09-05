@@ -1,0 +1,49 @@
+- generic [ref=e3]:
+  - link "Skip to content" [ref=e4] [cursor=pointer]:
+    - /url: "#main"
+  - status [ref=e5]:
+    - generic [ref=e6]: Backend offline — downloads paused until we reconnect.
+    - button "Retry now" [ref=e7] [cursor=pointer]
+  - banner [ref=e8]:
+    - generic [ref=e9]:
+      - link "Movie Downloader home" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - generic [aria-hidden] [ref=e11]: ▶
+        - generic [ref=e12]: Movie Downloader
+      - navigation "Primary" [ref=e13]:
+        - link "Home" [ref=e14] [cursor=pointer]:
+          - /url: /
+        - link "Downloads" [ref=e15] [cursor=pointer]:
+          - /url: /downloads
+        - link "Settings" [ref=e16] [cursor=pointer]:
+          - /url: /settings
+      - generic [ref=e17]:
+        - button "Open search" [ref=e18] [cursor=pointer]
+        - link "Downloads" [ref=e22] [cursor=pointer]:
+          - /url: /downloads
+        - link "Settings" [ref=e26] [cursor=pointer]:
+          - /url: /settings
+  - main [ref=e31]:
+    - region "Movie Downloader" [ref=e32]:
+      - generic [ref=e33]:
+        - heading "Find it. Download it. Watch it." [level=1] [ref=e34]
+        - paragraph [ref=e35]: Search movies & TV from TMDB, grab the most-seeded release, and stream it straight from the download — no waiting for the whole file.
+        - generic [ref=e36]:
+          - button "Search titles" [ref=e37] [cursor=pointer]
+          - button "My Downloads" [ref=e41] [cursor=pointer]
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - heading "My Downloads" [level=2] [ref=e49]
+        - generic [ref=e50]: Nothing downloaded yet. 1 Search · 2 Download · 3 Watch — start by searching above.
+      - generic [ref=e51]:
+        - heading "Recently Viewed" [level=2] [ref=e54]
+        - generic [ref=e55]: Titles you open from search or browsing will appear here.
+      - generic [ref=e56]:
+        - heading "Trending This Week" [level=2] [ref=e59]
+        - button "Scroll Trending This Week right" [ref=e72] [cursor=pointer]
+      - generic [ref=e75]:
+        - heading "Best Movies" [level=2] [ref=e78]
+        - button "Scroll Best Movies right" [ref=e91] [cursor=pointer]
+      - generic [ref=e94]:
+        - heading "Best Series" [level=2] [ref=e97]
+        - button "Scroll Best Series right" [ref=e110] [cursor=pointer]

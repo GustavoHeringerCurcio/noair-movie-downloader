@@ -78,7 +78,7 @@ describe('DownloadsPage', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('1 completed · 1 in progress · 2 total')).toBeInTheDocument();
+    expect(screen.getByText('1 ready to watch · 1 downloading · 2 total')).toBeInTheDocument();
     expect(screen.getByText('Shawshank Redemption')).toBeInTheDocument();
     expect(screen.getByText('The Matrix')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /watch/i }).length).toBe(2);

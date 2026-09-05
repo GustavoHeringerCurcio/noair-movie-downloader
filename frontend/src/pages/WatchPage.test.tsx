@@ -102,7 +102,7 @@ describe('WatchPage', () => {
     stubApi(3);
     renderWatch();
 
-    expect(await screen.findByText(/contains 3 video files/i)).toBeInTheDocument();
+    expect(await screen.findByText(/contains 3 videos/i)).toBeInTheDocument();
     expect(screen.getByText('S01E01.mkv')).toBeInTheDocument();
     expect(screen.getByText('S01E03.mkv')).toBeInTheDocument();
   });
