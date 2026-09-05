@@ -3,14 +3,12 @@ import { UpstreamError } from '../types.js';
 import { fetchWithRetry } from '../lib/http.js';
 
 export const DISCOVER_SECTIONS = [
-  'trending-today',
   'trending-week',
-  'now-playing',
   'popular-movies',
+  'best-movies',
   'top-rated-recent',
-  'airing-today',
-  'on-the-air',
   'popular-tv',
+  'best-tv',
 ] as const;
 
 export type DiscoverSection = (typeof DISCOVER_SECTIONS)[number];
@@ -156,23 +154,19 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
 
 function sectionPaths(section: DiscoverSection): string[] {
   switch (section) {
-    case 'trending-today':
-      return ['/trending/movie/day', '/trending/tv/day'];
     case 'trending-week':
       return ['/trending/movie/week', '/trending/tv/week'];
-    case 'now-playing':
-      return ['/movie/now_playing?region=US'];
     case 'popular-movies':
       return ['/movie/popular'];
+    case 'best-movies':
+      return ['/discover/movie?sort_by=vote_average.desc&vote_count.gte=2000'];
     case 'top-rated-recent':
       return [
         '/discover/movie?sort_by=vote_average.desc&vote_count.gte=500&primary_release_date.gte=2021-01-01',
       ];
-    case 'airing-today':
-      return ['/tv/airing_today'];
-    case 'on-the-air':
-      return ['/tv/on_the_air'];
     case 'popular-tv':
       return ['/tv/popular'];
+    case 'best-tv':
+      return ['/discover/tv?sort_by=vote_average.desc&vote_count.gte=500'];
   }
 }

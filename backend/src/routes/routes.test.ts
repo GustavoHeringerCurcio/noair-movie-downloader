@@ -29,7 +29,7 @@ describe('routes', () => {
       },
     });
     const app = createApp(deps);
-    const res = await request(app).get('/api/browse?section=now-playing');
+    const res = await request(app).get('/api/browse?section=trending-week');
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(1);
     expect(res.body.items[0].tmdbId).toBe(27205);

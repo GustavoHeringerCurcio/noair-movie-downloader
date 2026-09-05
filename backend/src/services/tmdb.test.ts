@@ -58,10 +58,10 @@ describe('TmdbClient.searchMulti', () => {
 });
 
 describe('TmdbClient.browse', () => {
-  it('merges movie and tv results for trending and dedupes by id', async () => {
+  it('merges movie and tv results for trending-week and dedupes by id', async () => {
     const fetchImpl = makeFetch([
       {
-        match: (url) => url.includes('/trending/movie/day'),
+        match: (url) => url.includes('/trending/movie/week'),
         respond: () =>
           createResponse(200, {
             results: [
@@ -71,7 +71,7 @@ describe('TmdbClient.browse', () => {
           }),
       },
       {
-        match: (url) => url.includes('/trending/tv/day'),
+        match: (url) => url.includes('/trending/tv/week'),
         respond: () =>
           createResponse(200, {
             results: [
@@ -82,7 +82,7 @@ describe('TmdbClient.browse', () => {
       },
     ]);
     const client = createTmdbClient({ ...CONFIG, fetchImpl });
-    const items = await client.browse('trending-today');
+    const items = await client.browse('trending-week');
     expect(items.map((i) => i.tmdbId)).toEqual([1, 2, 3]);
     expect(items[0]).toMatchObject({ tmdbId: 1, mediaType: 'movie', title: 'Movie A', year: 2026 });
     expect(items[1]).toMatchObject({ tmdbId: 2, mediaType: 'movie', title: 'Movie B', year: 2026 });
@@ -105,10 +105,31 @@ describe('TmdbClient.browse', () => {
     expect(items[0]).toMatchObject({ tmdbId: 10, mediaType: 'movie', title: 'Only Movie', year: 2020 });
   });
 
-  it('strips null poster fields', async () => {
+  it('fetches all-time best movies via discover sorted by vote desc', async () => {
     const fetchImpl = makeFetch([
       {
-        match: (url) => url.includes('/tv/airing_today'),
+        match: (url) =>
+          url.includes('/discover/movie') &&
+          url.includes('sort_by=vote_average.desc') &&
+          url.includes('vote_count.gte=2000'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { id: 12, media_type: 'movie', title: 'Best Movie', release_date: '1994-01-01', poster_path: null },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const items = await client.browse('best-movies');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ tmdbId: 12, mediaType: 'movie', title: 'Best Movie', year: 1994, posterPath: null });
+  });
+
+  it('strips null poster fields for tv sections', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/tv/popular'),
         respond: () =>
           createResponse(200, {
             results: [
@@ -118,8 +139,29 @@ describe('TmdbClient.browse', () => {
       },
     ]);
     const client = createTmdbClient({ ...CONFIG, fetchImpl });
-    const items = await client.browse('airing-today');
+    const items = await client.browse('popular-tv');
     expect(items[0]).toMatchObject({ tmdbId: 5, mediaType: 'tv', posterPath: null });
+  });
+
+  it('fetches all-time best tv via discover sorted by vote desc', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) =>
+          url.includes('/discover/tv') &&
+          url.includes('sort_by=vote_average.desc') &&
+          url.includes('vote_count.gte=500'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { id: 20, media_type: 'tv', name: 'Best Show', first_air_date: '2008-01-20' },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const items = await client.browse('best-tv');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ tmdbId: 20, mediaType: 'tv', title: 'Best Show', year: 2008 });
   });
 
   it('throws UpstreamError when one of the calls fails', async () => {

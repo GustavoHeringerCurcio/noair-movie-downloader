@@ -5,7 +5,6 @@ import { browse, search } from '../api';
 import { PosterCard } from '../components/PosterCard';
 import { SearchBar } from '../components/SearchBar';
 import { SectionRail } from '../components/SectionRail';
-import { HeroSpotlight } from '../components/HeroSpotlight';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
 import type { DownloadRecord } from '../types';
@@ -17,17 +16,13 @@ interface SectionState {
 }
 
 const HOME_SECTIONS: Array<{ section: DiscoverSection; title: string }> = [
-  { section: 'trending-today', title: 'Trending Today' },
   { section: 'trending-week', title: 'Trending This Week' },
-  { section: 'now-playing', title: 'Now Playing' },
   { section: 'popular-movies', title: 'Popular Movies' },
+  { section: 'best-movies', title: 'Best Movies' },
   { section: 'top-rated-recent', title: 'Top Rated (Recent)' },
-  { section: 'airing-today', title: 'Airing Today' },
-  { section: 'on-the-air', title: 'On The Air' },
   { section: 'popular-tv', title: 'Popular TV' },
+  { section: 'best-tv', title: 'Best Series' },
 ];
-
-const RAIL_SECTIONS = HOME_SECTIONS.filter((s) => s.section !== 'trending-today');
 
 const emptyState = (): SectionState => ({ items: [], loading: true, error: null });
 
@@ -152,9 +147,6 @@ export function HomePage() {
   );
   const downloadsCount = downloads.length;
 
-  const heroTrending = sections['trending-today'];
-  const heroItem = heroTrending.items[0] ?? null;
-
   function openDownload(d: DownloadRecord): void {
     if (d.streamable) {
       navigate(`/watch/${d.infoHash}`);
@@ -264,13 +256,7 @@ export function HomePage() {
             ))}
           </SectionRail>
 
-          {heroTrending.loading && !heroItem ? (
-            <div className="hero-spotlight hero-spotlight--skeleton" aria-hidden="true" />
-          ) : heroItem ? (
-            <HeroSpotlight item={heroItem} />
-          ) : null}
-
-          {RAIL_SECTIONS.map((s) => {
+          {HOME_SECTIONS.map((s) => {
             const state = sections[s.section];
             return (
               <SectionRail
