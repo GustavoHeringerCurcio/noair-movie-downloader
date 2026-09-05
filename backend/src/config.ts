@@ -26,6 +26,7 @@ export interface AppConfig {
   tmdbApiKey: string;
   tmdbBaseUrl: string;
   tmdbImageBaseUrl: string;
+  fanartApiKey: string | null;
   prowlarrUrl: string;
   prowlarrApiKey: string;
   prowlarrBootstrapIndexers: boolean;
@@ -44,6 +45,7 @@ export function loadConfig(): AppConfig {
     tmdbApiKey: requireEnv('TMDB_API_KEY'),
     tmdbBaseUrl: 'https://api.themoviedb.org/3',
     tmdbImageBaseUrl: 'https://image.tmdb.org/t/p',
+    fanartApiKey: optionalEnv('FANART_API_KEY', '') || null,
     prowlarrUrl: requireEnv('PROWLARR_URL'),
     prowlarrApiKey: requireEnv('PROWLARR_API_KEY'),
     prowlarrBootstrapIndexers: optionalEnv('PROWLARR_BOOTSTRAP_INDEXERS', '1') === '1',

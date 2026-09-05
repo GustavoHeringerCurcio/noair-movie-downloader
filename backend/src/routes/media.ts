@@ -3,6 +3,7 @@ import type { Coverage, MediaType } from '../types.js';
 import { UpstreamError } from '../types.js';
 import { filterSourcesToMedia } from '../lib/releaseFilter.js';
 import { coverageCovers, isWholeSeriesTitle, seasonQueryToken } from '../lib/releaseParser.js';
+import { enrichDetail } from '../lib/enrich.js';
 import type { AppDeps } from '../deps.js';
 
 function parseType(value: unknown): MediaType | null {
@@ -41,7 +42,8 @@ export function createMediaRouter(deps: AppDeps): Router {
     }
     try {
       const detail = await deps.tmdb.details(id, type);
-      res.json(detail);
+      const enriched = await enrichDetail(detail, deps);
+      res.json(enriched);
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });

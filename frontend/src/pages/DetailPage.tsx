@@ -509,7 +509,14 @@ export function DetailPage() {
         <div className="hero-overlay-l" aria-hidden="true" />
         <div className="hero-overlay-b" aria-hidden="true" />
         <div className="dh-content">
-          <h1 className="dh-title">{detail.title}</h1>
+          {detail.art?.logoUrl ? (
+            <>
+              <img className="dh-logo" src={detail.art.logoUrl} alt="" />
+              <h1 className="sr-only">{detail.title}</h1>
+            </>
+          ) : (
+            <h1 className="dh-title">{detail.title}</h1>
+          )}
           <div className="dh-meta">
             <span>{detail.year ?? '—'}</span>
             <span>{detail.genres.join(' · ')}</span>

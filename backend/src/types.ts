@@ -1,6 +1,11 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
 
+export interface MediaArt {
+  thumbUrl: string | null;
+  logoUrl: string | null;
+}
+
 export interface MediaItem {
   tmdbId: number;
   mediaType: MediaType;
@@ -10,6 +15,7 @@ export interface MediaItem {
   backdropPath: string | null;
   overview: string;
   voteAverage: number;
+  art?: MediaArt | null;
 }
 
 export interface MediaDetail {
@@ -24,6 +30,7 @@ export interface MediaDetail {
   genres: string[];
   runtime: number | null;
   seasons?: TvSeasonSummary[] | null;
+  art?: MediaArt | null;
 }
 
 export interface TvSeasonSummary {

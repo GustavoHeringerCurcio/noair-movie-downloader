@@ -11,6 +11,7 @@ export interface TmdbClient {
   details(id: number, type: MediaType): Promise<MediaDetail>;
   browse(section: DiscoverSection): Promise<MediaItem[]>;
   seasonEpisodes(id: number, seasonNumber: number): Promise<TvEpisode[]>;
+  tvdbId(id: number): Promise<number | null>;
 }
 
 export interface TmdbClientConfig {
@@ -63,6 +64,10 @@ interface TmdbEpisodeDto {
   still_path?: string | null;
   runtime?: number | null;
   air_date?: string | null;
+}
+
+interface TmdbExternalIds {
+  tvdb_id?: number | null;
 }
 
 function yearFromDate(date: string | null | undefined): number | null {
@@ -198,7 +203,21 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     }, []);
   }
 
-  return { searchMulti, details, browse, seasonEpisodes };
+  async function tvdbId(id: number): Promise<number | null> {
+    const url = `${config.baseUrl}/tv/${id}/external_ids?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+    let res: Response;
+    try {
+      res = await fetchWithRetry(fetchImpl, url, {}, { retries: 1, baseBackoffMs: 300, timeoutMs: 8000 });
+    } catch {
+      return null;
+    }
+    if (!res.ok) return null;
+    const data = (await res.json()) as TmdbExternalIds;
+    const tvdb = data.tvdb_id;
+    return Number.isInteger(tvdb) && (tvdb as number) > 0 ? (tvdb as number) : null;
+  }
+
+  return { searchMulti, details, browse, seasonEpisodes, tvdbId };
 }
 
 function sectionPaths(section: DiscoverSection): string[] {

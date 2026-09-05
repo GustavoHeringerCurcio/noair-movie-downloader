@@ -249,6 +249,7 @@ Backend endpoints changed/added: S2 (seasons), S3 (season/episode params + cover
 | 2026-09-05 | v2: all gaps resolved (see table); docs/plan Task 0 applied; new contracts (S12, columns, episode deep-link). |
 | 2026-09-05 | v3 (second pass): S13 file tags kill parser duplication (NB-1); season gating (NB-4); whole-series pack fallback+confirm (NB-3); legacy TV backfill in poll (NB-11); header top scrim (NB-6); conditional chevrons/peek (NB-7); docs/plan 02-specs S13 + 00-index updated. |
 | 2026-09-05 | v4 (UX): PART C added — ConfirmDownloadSheet (C-DL1), local playback resume (C-DL2), inline first-run guidance (C-DL3); change-log duplicates removed. |
+| 2026-09-05 | v5 (art engine + card finalization): optional Fanart.tv provider (§4.6, `FANART_API_KEY`) for 16:9 key-art + logos; colored 16:9 full-bleed clickable tiles (no captions/chips/Info icon), rounded ring; row vertical scroll removed; compact empty states. |
 
 ## Second-pass analysis (v3) — findings after the GA-1..GA-18 fixes
 

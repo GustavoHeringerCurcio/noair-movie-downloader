@@ -5,6 +5,7 @@ import { createPool } from './db/pool.js';
 import { runSchema } from './db/migrate.js';
 import { createDownloadsRepository } from './db/downloadsRepo.js';
 import { createTmdbClient } from './services/tmdb.js';
+import { createFanartClient } from './services/fanart.js';
 import { createProwlarrClient } from './services/prowlarr.js';
 import { createProwlarrAdminClient, type ProwlarrAdminClient } from './services/prowlarrAdmin.js';
 import { createQbittorrentClient } from './services/qbittorrent.js';
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
       category: 'stream',
     }),
     downloads: createDownloadsRepository(pool),
+    fanart: config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null,
   };
 
   if (config.prowlarrBootstrapIndexers) {

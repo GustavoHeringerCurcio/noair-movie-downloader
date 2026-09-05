@@ -473,7 +473,6 @@ ul {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: grayscale(1) contrast(1.02);
 }
 .hero-overlay-l {
   position: absolute;
@@ -638,14 +637,21 @@ ul {
 /* Rich empty state (library / downloads) */
 .empty-state-card {
   text-align: center;
-  padding: 40px 24px;
+  padding: 34px 24px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px dashed var(--border);
   border-radius: var(--radius-card);
 }
+.es-main,
+.es-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
 .empty-state-card h3 {
-  margin: 0 0 6px;
-  font-size: 22px;
+  margin: 0 0 4px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--white);
 }
@@ -656,25 +662,85 @@ ul {
   font-size: 14px;
 }
 .empty-state-card .guide-steps {
-  margin-top: 16px;
-}
-.empty-actions {
-  margin-top: 20px;
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  margin-top: 14px;
 }
 .empty-state-icon {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: var(--bg-3);
-  margin: 0 auto 16px;
+  margin: 0 auto 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-2);
+}
+.es-side .btn {
+  margin-top: 14px;
+}
+
+/* Compact variant — sits on one slim row matching a content rail band */
+.empty-state-card--compact {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+  text-align: left;
+  min-height: 96px;
+}
+.empty-state-card--compact .es-main {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+.empty-state-card--compact .empty-state-icon {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.empty-state-card--compact .es-text {
+  min-width: 0;
+}
+.empty-state-card--compact h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.empty-state-card--compact p {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+.empty-state-card--compact .es-side {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.empty-state-card--compact .guide-steps {
+  margin: 0;
+  flex-wrap: nowrap;
+}
+.empty-state-card--compact .guide-step {
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+.empty-state-card--compact .es-side .btn {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .empty-state-card--compact {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+  .empty-state-card--compact .es-side {
+    flex-wrap: wrap;
+  }
 }
 
 /* Skeleton */
@@ -709,44 +775,13 @@ ul {
   box-shadow: 0 0 0 2px var(--white), 0 16px 38px rgba(0, 0, 0, 0.72);
 }
 
-/* Posterized artwork: blurred stage + sharp centered poster */
-.title-card-bg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: grayscale(1) contrast(1.06) blur(22px);
-  transform: scale(1.18);
-  pointer-events: none;
-}
-.title-card-stage {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4%;
-}
-.title-card-poster {
-  height: 94%;
-  max-width: 100%;
-  aspect-ratio: 2 / 3;
-  object-fit: cover;
-  border-radius: var(--radius-poster);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
-  filter: grayscale(1);
-}
-
-/* Sharp full-bleed fallback (backdrop only) + caption */
+/* Full-bleed colored artwork (Fanart.tv thumb > TMDB backdrop > poster) */
 .title-card-media {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: grayscale(1);
 }
 .title-card-fallback {
   position: absolute;
@@ -758,47 +793,6 @@ ul {
   font-weight: 800;
   color: var(--text-3);
   background: linear-gradient(135deg, var(--bg-2), var(--bg-3));
-}
-.title-card-shade {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 55%;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 6%, rgba(0, 0, 0, 0.35) 45%, transparent);
-  pointer-events: none;
-}
-.title-card-info {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 20px 10px 8px;
-}
-.title-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Metadata chips over the blur margin */
-.title-card-chips {
-  position: absolute;
-  top: 8px;
-  left: 10px;
-  right: 10px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  pointer-events: none;
-  z-index: 3;
-}
-.title-card-chips .chip {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: rgba(255, 255, 255, 0.35);
-  color: var(--text-1);
-  backdrop-filter: blur(4px);
 }
 
 .title-card .progress-track {
@@ -1032,13 +1026,22 @@ ul {
   align-items: flex-end;
 }
 .detail-hero .hero-media {
-  filter: grayscale(1);
+  filter: none;
 }
 .dh-content {
   position: relative;
   z-index: 2;
   padding: 40px var(--gutter) 34px;
   width: 100%;
+}
+.dh-logo {
+  max-width: min(420px, 70%);
+  max-height: 96px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 0 0 14px;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.7));
 }
 .dh-title {
   margin: 0 0 10px;
@@ -1740,8 +1743,5 @@ ul {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-  .hero-media {
-    filter: grayscale(1);
   }
 }

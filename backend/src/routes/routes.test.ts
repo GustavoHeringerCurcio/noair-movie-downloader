@@ -395,3 +395,19 @@ describe('S12 GET /api/media/:id/season/:n', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('Fanart enrichment on detail', () => {
+  it('returns art on GET /api/media/:id when a fanart client is configured', async () => {
+    const deps = makeTestDeps({
+      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
+      fanart: {
+        getMovieArt: async () => ({ thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' }),
+        getTvArt: async () => ({ thumbUrl: null, logoUrl: null }),
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205?type=movie');
+    expect(res.status).toBe(200);
+    expect(res.body.art).toEqual({ thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' });
+  });
+});

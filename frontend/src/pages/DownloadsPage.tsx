@@ -110,11 +110,12 @@ export function DownloadsPage() {
       {ordered.length === 0 ? (
         <EmptyState
           title="Nothing downloaded yet"
-          hint="Search for a movie or show, pick the release you want, and it will appear here with live progress — ready to stream before it finishes."
+          hint="Search for a movie or show and start a download — stream it here before it finishes."
           steps={['1 · Search', '2 · Download', '3 · Watch']}
-          icon={<Download size={24} />}
+          icon={<Download size={22} />}
           actionLabel="Browse movies"
           onAction={() => navigate('/')}
+          compact
         />
       ) : visible.length === 0 ? (
         <p className="empty-state">No downloads match this filter.</p>

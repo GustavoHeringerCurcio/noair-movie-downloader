@@ -100,6 +100,7 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
       },
       browse: async () => [],
       seasonEpisodes: async () => [],
+      tvdbId: async () => null,
     },
     prowlarr: {
       search: async () => [],

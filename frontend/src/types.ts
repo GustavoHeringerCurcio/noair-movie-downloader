@@ -12,6 +12,11 @@ export interface SeasonEpisodesResponse {
   episodes: TvEpisode[];
 }
 
+export interface MediaArt {
+  thumbUrl: string | null;
+  logoUrl: string | null;
+}
+
 export interface MediaItem {
   tmdbId: number;
   mediaType: MediaType;
@@ -21,6 +26,7 @@ export interface MediaItem {
   backdropPath: string | null;
   overview: string;
   voteAverage: number;
+  art?: MediaArt | null;
 }
 
 export interface TvSeasonSummary {
@@ -57,6 +63,7 @@ export interface MediaDetail {
   genres: string[];
   runtime: number | null;
   seasons?: TvSeasonSummary[] | null;
+  art?: MediaArt | null;
 }
 
 export interface Source {

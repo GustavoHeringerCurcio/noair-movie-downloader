@@ -25,17 +25,6 @@ const HOME_SECTIONS: Array<{ section: DiscoverSection; title: string }> = [
 
 const emptyState = (): SectionState => ({ items: [], loading: true, error: null });
 
-function qualityLabel(d: DownloadRecord): string {
-  const parts: string[] = [];
-  if (d.seasonNumber != null) parts.push(`S${String(d.seasonNumber).padStart(2, '0')}${d.episodeNumber != null ? `E${String(d.episodeNumber).padStart(2, '0')}` : ''}`);
-  if (d.resolution) parts.push(d.resolution);
-  if (d.source) parts.push(d.source);
-  if (d.codec) parts.push(d.codec);
-  if (d.isDolbyVision) parts.push('DoVi');
-  else if (d.hdr) parts.push('HDR');
-  return parts.join(' · ');
-}
-
 function toMediaItem(d: DownloadRecord): MediaItem {
   return {
     tmdbId: d.tmdbId ?? 0,
@@ -111,8 +100,6 @@ export function HomePage() {
     return null;
   }
 
-  const detailNav = (item: MediaItem): string => `/media/${item.tmdbId}?type=${item.mediaType}`;
-
   return (
     <>
       <HeroBillboard />
@@ -125,11 +112,12 @@ export function HomePage() {
           emptyContent={
             <EmptyState
               title="Your downloads will live here"
-              hint="Search for a movie or show, pick the best release, and watch it while it downloads."
+              hint="Search a title, pick the best release, and watch while it downloads."
               steps={['1 · Search', '2 · Download', '3 · Watch']}
-              icon={<Download size={24} />}
+              icon={<Download size={20} />}
               actionLabel="Search titles"
               onAction={() => openSearch(true)}
+              compact
             />
           }
         >
@@ -138,9 +126,7 @@ export function HomePage() {
               key={d.infoHash}
               item={toMediaItem(d)}
               progress={d.progress < 1 ? d.progress : null}
-              quality={qualityLabel(d) || (d.progress < 1 ? `${Math.round(d.progress * 100)}%` : undefined) || undefined}
               primary={primaryFor(d)}
-              onOpenDetail={() => navigate(detailNav(toMediaItem(d)))}
             />
           ))}
         </SectionRail>
@@ -152,12 +138,7 @@ export function HomePage() {
           emptyHint="Titles you open from search or browsing will appear here."
         >
           {recents.map(({ item }) => (
-            <TitleCard
-              key={`${item.mediaType}-${item.tmdbId}`}
-              item={item}
-              primary={null}
-              onOpenDetail={() => navigate(detailNav(item))}
-            />
+            <TitleCard key={`${item.mediaType}-${item.tmdbId}`} item={item} primary={null} />
           ))}
         </SectionRail>
 

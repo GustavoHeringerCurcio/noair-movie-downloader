@@ -17,13 +17,13 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Auth: none
 - Request: query `q: string` (required), `type: "movie" | "tv" | "all"` (default `all`).
 - Response: `200` → `{ items: MediaItem[] }`
-  - `MediaItem`: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, backdropPath: string|null, overview: string, voteAverage: number }`
+  - `MediaItem`: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, backdropPath: string|null, overview: string, voteAverage: number, art?: MediaArt|null }` — `art` present only when Fanart enrichment succeeded (§4.6); `MediaArt = { thumbUrl: string|null, logoUrl: string|null }`.
 - Errors: `400` missing `q`.
 
 ### S2 `GET /api/media/:id`
 - Auth: none
 - Request: query `type: "movie" | "tv"` (required).
-- Response: `200` → `{ tmdbId: number, mediaType: string, title: string, year: number|null, overview: string, posterPath: string|null, backdropPath: string|null, voteAverage: number, genres: string[], runtime: number|null }`. For `type=tv`, additionally `seasons: TvSeasonSummary[]` where `TvSeasonSummary = { seasonNumber: number, name: string, episodeCount: number }` — excludes season `0` (specials) and any season with `episodeCount <= 0`.
+- Response: `200` → `{ tmdbId: number, mediaType: string, title: string, year: number|null, overview: string, posterPath: string|null, backdropPath: string|null, voteAverage: number, genres: string[], runtime: number|null, art?: MediaArt|null }`. For `type=tv`, additionally `seasons: TvSeasonSummary[]` where `TvSeasonSummary = { seasonNumber: number, name: string, episodeCount: number }` — excludes season `0` (specials) and any season with `episodeCount <= 0`.
 - Errors: `400` missing/invalid `type`; `502` TMDB unreachable.
 
 ### S3 `GET /api/media/:id/sources`
@@ -293,6 +293,15 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
   - `coverageCovers(coverage, season, episode?)` — season scope matches `episodes === null`; episode scope matches a contained episode.
   - `isFullSeason(coverage, season)` — any entry with `episodes === null`.
 - Downloaded-torrent file matching: the S13 file-list endpoint tags every `StreamFileInfo` with `seasonNumber`/`episodeNumber` parsed server-side from the file basename via the same `SxxExx` regex — the UI reads tags for `/watch?episode=` auto-select and episode→file mapping. No client-side parser duplication; a minimal `frontend/src/lib/episode.ts` fallback is allowed only when a file has no server tag.
+
+### 4.6 Fanart.tv key art (optional enrichment)
+- Purpose: Netflix-style **16:9 key art** (`moviethumb`/`tvthumb`) + transparent logos (`movielogo`/`hdmovielogo`, `hdtvlogo`/`clearlogo`) for colored title tiles and the Detail hero logo. **Fanart art is community-curated, not official studio art** — best-effort enhancement only.
+- Config: optional `FANART_API_KEY` in `.env` (`services/fanart.ts`). When absent or unset, enrichment is skipped entirely and TMDB artwork is used.
+- Endpoints: `GET https://webservice.fanart.tv/v3/movies/{tmdbId}?api_key=…`; TV requires TVDB id → resolve via TMDB `GET /tv/{id}/external_ids` (`tmdb.tvdbId`), then `GET https://webservice.fanart.tv/v3/tv/{tvdbId}?api_key=…`.
+- Selection: pick the most-liked `url` per type; only `https:` URLs accepted; `hdmovielogo`→`movielogo` and `hdtvlogo`→`clearlogo` fallback chains (empty arrays are treated as absent).
+- Caching: in-memory TTL 24h per `(movies|tv):id`. Failures (non-2xx, network) return nulls — never throw into API responses.
+- Enrichment (`lib/enrich.ts`): `enrichItems` (search/browse) and `enrichDetail` (`/media/:id`) run **best-effort, parallel (5 workers), `Promise.allSettled`** and attach `art?: MediaArt` only on success. No enrichment on `/sources` or `/season/:n`.
+- `MediaArt = { thumbUrl: string|null, logoUrl: string|null }`. UI card image priority: `art.thumbUrl` → TMDB `w1280` backdrop → poster crop → monogram.
 
 ## 5. Canonical naming (single source of truth)
 | Term | Canonical name |

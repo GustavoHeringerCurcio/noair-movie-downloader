@@ -16,7 +16,11 @@ const FULL: MediaItem = {
   voteAverage: 8.4,
 };
 
-const BACKDROP_ONLY: MediaItem = { ...FULL, posterPath: null };
+const FANART_ART: MediaItem = {
+  ...FULL,
+  art: { thumbUrl: 'https://fanart.tv/keyart.jpg', logoUrl: null },
+};
+
 const NO_ART: MediaItem = { ...FULL, posterPath: null, backdropPath: null };
 
 function renderCard(item: MediaItem): void {
@@ -33,27 +37,27 @@ afterEach(() => {
 });
 
 describe('TitleCard', () => {
-  it('renders a sharp centered poster over a blurred backdrop', () => {
-    renderCard(FULL);
-    expect(document.querySelector('.title-card-poster')).not.toBeNull();
-    expect(document.querySelector('.title-card-bg')).not.toBeNull();
+  it('prioritizes Fanart.tv key art over TMDB artwork', () => {
+    renderCard(FANART_ART);
+    const img = document.querySelector('.title-card-media') as HTMLImageElement | null;
+    expect(img?.src).toBe('https://fanart.tv/keyart.jpg');
     expect(screen.getByRole('button', { name: /inception/i })).toBeInTheDocument();
   });
 
-  it('falls back to a full-bleed image with a caption when only a backdrop exists', () => {
-    renderCard(BACKDROP_ONLY);
-    expect(document.querySelector('.title-card-poster')).toBeNull();
-    expect(document.querySelector('.title-card-media')).not.toBeNull();
-    expect(screen.getByText('Inception')).toBeInTheDocument();
+  it('falls back to the TMDB backdrop and fills the full 16:9 card', () => {
+    renderCard(FULL);
+    const img = document.querySelector('.title-card-media') as HTMLImageElement | null;
+    expect(img?.src).toContain('/api/images/tmdb/w1280/backdrop.jpg');
+    expect(screen.queryByRole('button', { name: /more info/i })).not.toBeInTheDocument();
   });
 
-  it('shows a monogram tile when no artwork exists', () => {
+  it('shows a monogram tile when no artwork exists and keeps the whole card clickable', () => {
     renderCard(NO_ART);
-    expect(document.querySelector('.title-card-poster')).toBeNull();
     expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
+    expect(screen.getByRole('button', { name: /inception/i })).toBeInTheDocument();
   });
 
-  it('exposes the primary action and more-info buttons', () => {
+  it('renders an optional primary quick action without any info button', () => {
     const primary = { label: 'Watch', icon: 'play' as const, onClick: vi.fn() };
     render(
       <MemoryRouter>
@@ -61,6 +65,6 @@ describe('TitleCard', () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'Watch' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'More info' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /more info/i })).not.toBeInTheDocument();
   });
 });
