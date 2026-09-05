@@ -7,6 +7,7 @@ interface SourceRowProps {
   variants?: Source[];
   onDownload: (source: Source) => void;
   disabled?: boolean;
+  disabledLabel?: string;
 }
 
 function chipClass(kind: string): string {
@@ -32,7 +33,7 @@ function QualityChips({ source }: { source: Source }) {
   );
 }
 
-export function SourceRow({ source, variants, onDownload, disabled }: SourceRowProps) {
+export function SourceRow({ source, variants, onDownload, disabled, disabledLabel }: SourceRowProps) {
   const [selectedIndexer, setSelectedIndexer] = useState<string | null>(null);
   const multi = variants && variants.length > 1;
   const selected = multi
@@ -76,8 +77,9 @@ export function SourceRow({ source, variants, onDownload, disabled }: SourceRowP
         className="btn btn-primary"
         onClick={() => onDownload(selected)}
         disabled={disabled}
+        title={disabled && disabledLabel ? disabledLabel : undefined}
       >
-        Download
+        {disabled && disabledLabel ? disabledLabel : 'Download'}
       </button>
     </li>
   );

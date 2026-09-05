@@ -505,6 +505,16 @@ select {
   font-size: 12px;
 }
 
+.poster-card-subtitle {
+  display: block;
+  color: var(--accent-2);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .poster-card-progress {
   position: absolute;
   left: 0;
@@ -923,6 +933,23 @@ select {
   flex: 1;
 }
 
+.download-quality {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.download-torrent-name {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
 .download-title {
   font-weight: 600;
   font-size: 14px;
@@ -1042,6 +1069,107 @@ select {
 .watch-footer {
   display: flex;
   gap: 10px;
+}
+
+.watch-file-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.watch-file-name {
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Episode / file picker for multi-file downloads (season packs) */
+.episode-picker {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.episode-picker-subtitle {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 4px 0 14px;
+}
+
+.episode-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.episode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.episode-row:hover {
+  border-color: var(--accent);
+  background: rgba(124, 108, 255, 0.08);
+}
+
+.episode-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.episode-size {
+  color: var(--text-dim);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.episode-incomplete {
+  color: var(--amber);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+/* Detail hero: list of the title's downloads */
+.hero-downloads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.hero-downloads-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.hero-downloads-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .hint {

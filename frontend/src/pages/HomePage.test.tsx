@@ -41,6 +41,11 @@ function makeDownload(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
     streamable: false,
     createdAt: '2026-09-01T00:00:00.000Z',
     completedAt: null,
+    resolution: null,
+    source: null,
+    codec: null,
+    hdr: false,
+    isDolbyVision: false,
     ...overrides,
   };
   return base;

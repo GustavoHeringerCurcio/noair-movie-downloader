@@ -30,6 +30,11 @@ function makeDownload(infoHash: string, overrides: Partial<DownloadRecord> = {})
     streamable: false,
     createdAt: '2026-09-01T00:00:00.000Z',
     completedAt: null,
+    resolution: null,
+    source: null,
+    codec: null,
+    hdr: false,
+    isDolbyVision: false,
     ...overrides,
   };
 }
@@ -75,6 +80,40 @@ describe('DownloadsPage', () => {
     expect(screen.getByText('The Matrix')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /watch/i }).length).toBe(2);
     expect(screen.getAllByRole('button', { name: /remove/i }).length).toBe(2);
+  });
+
+  it('shows quality chips so duplicate copies of a title are distinguishable', () => {
+    useDownloadsStore.setState({
+      downloads: [
+        makeDownload('a'.repeat(40), {
+          state: 'seeding',
+          progress: 1,
+          etaSeconds: null,
+          resolution: '2160p',
+          source: 'REMUX',
+          codec: 'x265',
+        }),
+        makeDownload('b'.repeat(40), {
+          title: 'Blade Runner 2049',
+          torrentName: 'Blade.Runner.2049.2017.1080p.WEB-DL',
+          resolution: '1080p',
+          source: 'WEB-DL',
+          codec: 'x264',
+        }),
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <DownloadsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('2160p')).toBeInTheDocument();
+    expect(screen.getByText('REMUX')).toBeInTheDocument();
+    expect(screen.getByText('1080p')).toBeInTheDocument();
+    expect(screen.getByText('WEB-DL')).toBeInTheDocument();
+    expect(screen.getByText(/Blade\.Runner/)).toBeInTheDocument();
   });
 });
 

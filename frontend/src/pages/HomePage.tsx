@@ -23,6 +23,16 @@ const HOME_SECTIONS: Array<{ section: DiscoverSection; title: string }> = [
 
 const emptyState = (): SectionState => ({ items: [], loading: true, error: null });
 
+function qualityLabel(d: DownloadRecord): string {
+  const parts: string[] = [];
+  if (d.resolution) parts.push(d.resolution);
+  if (d.source) parts.push(d.source);
+  if (d.codec) parts.push(d.codec);
+  if (d.isDolbyVision) parts.push('DoVi');
+  else if (d.hdr) parts.push('HDR');
+  return parts.join(' · ');
+}
+
 export function HomePage() {
   const navigate = useNavigate();
   const downloads = useDownloadsStore((s) => s.downloads);
@@ -221,7 +231,7 @@ export function HomePage() {
                 type="button"
                 className="poster-link"
                 onClick={() => openDownload(d)}
-                aria-label={`${d.title ?? d.torrentName}${d.progress >= 1 ? '' : ` (${Math.round(d.progress * 100)}% downloaded)`}`}
+                aria-label={`${d.title ?? d.torrentName}${qualityLabel(d)}${d.progress >= 1 ? '' : ` (${Math.round(d.progress * 100)}% downloaded)`}`}
               >
                 <PosterCard
                   item={{
@@ -235,6 +245,7 @@ export function HomePage() {
                     voteAverage: 0,
                   }}
                   progress={d.progress < 1 ? d.progress : null}
+                  subtitle={qualityLabel(d) || null}
                 />
               </button>
             ))}

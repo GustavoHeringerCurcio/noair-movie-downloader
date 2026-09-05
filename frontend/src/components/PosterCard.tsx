@@ -4,9 +4,10 @@ import { posterUrl } from '../api';
 interface PosterCardProps {
   item: MediaItem;
   progress?: number | null;
+  subtitle?: string | null;
 }
 
-export function PosterCard({ item, progress }: PosterCardProps) {
+export function PosterCard({ item, progress, subtitle }: PosterCardProps) {
   const poster = posterUrl(item.posterPath);
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const showRating = item.voteAverage > 0;
@@ -38,6 +39,7 @@ export function PosterCard({ item, progress }: PosterCardProps) {
         <h3 className="poster-card-title" title={item.title}>
           {item.title}
         </h3>
+        {subtitle && <span className="poster-card-subtitle" title={subtitle}>{subtitle}</span>}
         <span className="poster-card-year">{pct != null ? `Downloading ${pct}%` : (item.year ?? '—')}</span>
       </div>
     </article>

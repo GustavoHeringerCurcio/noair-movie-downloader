@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
-import { fileUrl, playInfo } from '../api';
-import type { PlayInfo } from '../types';
+import { downloadFiles, fileUrl, playInfo, humanSize } from '../api';
+import type { PlayInfo, StreamFileInfo } from '../types';
 
 function externalLink(play: PlayInfo): string {
   const httpUrl = `${window.location.origin}${play.playUrl}`;
   return `movie://${httpUrl}`;
+}
+
+function baseName(relative: string): string {
+  return relative.split('/').pop() ?? relative;
 }
 
 export function WatchPage() {
@@ -18,6 +22,8 @@ export function WatchPage() {
   const recents = useRecentsStore((s) => s.recents);
 
   const [play, setPlay] = useState<PlayInfo | null>(null);
+  const [files, setFiles] = useState<StreamFileInfo[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'notfound' | 'error'>('loading');
 
   useEffect(() => {
@@ -47,20 +53,54 @@ export function WatchPage() {
     let cancelled = false;
     setState('loading');
     setPlay(null);
-    playInfo(infoHash)
-      .then((info) => {
+    setSelectedFile(null);
+    setFiles([]);
+    async function load(): Promise<void> {
+      try {
+        const filesRes = await downloadFiles(infoHash);
         if (cancelled) return;
-        setPlay(info);
-        setState('ok');
-      })
-      .catch(() => {
+        setFiles(filesRes.files);
+        if (filesRes.files.length <= 1) {
+          const info = await playInfo(infoHash);
+          if (cancelled) return;
+          setPlay(info);
+          setState('ok');
+        } else {
+          setState('ok');
+        }
+      } catch {
         if (cancelled) return;
         setState('notfound');
-      });
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };
   }, [infoHash]);
+
+  const openFile = useCallback(
+    (file: string | null) => {
+      let cancelled = false;
+      setState('loading');
+      setPlay(null);
+      setSelectedFile(file);
+      playInfo(infoHash, file ?? undefined)
+        .then((info) => {
+          if (cancelled) return;
+          setPlay(info);
+          setState('ok');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setState('notfound');
+        });
+      return () => {
+        cancelled = true;
+      };
+    },
+    [infoHash],
+  );
 
   if (state === 'loading') {
     return (
@@ -70,7 +110,7 @@ export function WatchPage() {
     );
   }
 
-  if (state === 'notfound' || !play) {
+  if (state === 'notfound' || (files.length <= 1 && !play)) {
     return (
       <div className="page-state">
         <p className="empty-state">No playable file yet</p>
@@ -85,6 +125,48 @@ export function WatchPage() {
 
   const incomplete = download != null && download.progress < 1;
 
+  if (files.length > 1 && !play) {
+    return (
+      <div className="watch-page">
+        <div className="episode-picker">
+          <h2 className="rail-title">Choose what to play</h2>
+          <p className="episode-picker-subtitle">
+            This download contains {files.length} video files{files.length > 2 ? ' (e.g. a season pack)' : ''}.
+          </p>
+          <ul className="episode-list">
+            {files.map((file) => (
+              <li key={file.relative}>
+                <button type="button" className="episode-row" onClick={() => openFile(file.relative)}>
+                  <span className="episode-name">{baseName(file.relative)}</span>
+                  <span className="episode-size">{humanSize(file.size)}</span>
+                  {!file.complete && <span className="episode-incomplete">partial</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="watch-footer">
+            <a className="btn" href="/">
+              ← Back
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!play) {
+    return (
+      <div className="page-state">
+        <p className="empty-state">No playable file yet</p>
+        <div className="page-actions">
+          <a className="btn" href="/">
+            Back
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   if (play.mode === 'player-required') {
     return (
       <div className="page-state">
@@ -96,7 +178,7 @@ export function WatchPage() {
           <a className="btn btn-primary" href={externalLink(play)}>
             ▶ Open in VLC
           </a>
-          <a className="btn" href={fileUrl(infoHash)}>
+          <a className="btn" href={fileUrl(infoHash, selectedFile ?? undefined)}>
             Download file
           </a>
           <a className="btn" href="/">
@@ -110,6 +192,21 @@ export function WatchPage() {
 
   return (
     <div className="watch-page">
+      {files.length > 1 && (
+        <div className="watch-file-bar">
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() => {
+              setPlay(null);
+              setSelectedFile(null);
+            }}
+          >
+            ← {files.length} files
+          </button>
+          <span className="watch-file-name">{selectedFile ? baseName(selectedFile) : ''}</span>
+        </div>
+      )}
       <video className="watch-video" src={play.streamUrl} controls autoPlay playsInline />
       {incomplete && (
         <div className="watch-overlay">
@@ -123,7 +220,7 @@ export function WatchPage() {
         <a className="btn" href="/">
           ← Back
         </a>
-        <a className="btn btn-ghost" href={fileUrl(infoHash)}>
+        <a className="btn btn-ghost" href={fileUrl(infoHash, selectedFile ?? undefined)}>
           Download file
         </a>
       </div>

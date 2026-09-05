@@ -109,9 +109,21 @@ export interface DownloadRecord {
   streamable: boolean;
   createdAt: string;
   completedAt: string | null;
+  resolution: '2160p' | '1080p' | '720p' | '480p' | null;
+  source: 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip' | null;
+  codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
+  hdr: boolean;
+  isDolbyVision: boolean;
 }
 
 export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required';
+
+export interface StreamFileInfo {
+  relative: string;
+  mime: string;
+  size: number;
+  complete: boolean;
+}
 
 export interface PlayInfo {
   mode: PlayMode;
@@ -133,6 +145,11 @@ export interface CreateDownloadPayload {
   magnetUri: string;
   torrentName: string;
   indexer: string;
+  resolution: Source['resolution'];
+  source: Source['source'];
+  codec: Source['codec'];
+  hdr: boolean;
+  isDolbyVision: boolean;
 }
 
 export const STATE_COLORS: Record<TorrentState, string> = {

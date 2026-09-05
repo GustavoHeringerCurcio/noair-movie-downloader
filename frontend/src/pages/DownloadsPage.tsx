@@ -11,6 +11,7 @@ import {
   posterUrl,
 } from '@/api';
 import { StateBadge } from '@/components/StateBadge';
+import { DownloadQualityChips } from '@/components/DownloadQualityChips';
 import type { DownloadRecord } from '@/types';
 
 export function DownloadsPage() {
@@ -92,6 +93,18 @@ export function DownloadsPage() {
               <div className="download-info">
                 <div className="download-title" title={d.torrentName}>
                   {d.title ?? d.torrentName}
+                </div>
+                <div className="download-quality">
+                  <DownloadQualityChips
+                    resolution={d.resolution}
+                    source={d.source}
+                    codec={d.codec}
+                    hdr={d.hdr}
+                    isDolbyVision={d.isDolbyVision}
+                  />
+                  <span className="download-torrent-name" title={d.torrentName}>
+                    {d.torrentName}
+                  </span>
                 </div>
                 <div className="download-meta">
                   <StateBadge state={d.state} />

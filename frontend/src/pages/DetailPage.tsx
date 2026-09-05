@@ -57,7 +57,6 @@ export function DetailPage() {
   const downloads = useDownloadsStore((s) => s.downloads);
   const toast = useToastStore((s) => s.toast);
   const recordRecent = useRecentsStore((s) => s.record);
-
   useEffect(() => {
     if (!Number.isFinite(id) || id <= 0) {
       setDetailError('Invalid media id');
@@ -113,10 +112,15 @@ export function DetailPage() {
     };
   }, [id, mediaType, recordRecent]);
 
-  const activeDownload = useMemo(
-    () => downloads.find((d) => d.tmdbId === id && d.mediaType === mediaType),
+  const activeDownloads = useMemo(
+    () =>
+      downloads
+        .filter((d) => d.tmdbId === id && d.mediaType === mediaType)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [downloads, id, mediaType],
   );
+
+  const alreadyAddedHashes = useMemo(() => new Set(activeDownloads.map((d) => d.infoHash)), [activeDownloads]);
 
   const indexers = useMemo(
     () => [...new Set(allSources.map((s) => s.indexer).filter(Boolean))].sort(),
@@ -168,6 +172,11 @@ export function DetailPage() {
         magnetUri: source.magnetUri,
         torrentName: source.title,
         indexer: source.indexer,
+        resolution: source.resolution,
+        source: source.source,
+        codec: source.codec,
+        hdr: source.hdr,
+        isDolbyVision: source.isDolbyVision,
       });
       toast('Added to downloads', 'success');
     } catch (e) {
@@ -216,14 +225,25 @@ export function DetailPage() {
             <span className="hero-rating">★ {detail.voteAverage.toFixed(1)}</span>
           </div>
           <p className="hero-overview">{detail.overview}</p>
-          {activeDownload && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => navigate(`/watch/${activeDownload.infoHash}`)}
-            >
-              ▶ Watch
-            </button>
+          {activeDownloads.length > 0 && (
+            <div className="hero-downloads">
+              <span className="hero-downloads-label">
+                {activeDownloads.length === 1 ? '1 download of this title' : `${activeDownloads.length} downloads of this title`}
+              </span>
+              <div className="hero-downloads-list">
+                {activeDownloads.map((d) => (
+                  <button
+                    key={d.infoHash}
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => navigate(`/watch/${d.infoHash}`)}
+                    disabled={!d.streamable}
+                  >
+                    ▶ Watch{d.title === detail.title ? '' : ` — ${d.title}`}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </section>
@@ -411,13 +431,15 @@ export function DetailPage() {
               {visible.map((entry) => {
                 if ('variants' in entry) {
                   const group = entry as SourceGroup;
+                  const selected = group.variants.find((v) => alreadyAddedHashes.has(v.infoHash));
                   return (
                     <SourceRow
                       key={group.key}
                       source={group.best}
                       variants={group.variants}
                       onDownload={handleDownload}
-                      disabled={activeDownload != null}
+                      disabled={selected != null}
+                      disabledLabel={selected ? 'Already added' : undefined}
                     />
                   );
                 }
@@ -426,7 +448,8 @@ export function DetailPage() {
                     key={entry.infoHash}
                     source={entry}
                     onDownload={handleDownload}
-                    disabled={activeDownload != null}
+                    disabled={alreadyAddedHashes.has(entry.infoHash)}
+                    disabledLabel={alreadyAddedHashes.has(entry.infoHash) ? 'Already added' : undefined}
                   />
                 );
               })}

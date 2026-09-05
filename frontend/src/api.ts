@@ -8,6 +8,7 @@ import type {
   PlayInfo,
   SearchType,
   Source,
+  StreamFileInfo,
 } from './types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -34,16 +35,23 @@ export function backdropUrl(backdropPath: string | null): string | null {
   return backdropPath ? `/api/images/tmdb/w1280${backdropPath}` : null;
 }
 
-export function streamUrl(infoHash: string): string {
-  return `/api/stream/${encodeURIComponent(infoHash)}`;
+export function streamUrl(infoHash: string, file?: string): string {
+  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
+  return `/api/stream/${encodeURIComponent(infoHash)}${qs}`;
 }
 
-export function playInfo(infoHash: string): Promise<PlayInfo> {
-  return request<PlayInfo>(`/api/downloads/${encodeURIComponent(infoHash)}/playinfo`);
+export function playInfo(infoHash: string, file?: string): Promise<PlayInfo> {
+  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
+  return request<PlayInfo>(`/api/downloads/${encodeURIComponent(infoHash)}/playinfo${qs}`);
 }
 
-export function fileUrl(infoHash: string): string {
-  return `/api/downloads/${encodeURIComponent(infoHash)}/file`;
+export function fileUrl(infoHash: string, file?: string): string {
+  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
+  return `/api/downloads/${encodeURIComponent(infoHash)}/file${qs}`;
+}
+
+export function downloadFiles(infoHash: string): Promise<{ files: StreamFileInfo[] }> {
+  return request<{ files: StreamFileInfo[] }>(`/api/downloads/${encodeURIComponent(infoHash)}/files`);
 }
 
 export function search(q: string, type: SearchType): Promise<{ items: MediaItem[] }> {
