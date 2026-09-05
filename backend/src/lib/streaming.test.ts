@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   isInsideDirectory,
+  listStreamableFiles,
   mimeForFile,
   relativeToDownloadDir,
   resolveInside,
@@ -108,6 +109,47 @@ describe('resolveStreamForServing', () => {
 
   it('returns null when no content path is known', () => {
     expect(resolveStreamForServing('/downloads', null, null)).toBeNull();
+  });
+});
+
+describe('listStreamableFiles', () => {
+  it('lists episode files with relative paths and sizes', () => {
+    const downloadDir = makeTempDir('dl-');
+    const contentPath = path.join(downloadDir, 'show.s01');
+    fs.mkdirSync(contentPath);
+    writeFile(contentPath, 'S01E01.mkv', 500);
+    writeFile(contentPath, 'S01E02.mkv', 700);
+    writeFile(contentPath, 'sample.mp4', 50);
+    const files = listStreamableFiles(downloadDir, contentPath);
+    expect(files.map((f) => f.relative)).toEqual(['show.s01/S01E01.mkv', 'show.s01/S01E02.mkv', 'show.s01/sample.mp4']);
+    expect(files.map((f) => f.complete)).toEqual([true, true, true]);
+  });
+
+  it('marks .!qb files as incomplete and prefers the complete twin', () => {
+    const downloadDir = makeTempDir('dl-');
+    const contentPath = path.join(downloadDir, 'show.s01');
+    fs.mkdirSync(contentPath);
+    writeFile(contentPath, 'S01E01.mkv.!qb', 500);
+    writeFile(contentPath, 'S01E01.mkv', 500);
+    writeFile(contentPath, 'S01E02.mkv.!qb', 300);
+    const files = listStreamableFiles(downloadDir, contentPath);
+    expect(files).toHaveLength(2);
+    expect(files[0]).toMatchObject({ relative: 'show.s01/S01E01.mkv', complete: true });
+    expect(files[1]).toMatchObject({ relative: 'show.s01/S01E02.mkv.!qb', complete: false });
+  });
+
+  it('returns [] for a non-video or missing content path', () => {
+    const downloadDir = makeTempDir('dl-');
+    expect(listStreamableFiles(downloadDir, path.join(downloadDir, 'missing'))).toEqual([]);
+    writeFile(downloadDir, 'readme.txt', 10);
+    expect(listStreamableFiles(downloadDir, path.join(downloadDir, 'readme.txt'))).toEqual([]);
+  });
+
+  it('ignores files escaping the download dir', () => {
+    const downloadDir = makeTempDir('dl-');
+    const outside = makeTempDir('outside-');
+    writeFile(outside, 'evil.mkv', 1000);
+    expect(listStreamableFiles(downloadDir, outside)).toEqual([]);
   });
 });
 

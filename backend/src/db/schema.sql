@@ -21,6 +21,12 @@ CREATE TABLE IF NOT EXISTS downloads (
   completed_at timestamptz
 );
 
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS resolution text;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS codec text;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS hdr boolean NOT NULL DEFAULT false;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS is_dolby_vision boolean NOT NULL DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS settings (
   key text PRIMARY KEY,
   value jsonb NOT NULL

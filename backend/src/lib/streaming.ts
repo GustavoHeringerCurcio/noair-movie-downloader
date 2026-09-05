@@ -25,6 +25,13 @@ export interface ResolvedStreamFile {
   mime: string;
 }
 
+export interface StreamableFileInfo {
+  relative: string;
+  mime: string;
+  size: number;
+  complete: boolean;
+}
+
 function stripIncompleteSuffix(name: string): string {
   return name.endsWith('.!qb') ? name.slice(0, -4) : name;
 }
@@ -112,7 +119,7 @@ function chooseBest(candidates: Candidate[]): Candidate | null {
   });
 }
 
-export function resolveStreamFile(contentPath: string, downloadDir: string): ResolvedStreamFile | null {
+function resolveCandidates(contentPath: string): Candidate[] | null {
   if (!contentPath) return null;
   let candidates: Candidate[];
   try {
@@ -120,7 +127,26 @@ export function resolveStreamFile(contentPath: string, downloadDir: string): Res
   } catch {
     return null;
   }
-  candidates = preferCompleteOverIncomplete(candidates);
+  return preferCompleteOverIncomplete(candidates);
+}
+
+export function listStreamableFiles(downloadDir: string, contentPath: string): StreamableFileInfo[] {
+  const candidates = resolveCandidates(contentPath) ?? [];
+  const base = path.resolve(downloadDir);
+  return candidates
+    .filter((c) => isInsideDirectory(downloadDir, c.absolutePath))
+    .map((c) => ({
+      relative: path.relative(base, c.absolutePath).split(path.sep).join('/'),
+      mime: mimeForFile(c.absolutePath),
+      size: c.size,
+      complete: c.complete,
+    }))
+    .sort((a, b) => a.relative.localeCompare(b.relative, undefined, { numeric: true }));
+}
+
+export function resolveStreamFile(contentPath: string, downloadDir: string): ResolvedStreamFile | null {
+  const candidates = resolveCandidates(contentPath);
+  if (!candidates) return null;
   const best = chooseBest(candidates);
   if (!best) return null;
   if (!isInsideDirectory(downloadDir, best.absolutePath)) return null;
@@ -156,4 +182,41 @@ export function resolveStreamForServing(
   const resolved = resolveStreamFile(contentPath, downloadDir);
   if (!resolved) return null;
   return { relative: relativeToDownloadDir(downloadDir, resolved.absolutePath), mime: resolved.mime };
+}
+
+/**
+ * Resolves a specific file (episode) inside a torrent, chosen by its relative
+ * path. The path must belong to the torrent's own streamable file list so a
+ * caller cannot serve arbitrary files from elsewhere under the download dir.
+ */
+/**
+ * Resolves the file to serve for a torrent. An explicit episode choice (its
+ * relative path) is honored only if it belongs to the torrent's own file list;
+ * an invalid choice returns null (404) instead of silently falling back. When
+ * no choice is given, the stored/largest stream file is used.
+ */
+export function resolvePlaybackFile(
+  downloadDir: string,
+  contentPath: string | null,
+  storedStreamFilePath: string | null,
+  chosenRelative: string | null,
+): StreamServingResult | null {
+  if (!contentPath) return null;
+  if (chosenRelative) {
+    return resolveChosenStreamFile(downloadDir, contentPath, chosenRelative);
+  }
+  return resolveStreamForServing(downloadDir, contentPath, storedStreamFilePath);
+}
+
+export function resolveChosenStreamFile(
+  downloadDir: string,
+  contentPath: string,
+  chosenRelative: string,
+): StreamServingResult | null {
+  const normalized = chosenRelative.split(path.sep).join('/');
+  if (!isInsideDirectory(downloadDir, resolveInside(downloadDir, normalized))) return null;
+  const file = listStreamableFiles(downloadDir, contentPath).find((f) => f.relative === normalized);
+  if (!file) return null;
+  if (!existsOnDisk(resolveInside(downloadDir, file.relative))) return null;
+  return { relative: file.relative, mime: file.mime };
 }

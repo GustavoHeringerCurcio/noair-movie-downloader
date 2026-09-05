@@ -78,6 +78,11 @@ export interface DownloadRecord {
   streamable: boolean;
   createdAt: string;
   completedAt: string | null;
+  resolution: '2160p' | '1080p' | '720p' | '480p' | null;
+  source: 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip' | null;
+  codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
+  hdr: boolean;
+  isDolbyVision: boolean;
 }
 
 export interface CreateDownloadInput {
@@ -90,6 +95,11 @@ export interface CreateDownloadInput {
   magnetUri: string;
   torrentName: string;
   indexer: string | null;
+  resolution?: '2160p' | '1080p' | '720p' | '480p' | null;
+  source?: 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip' | null;
+  codec?: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
+  hdr?: boolean;
+  isDolbyVision?: boolean;
 }
 
 export class UpstreamError extends Error {

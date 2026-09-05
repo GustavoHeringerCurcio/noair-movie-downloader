@@ -1,25 +1,23 @@
 import { spawn } from 'node:child_process';
 import { Router, type Response } from 'express';
 import type { AppDeps } from '../deps.js';
-import { isInsideDirectory, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
+import { isInsideDirectory, resolveInside, resolvePlaybackFile } from '../lib/streaming.js';
 import { probeMedia } from '../lib/probe.js';
 import { decideStreamMode } from '../lib/streamPlan.js';
 import { buildRemuxCommand, buildTranscodeCommand } from '../lib/transcode.js';
 import type { DownloadRecord } from '../types.js';
 
-function resolveFile(deps: AppDeps, record: DownloadRecord): string | null {
-  const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
+function resolveFile(deps: AppDeps, record: DownloadRecord, chosenFile: string | null): string | null {
+  const resolved = resolvePlaybackFile(deps.config.downloadDir, record.contentPath, record.streamFilePath, chosenFile);
   if (!resolved) return null;
   const absolutePath = resolveInside(deps.config.downloadDir, resolved.relative);
   if (!isInsideDirectory(deps.config.downloadDir, absolutePath)) return null;
   return absolutePath;
 }
 
-function mimeFor(deps: AppDeps, record: DownloadRecord): string {
-  return (
-    resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath)?.mime ??
-    'application/octet-stream'
-  );
+function mimeFor(deps: AppDeps, record: DownloadRecord, chosenFile: string | null): string {
+  const resolved = resolvePlaybackFile(deps.config.downloadDir, record.contentPath, record.streamFilePath, chosenFile);
+  return resolved?.mime ?? 'application/octet-stream';
 }
 
 function serveFfmpeg(
@@ -78,19 +76,21 @@ export function createStreamRouter(deps: AppDeps): Router {
 
   // Native stream — original file with Range/seek (for browsers that can decode it,
   // and for external players). Codecs are NOT normalized.
+  // Optional ?file=<relative> selects a specific episode inside a season pack.
   router.get('/stream/:infoHash', async (req, res) => {
     const infoHash = (req.params.infoHash ?? '').trim().toLowerCase();
+    const file = typeof req.query.file === 'string' ? req.query.file : null;
     const record = await deps.downloads.findByInfoHash(infoHash);
     if (!record) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const absolutePath = resolveFile(deps, record);
+    const absolutePath = resolveFile(deps, record, file);
     if (!absolutePath) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    res.sendFile(absolutePath, { headers: { 'Content-Type': mimeFor(deps, record) } });
+    res.sendFile(absolutePath, { headers: { 'Content-Type': mimeFor(deps, record, file) } });
   });
 
   // Browser watch stream — probes the file and serves whatever the browser can play:
@@ -98,12 +98,13 @@ export function createStreamRouter(deps: AppDeps): Router {
   // is not transcoded; the client should route to the player-required flow instead.
   router.get('/stream/:infoHash/watch', async (req, res) => {
     const infoHash = (req.params.infoHash ?? '').trim().toLowerCase();
+    const file = typeof req.query.file === 'string' ? req.query.file : null;
     const record = await deps.downloads.findByInfoHash(infoHash);
     if (!record) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const absolutePath = resolveFile(deps, record);
+    const absolutePath = resolveFile(deps, record, file);
     if (!absolutePath) {
       res.status(404).json({ error: 'not found' });
       return;
@@ -113,7 +114,7 @@ export function createStreamRouter(deps: AppDeps): Router {
     const mode = decideStreamMode(probe ?? { videoCodec: null, audioCodec: null, height: null });
 
     if (mode === 'direct') {
-      res.sendFile(absolutePath, { headers: { 'Content-Type': mimeFor(deps, record) } });
+      res.sendFile(absolutePath, { headers: { 'Content-Type': mimeFor(deps, record, file) } });
       return;
     }
     if (mode === 'player-required') {

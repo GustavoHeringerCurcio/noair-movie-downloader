@@ -22,6 +22,11 @@ interface DownloadRow {
   stream_file_path: string | null;
   created_at: string;
   completed_at: string | null;
+  resolution: string | null;
+  source: string | null;
+  codec: string | null;
+  hdr: boolean;
+  is_dolby_vision: boolean;
 }
 
 function rowToRecord(row: DownloadRow): DownloadRecord {
@@ -47,6 +52,11 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
     streamable: row.stream_file_path != null,
     createdAt: row.created_at,
     completedAt: row.completed_at,
+    resolution: (row.resolution as DownloadRecord['resolution']) ?? null,
+    source: (row.source as DownloadRecord['source']) ?? null,
+    codec: (row.codec as DownloadRecord['codec']) ?? null,
+    hdr: row.hdr,
+    isDolbyVision: row.is_dolby_vision,
   };
 }
 
@@ -92,8 +102,9 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
   async function insert(input: CreateDownloadInput): Promise<DownloadRecord> {
     const result = await pool.query<DownloadRow>(
       `INSERT INTO downloads
-        (tmdb_id, media_type, title, year, poster_path, info_hash, torrent_name, indexer)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        (tmdb_id, media_type, title, year, poster_path, info_hash, torrent_name, indexer,
+         resolution, source, codec, hdr, is_dolby_vision)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         input.tmdbId,
@@ -104,6 +115,11 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
         input.infoHash,
         input.torrentName,
         input.indexer,
+        input.resolution ?? null,
+        input.source ?? null,
+        input.codec ?? null,
+        input.hdr === true,
+        input.isDolbyVision === true,
       ],
     );
     return rowToRecord(result.rows[0]!);

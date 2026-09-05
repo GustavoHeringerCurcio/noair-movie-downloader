@@ -3,7 +3,12 @@ import { Router, type Response } from 'express';
 import type { MediaType } from '../types.js';
 import { UpstreamError } from '../types.js';
 import type { AppDeps } from '../deps.js';
-import { isInsideDirectory, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
+import {
+  isInsideDirectory,
+  listStreamableFiles,
+  resolveInside,
+  resolvePlaybackFile,
+} from '../lib/streaming.js';
 import { probeMedia } from '../lib/probe.js';
 import { decideStreamMode } from '../lib/streamPlan.js';
 
@@ -17,12 +22,47 @@ function toText(value: unknown): string {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 }
 
+function toQueryString(params: Record<string, string>): string {
+  const search = new URLSearchParams(params).toString();
+  return search ? `?${search}` : '';
+}
+
+const RESOLUTIONS = ['2160p', '1080p', '720p', '480p'] as const;
+const SOURCES = ['REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'BDRip', 'BRRip', 'HDTV', 'DVDRip'] as const;
+const CODECS = ['x264', 'x265', 'AV1', 'XviD', 'DivX'] as const;
+
+function qualityField<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  const v = toText(value);
+  return (allowed as readonly string[]).includes(v) ? (v as T) : null;
+}
+
+function toBool(value: unknown): boolean {
+  return value === true || value === 'true' || value === '1';
+}
+
 export function createDownloadsRouter(deps: AppDeps): Router {
   const router = Router();
 
   router.get('/downloads', async (_req, res) => {
     const downloads = await deps.downloads.list();
     res.json({ downloads });
+  });
+
+  // Lists the playable video files inside a torrent so the UI can offer an
+  // episode/file picker for season packs (and multi-file releases).
+  router.get('/downloads/:infoHash/files', async (req, res) => {
+    const infoHash = toText(req.params.infoHash).trim().toLowerCase();
+    const record = await deps.downloads.findByInfoHash(infoHash);
+    if (!record) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    if (!record.contentPath) {
+      res.status(404).json({ error: 'not ready' });
+      return;
+    }
+    const files = listStreamableFiles(deps.config.downloadDir, record.contentPath);
+    res.json({ files });
   });
 
   router.post('/downloads', async (req, res) => {
@@ -64,6 +104,11 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       magnetUri,
       torrentName,
       indexer: toText(body.indexer) || null,
+      resolution: qualityField(body.resolution, RESOLUTIONS),
+      source: qualityField(body.source, SOURCES),
+      codec: qualityField(body.codec, CODECS),
+      hdr: toBool(body.hdr),
+      isDolbyVision: toBool(body.isDolbyVision),
     });
     res.status(201).json(record);
   });
@@ -87,12 +132,13 @@ export function createDownloadsRouter(deps: AppDeps): Router {
 
   router.get('/downloads/:infoHash/file', async (req, res) => {
     const infoHash = toText(req.params.infoHash).trim().toLowerCase();
+    const file = toText(req.query.file);
     const record = await deps.downloads.findByInfoHash(infoHash);
     if (!record) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
+    const resolved = resolvePlaybackFile(deps.config.downloadDir, record.contentPath, record.streamFilePath, file || null);
     if (!resolved) {
       res.status(404).json({ error: 'not found' });
       return;
@@ -109,14 +155,16 @@ export function createDownloadsRouter(deps: AppDeps): Router {
 
   // Playback info: codec probe + serving strategy so the UI can pick the right
   // player before mounting <video> (direct / remux / transcode / player-required).
+  // An optional ?file=<relative> selects a specific episode inside a season pack.
   router.get('/downloads/:infoHash/playinfo', async (req, res) => {
     const infoHash = toText(req.params.infoHash).trim().toLowerCase();
+    const file = toText(req.query.file);
     const record = await deps.downloads.findByInfoHash(infoHash);
     if (!record) {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const resolved = resolveStreamForServing(deps.config.downloadDir, record.contentPath, record.streamFilePath);
+    const resolved = resolvePlaybackFile(deps.config.downloadDir, record.contentPath, record.streamFilePath, file || null);
     if (!resolved) {
       res.status(404).json({ error: 'not found' });
       return;
@@ -129,14 +177,15 @@ export function createDownloadsRouter(deps: AppDeps): Router {
     const probe = await probeMedia(absolutePath);
     const probeInfo = probe ?? { videoCodec: null, audioCodec: null, height: null };
     const mode = decideStreamMode(probeInfo);
+    const qs = file ? toQueryString({ file }) : '';
     res.json({
       mode,
       videoCodec: probeInfo.videoCodec,
       audioCodec: probeInfo.audioCodec,
       height: probeInfo.height,
-      streamUrl: `/api/stream/${infoHash}/watch`,
-      playUrl: `/api/stream/${infoHash}`,
-      fileUrl: `/api/downloads/${infoHash}/file`,
+      streamUrl: `/api/stream/${infoHash}/watch${qs}`,
+      playUrl: `/api/stream/${infoHash}${qs}`,
+      fileUrl: `/api/downloads/${infoHash}/file${qs}`,
     });
   });
 

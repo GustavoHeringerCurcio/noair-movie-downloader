@@ -76,6 +76,11 @@ export function makeDownloadRecord(overrides: Partial<DownloadRecord> = {}): Dow
     streamable: true,
     createdAt: '2026-09-01T00:00:00.000Z',
     completedAt: null,
+    resolution: null,
+    source: null,
+    codec: null,
+    hdr: false,
+    isDolbyVision: false,
     ...overrides,
   };
 }
