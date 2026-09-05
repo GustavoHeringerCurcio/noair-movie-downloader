@@ -1,12 +1,6 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
-export type DiscoverSection =
-  | 'trending-week'
-  | 'popular-movies'
-  | 'best-movies'
-  | 'top-rated-recent'
-  | 'popular-tv'
-  | 'best-tv';
+export type DiscoverSection = 'trending-week' | 'best-movies' | 'best-tv';
 
 export interface HomeSection {
   section: DiscoverSection;

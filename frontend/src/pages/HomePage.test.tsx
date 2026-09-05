@@ -82,12 +82,11 @@ describe('HomePage', () => {
 
     expect(await screen.findByText('Trending This Week')).toBeInTheDocument();
     expect((await screen.findAllByText('Inception')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Popular Movies')).toBeInTheDocument();
     expect(screen.getByText('Best Movies')).toBeInTheDocument();
-    expect(screen.getByText('Top Rated (Recent)')).toBeInTheDocument();
-    expect(screen.getByText('Popular TV')).toBeInTheDocument();
     expect(screen.getByText('Best Series')).toBeInTheDocument();
-    expect(screen.queryByText('Now Playing')).not.toBeInTheDocument();
+    expect(screen.queryByText('Popular Movies')).not.toBeInTheDocument();
+    expect(screen.queryByText('Top Rated (Recent)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Popular TV')).not.toBeInTheDocument();
   });
 
   it('shows empty-state hints for downloads and recents when nothing exists yet', async () => {

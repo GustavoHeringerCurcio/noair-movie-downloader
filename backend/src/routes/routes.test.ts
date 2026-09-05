@@ -57,7 +57,7 @@ describe('routes', () => {
       },
     });
     const app = createApp(deps);
-    const res = await request(app).get('/api/browse?section=popular-movies');
+    const res = await request(app).get('/api/browse?section=best-movies');
     expect(res.status).toBe(502);
     expect(res.body.error).toBe('TMDB unreachable');
   });

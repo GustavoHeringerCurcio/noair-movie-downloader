@@ -2,14 +2,7 @@ import type { MediaDetail, MediaItem, MediaType, SearchType } from '../types.js'
 import { UpstreamError } from '../types.js';
 import { fetchWithRetry } from '../lib/http.js';
 
-export const DISCOVER_SECTIONS = [
-  'trending-week',
-  'popular-movies',
-  'best-movies',
-  'top-rated-recent',
-  'popular-tv',
-  'best-tv',
-] as const;
+export const DISCOVER_SECTIONS = ['trending-week', 'best-movies', 'best-tv'] as const;
 
 export type DiscoverSection = (typeof DISCOVER_SECTIONS)[number];
 
@@ -156,16 +149,8 @@ function sectionPaths(section: DiscoverSection): string[] {
   switch (section) {
     case 'trending-week':
       return ['/trending/movie/week', '/trending/tv/week'];
-    case 'popular-movies':
-      return ['/movie/popular'];
     case 'best-movies':
       return ['/discover/movie?sort_by=vote_average.desc&vote_count.gte=2000'];
-    case 'top-rated-recent':
-      return [
-        '/discover/movie?sort_by=vote_average.desc&vote_count.gte=500&primary_release_date.gte=2021-01-01',
-      ];
-    case 'popular-tv':
-      return ['/tv/popular'];
     case 'best-tv':
       return ['/discover/tv?sort_by=vote_average.desc&vote_count.gte=500'];
   }

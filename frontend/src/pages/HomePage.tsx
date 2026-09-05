@@ -17,10 +17,7 @@ interface SectionState {
 
 const HOME_SECTIONS: Array<{ section: DiscoverSection; title: string }> = [
   { section: 'trending-week', title: 'Trending This Week' },
-  { section: 'popular-movies', title: 'Popular Movies' },
   { section: 'best-movies', title: 'Best Movies' },
-  { section: 'top-rated-recent', title: 'Top Rated (Recent)' },
-  { section: 'popular-tv', title: 'Popular TV' },
   { section: 'best-tv', title: 'Best Series' },
 ];
 
