@@ -5,6 +5,10 @@ import { createPool } from './db/pool.js';
 import { runSchema } from './db/migrate.js';
 import { createDownloadsRepository } from './db/downloadsRepo.js';
 import { createSettingsRepository } from './db/settingsRepo.js';
+import { createArtRepository } from './db/artRepo.js';
+import { createArtService } from './lib/artService.js';
+import { createFanartGateway } from './lib/fanartGateway.js';
+import { startArtWarmLoop } from './lib/warmArt.js';
 import { createTmdbClient } from './services/tmdb.js';
 import { createFanartClient } from './services/fanart.js';
 import { createProwlarrClient } from './services/prowlarr.js';
@@ -19,10 +23,13 @@ async function main(): Promise<void> {
   await runSchema(pool);
   console.log('schema ready');
 
+  const tmdb = createTmdbClient({ baseUrl: config.tmdbBaseUrl, apiKey: config.tmdbApiKey });
+  const fanart = config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null;
+
   const deps: AppDeps = {
     config,
     pool,
-    tmdb: createTmdbClient({ baseUrl: config.tmdbBaseUrl, apiKey: config.tmdbApiKey }),
+    tmdb,
     prowlarr: createProwlarrClient({ baseUrl: config.prowlarrUrl, apiKey: config.prowlarrApiKey }),
     qbittorrent: createQbittorrentClient({
       baseUrl: config.qbittorrentUrl,
@@ -33,7 +40,15 @@ async function main(): Promise<void> {
     }),
     downloads: createDownloadsRepository(pool),
     settings: createSettingsRepository(pool),
-    fanart: config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null,
+    fanart,
+    art: createArtService({
+      repo: createArtRepository(pool),
+      gateway: createFanartGateway({
+        fanart,
+        resolveTvdbId: (tmdbId) => tmdb.tvdbId(tmdbId),
+        minGapMs: config.fanartMinGapMs,
+      }),
+    }),
   };
 
   if (config.prowlarrBootstrapIndexers) {
@@ -49,6 +64,7 @@ async function main(): Promise<void> {
 
   attachSocket(io, deps);
   startPollLoop(deps, io, config.pollIntervalMs);
+  startArtWarmLoop(deps, config.artWarmIntervalMs, 7 * 24 * 60 * 60 * 1000);
 
   server.listen(config.port, () => {
     console.log(`backend listening on :${config.port}`);

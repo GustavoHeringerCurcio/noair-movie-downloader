@@ -22,7 +22,11 @@ describe('createFanartClient', () => {
     ]);
     const client = createFanartClient({ ...CONFIG, fetchImpl });
     const art = await client.getMovieArt(550);
-    expect(art).toEqual({ thumbUrl: 'https://fanart.tv/b.jpg', logoUrl: 'https://fanart.tv/logo.png' });
+    expect(art).toEqual({
+      status: 'ok',
+      thumbUrl: 'https://fanart.tv/b.jpg',
+      logoUrl: 'https://fanart.tv/logo.png',
+    });
   });
 
   it('falls back movielogo to hdmovielogo and rejects non-https urls', async () => {
@@ -39,6 +43,7 @@ describe('createFanartClient', () => {
     ]);
     const client = createFanartClient({ ...CONFIG, fetchImpl });
     const art = await client.getMovieArt(123);
+    expect(art.status).toBe('ok');
     expect(art.thumbUrl).toBeNull();
     expect(art.logoUrl).toBe('https://fanart.tv/logo2.png');
   });
@@ -56,28 +61,70 @@ describe('createFanartClient', () => {
     ]);
     const client = createFanartClient({ ...CONFIG, fetchImpl });
     const art = await client.getTvArt(321);
+    expect(art.status).toBe('ok');
     expect(art.thumbUrl).toBe('https://fanart.tv/tv.jpg');
     expect(art.logoUrl).toBe('https://fanart.tv/clear.png');
   });
 
-  it('returns nulls on non-ok responses and caches successful results', async () => {
+  it('returns empty when the payload has no matching art', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: () => true,
+        respond: () => createResponse(200, { moviethumb: [], hdmovielogo: [] }),
+      },
+    ]);
+    const client = createFanartClient({ ...CONFIG, fetchImpl });
+    const art = await client.getMovieArt(7);
+    expect(art).toEqual({ status: 'empty', thumbUrl: null, logoUrl: null });
+  });
+
+  it('reports 404 as empty', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: () => true,
+        respond: () => createResponse(404, {}),
+      },
+    ]);
+    const client = createFanartClient({ ...CONFIG, fetchImpl });
+    const art = await client.getMovieArt(1);
+    expect(art).toEqual({ status: 'empty', thumbUrl: null, logoUrl: null });
+  });
+
+  it('caches successful results', async () => {
     let calls = 0;
     const fetchImpl = makeFetch([
       {
         match: () => true,
         respond: () => {
           calls += 1;
-          return createResponse(calls === 1 ? 200 : 500, {
-            moviethumb: [thumb('https://fanart.tv/x.jpg', 1)],
-          });
+          return createResponse(200, { moviethumb: [thumb('https://fanart.tv/x.jpg', 1)] });
         },
       },
     ]);
     const client = createFanartClient({ ...CONFIG, fetchImpl });
     const first = await client.getMovieArt(1);
-    expect(first.thumbUrl).toBe('https://fanart.tv/x.jpg');
+    expect(first.status).toBe('ok');
     const second = await client.getMovieArt(1);
-    expect(second.thumbUrl).toBe('https://fanart.tv/x.jpg');
+    expect(second.status).toBe('ok');
     expect(calls).toBe(1);
+  });
+
+  it('never caches transient errors', async () => {
+    let calls = 0;
+    const fetchImpl = makeFetch([
+      {
+        match: () => true,
+        respond: () => {
+          calls += 1;
+          return createResponse(429, {});
+        },
+      },
+    ]);
+    const client = createFanartClient({ ...CONFIG, fetchImpl });
+    const first = await client.getMovieArt(2);
+    const second = await client.getMovieArt(2);
+    expect(first.status).toBe('error');
+    expect(second.status).toBe('error');
+    expect(calls).toBe(2);
   });
 });

@@ -44,12 +44,22 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
 
   const sources = useMemo(() => cardImages(item, provider), [item, provider]);
   const [srcIndex, setSrcIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setSrcIndex(0);
+    setFailed(false);
   }, [item.tmdbId, item.mediaType, provider]);
 
-  const src = srcIndex < sources.length ? sources[srcIndex] : null;
+  const src = !failed && srcIndex < sources.length ? sources[srcIndex] : null;
+
+  function handleError(): void {
+    if (srcIndex + 1 < sources.length) {
+      setSrcIndex((i) => i + 1);
+    } else {
+      setFailed(true);
+    }
+  }
 
   function goDetail(): void {
     navigate(openDetail(item));
@@ -77,7 +87,7 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
           src={src}
           alt=""
           loading="lazy"
-          onError={() => setSrcIndex((i) => (i + 1 < sources.length ? i + 1 : i))}
+          onError={handleError}
         />
       ) : (
         <div className="title-card-fallback" aria-hidden="true">

@@ -1,6 +1,12 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
 
+/** A title we may want key art / logos for (currently Fanart.tv-sourced). */
+export interface ArtSubject {
+  mediaType: MediaType;
+  tmdbId: number;
+}
+
 export interface MediaArt {
   thumbUrl: string | null;
   logoUrl: string | null;

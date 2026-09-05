@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app.js';
-import { makeDownloadRecord, makeTestDeps } from '../../test/helpers.js';
-import { clearArtCache } from '../lib/enrich.js';
+import { makeDownloadRecord, makeTestDeps, createMemoryArtRepo } from '../../test/helpers.js';
+import { createArtService } from '../lib/artService.js';
+import { createFanartGateway } from '../lib/fanartGateway.js';
 import { UpstreamError } from '../types.js';
 import type { MediaDetail } from '../types.js';
 
@@ -22,10 +23,6 @@ const DETAIL: MediaDetail = {
 const HASH = 'aa'.repeat(20);
 
 describe('routes', () => {
-  beforeEach(() => {
-    clearArtCache();
-  });
-
   it('GET /api/browse returns items for a known section', async () => {
     const deps = makeTestDeps({
       tmdb: {
@@ -206,17 +203,32 @@ describe('routes', () => {
     expect(res.status).toBe(204);
   });
 
-  it('GET /api/downloads attaches Fanart art to rows in Fanart mode only', async () => {
+  it('GET /api/downloads attaches cached Fanart art to rows in Fanart mode only', async () => {
     const record = makeDownloadRecord({ infoHash: HASH });
     const fanart = {
-      getMovieArt: async () => ({ thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' }),
-      getTvArt: async () => ({ thumbUrl: null, logoUrl: null }),
+      getMovieArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
+      getTvArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
     };
     const list = async () => [record];
+    const seededArt = createArtService({
+      repo: createMemoryArtRepo([
+        {
+          mediaType: 'movie',
+          tmdbId: 1,
+          tvdbId: null,
+          thumbUrl: 'https://fanart.tv/t.jpg',
+          logoUrl: 'https://fanart.tv/l.png',
+          status: 'ok',
+          fetchedAt: new Date().toISOString(),
+        },
+      ]),
+      gateway: createFanartGateway({ fanart, minGapMs: 0 }),
+    });
 
     const fanartApp = createApp(
       makeTestDeps({
         fanart,
+        art: seededArt,
         downloads: { ...makeTestDeps().downloads, list },
         settings: { get: async () => ({ provider: 'fanart' }), set: async () => {} },
       }),
@@ -440,8 +452,8 @@ describe('Fanart enrichment on detail', () => {
     const deps = makeTestDeps({
       tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
       fanart: {
-        getMovieArt: async () => ({ thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' }),
-        getTvArt: async () => ({ thumbUrl: null, logoUrl: null }),
+        getMovieArt: async () => ({ status: 'ok' as const, thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' }),
+        getTvArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
       },
     });
     const app = createApp(deps);

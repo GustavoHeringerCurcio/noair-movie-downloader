@@ -7,8 +7,8 @@ function depsWithKey(configured: boolean): ReturnType<typeof makeTestDeps> {
   return makeTestDeps({
     fanart: configured
       ? {
-          getMovieArt: async () => ({ thumbUrl: null, logoUrl: null }),
-          getTvArt: async () => ({ thumbUrl: null, logoUrl: null }),
+          getMovieArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
+          getTvArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
         }
       : null,
   });

@@ -37,3 +37,14 @@ CREATE TABLE IF NOT EXISTS settings (
   key text PRIMARY KEY,
   value jsonb NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS media_art (
+  media_type text NOT NULL CHECK (media_type IN ('movie', 'tv')),
+  tmdb_id integer NOT NULL,
+  tvdb_id integer,
+  thumb_url text,
+  logo_url text,
+  status text NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'empty')),
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (media_type, tmdb_id)
+);

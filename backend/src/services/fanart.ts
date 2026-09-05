@@ -1,13 +1,28 @@
-export interface FanartImage {
+/**
+ * Fanart.tv webservice client.
+ *
+ * Every call resolves to a status-aware result — it never throws:
+ * - `ok`    → usable artwork found (thumb/logo are the most-liked picks)
+ * - `empty` → the title exists on Fanart.tv but has no matching art
+ * - `error` → transient failure (network, HTTP 429/5xx) that MUST NOT be cached
+ *
+ * Callers (the artwork cache) treat only `ok`/`empty` as storable and back off
+ * on `error` so a Fanart outage can never be mistaken for "no art".
+ */
+
+export type FanartStatus = 'ok' | 'empty' | 'error';
+
+export interface FanartResult {
+  status: FanartStatus;
   thumbUrl: string | null;
   logoUrl: string | null;
 }
 
 export interface FanartClient {
   /** Movie artwork by TMDB id. */
-  getMovieArt(tmdbId: number): Promise<FanartImage>;
+  getMovieArt(tmdbId: number): Promise<FanartResult>;
   /** TV artwork by TVDB id (resolve via TMDB external_ids first). */
-  getTvArt(tvdbId: number): Promise<FanartImage>;
+  getTvArt(tvdbId: number): Promise<FanartResult>;
 }
 
 export interface FanartClientConfig {
@@ -47,6 +62,8 @@ interface FanartResponse {
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const EMPTY_TTL_MS = 60 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 8000;
 
 function firstNonEmpty(a: FanartFile[] | undefined, b: FanartFile[] | undefined): FanartFile[] | undefined {
   if (a && a.length > 0) return a;
@@ -56,25 +73,46 @@ function firstNonEmpty(a: FanartFile[] | undefined, b: FanartFile[] | undefined)
 export function createFanartClient(config: FanartClientConfig): FanartClient {
   const fetchImpl = config.fetchImpl ?? fetch;
   const base = (config.baseUrl ?? 'https://webservice.fanart.tv/v3').replace(/\/+$/, '');
-  const cache = new Map<string, { value: FanartImage; expires: number }>();
+  const cache = new Map<string, { value: FanartResult; expires: number }>();
 
-  async function request(kind: 'movies' | 'tv', id: number): Promise<FanartImage> {
+  async function request(kind: 'movies' | 'tv', id: number): Promise<FanartResult> {
     const cacheKey = `${kind}:${id}`;
     const hit = cache.get(cacheKey);
     if (hit && hit.expires > Date.now()) return hit.value;
 
     const url = `${base}/${kind}/${id}?api_key=${encodeURIComponent(config.apiKey)}&format=json`;
-    const res = await fetchImpl(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) {
-      return { thumbUrl: null, logoUrl: null };
+    let result: FanartResult;
+    try {
+      const res = await fetchImpl(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (res.status === 404) {
+        result = { status: 'empty', thumbUrl: null, logoUrl: null };
+      } else if (!res.ok) {
+        // 429 / 5xx / anything unexpected — transient, never cached.
+        return { status: 'error', thumbUrl: null, logoUrl: null };
+      }
+      const data = (await res.json()) as FanartResponse;
+      const image: FanartResult =
+        kind === 'movies'
+          ? {
+              status: 'ok',
+              thumbUrl: pickBest(data.moviethumb),
+              logoUrl: pickBest(firstNonEmpty(data.hdmovielogo, data.movielogo)),
+            }
+          : {
+              status: 'ok',
+              thumbUrl: pickBest(data.tvthumb),
+              logoUrl: pickBest(firstNonEmpty(data.hdtvlogo, data.clearlogo)),
+            };
+      result =
+        image.thumbUrl != null || image.logoUrl != null
+          ? image
+          : { status: 'empty', thumbUrl: null, logoUrl: null };
+    } catch {
+      return { status: 'error', thumbUrl: null, logoUrl: null };
     }
-    const data = (await res.json()) as FanartResponse;
-    const value: FanartImage =
-      kind === 'movies'
-        ? { thumbUrl: pickBest(data.moviethumb), logoUrl: pickBest(firstNonEmpty(data.hdmovielogo, data.movielogo)) }
-        : { thumbUrl: pickBest(data.tvthumb), logoUrl: pickBest(firstNonEmpty(data.hdtvlogo, data.clearlogo)) };
-    cache.set(cacheKey, { value, expires: Date.now() + CACHE_TTL_MS });
-    return value;
+
+    cache.set(cacheKey, { value: result, expires: Date.now() + (result.status === 'ok' ? CACHE_TTL_MS : EMPTY_TTL_MS) });
+    return result;
   }
 
   return {

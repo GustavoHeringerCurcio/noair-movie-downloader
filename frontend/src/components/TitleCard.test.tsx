@@ -79,13 +79,13 @@ describe('TitleCard', () => {
     expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
   });
 
-  it('does not swap to TMDB art when the FanArt image fails to load', () => {
+  it('falls back to the monogram when a FanArt image errors instead of swapping to TMDB', () => {
     setProvider('fanart');
     renderCard(FANART_ART);
-    const img = cardMedia()!;
-    fireEvent.error(img);
-    expect(cardMedia()?.src).toBe('https://fanart.tv/keyart.jpg');
-    const all = Array.from(document.querySelectorAll<HTMLImageElement>('.title-card-media'));
+    fireEvent.error(cardMedia()!);
+    expect(cardMedia()).toBeNull();
+    expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
+    const all = Array.from(document.querySelectorAll<HTMLImageElement>('img'));
     expect(all.every((i) => i.src.includes('fanart.tv'))).toBe(true);
   });
 
