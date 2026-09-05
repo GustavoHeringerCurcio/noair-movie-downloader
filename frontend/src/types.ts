@@ -3,6 +3,24 @@ export type SearchType = MediaType | 'all';
 export type DiscoverSection = 'trending-week' | 'best-movies' | 'best-tv';
 export type ImageProvider = 'tmdb' | 'fanart';
 
+/** Primary audio languages we can act on. `en` is the implicit default/original. */
+export type AudioLang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
+
+/** Audio descriptor read from a release title. */
+export type AudioMode = 'dub' | 'dual' | 'multi';
+
+export interface LanguageSettings {
+  audio: AudioLang;
+}
+
+export interface SourcesResponse {
+  sources: Source[];
+  unreachable?: boolean;
+  authError?: boolean;
+  /** Set when a strict (non-English) audio search found nothing. */
+  noMatchForAudio?: AudioLang;
+}
+
 export interface HomeSection {
   section: DiscoverSection;
   title: string;
@@ -85,6 +103,10 @@ export interface Source {
   group: string | null;
   cleanTitle: string;
   audioCodec: 'AAC' | 'AC3' | 'E-AC3' | 'DTS' | 'TrueHD' | 'FLAC' | 'Opus' | 'MP3' | 'Atmos' | null;
+  /** Language explicitly named in the title (e.g. `DUBLADO` → `pt`). */
+  audioLang?: AudioLang | null;
+  /** Audio descriptor from the title (`dub`/`dual`/`multi`). */
+  audioMode?: AudioMode | null;
   coverage: Coverage[] | null;
 }
 

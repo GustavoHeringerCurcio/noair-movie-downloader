@@ -15,9 +15,18 @@ export interface ProwlarrProvisionResult {
   failed: Array<{ name: string; reason: string }>;
 }
 
+export interface IndexerInfo {
+  id: number;
+  name: string;
+  /** Language tag advertised by the indexer definition (e.g. `pt-BR`); null when unknown. */
+  language: string | null;
+}
+
 export interface ProwlarrAdminClient {
   /** Idempotently ensures each named indexer exists and is enabled. */
   ensureIndexers(names: readonly string[]): Promise<ProwlarrProvisionResult>;
+  /** Lists the configured indexers with their advertised language tag. */
+  listIndexers(): Promise<IndexerInfo[]>;
 }
 
 interface JsonRecord {
@@ -160,5 +169,20 @@ export function createProwlarrAdminClient(config: ProwlarrAdminConfig): Prowlarr
     return result;
   }
 
-  return { ensureIndexers };
+  async function listIndexers(): Promise<IndexerInfo[]> {
+    const result = await requestJson('/api/v1/indexer');
+    if (!Array.isArray(result.body)) return [];
+    const out: IndexerInfo[] = [];
+    for (const item of result.body as JsonRecord[]) {
+      const id = typeof item.id === 'number' ? item.id : null;
+      if (id === null) continue;
+      const name = typeof item.name === 'string' ? item.name : '';
+      const language =
+        typeof item.language === 'string' && item.language.length > 0 ? item.language : null;
+      out.push({ id, name, language });
+    }
+    return out;
+  }
+
+  return { ensureIndexers, listIndexers };
 }

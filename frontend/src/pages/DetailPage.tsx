@@ -9,6 +9,7 @@ import {
   Plus,
 } from 'lucide-react';
 import type {
+  AudioLang,
   MediaDetail,
   MediaType,
   Source,
@@ -33,7 +34,8 @@ import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
-import { useImageProvider } from '../store/settingsStore';
+import { useAudioLanguage, useImageProvider } from '../store/settingsStore';
+import { audioChipLabel, audioLanguageLabel } from '../lib/audio';
 import type { DownloadRecord } from '../types';
 
 const PAGE_SIZE = 30;
@@ -263,6 +265,43 @@ interface ConfirmState {
   episode: number | null;
 }
 
+interface LanguageBannerProps {
+  lang: AudioLang;
+  fallbackActive: boolean;
+  onEnglish: () => void;
+  onBack: () => void;
+  onDismiss: () => void;
+}
+
+function LanguageBanner({ lang, fallbackActive, onEnglish, onBack, onDismiss }: LanguageBannerProps) {
+  if (fallbackActive) {
+    return (
+      <div className="language-banner" role="status">
+        <span>
+          Showing <strong>English</strong> results — no {audioLanguageLabel(lang)} audio releases were
+          found.
+        </span>
+        <button type="button" className="btn btn-sm btn-outline" onClick={onBack}>
+          Back to {audioLanguageLabel(lang)}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="language-banner language-banner-warn" role="alert">
+      <span>No {audioLanguageLabel(lang)} audio releases found. Search in English instead?</span>
+      <div className="language-banner-actions">
+        <button type="button" className="btn btn-sm btn-white" onClick={onEnglish}>
+          Search in English
+        </button>
+        <button type="button" className="btn btn-sm btn-outline" onClick={onDismiss}>
+          Keep {audioLanguageLabel(lang)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DetailPage() {
   const { id: idParam } = useParams();
   const [searchParams] = useSearchParams();
@@ -273,6 +312,7 @@ export function DetailPage() {
   const downloads = useDownloadsStore((s) => s.downloads);
   const toast = useToastStore((s) => s.toast);
   const recordRecent = useRecentsStore((s) => s.record);
+  const audio = useAudioLanguage();
 
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -281,6 +321,8 @@ export function DetailPage() {
   const [movieSources, setMovieSources] = useState<Source[]>([]);
   const [movieLoading, setMovieLoading] = useState(false);
   const [movieError, setMovieError] = useState<string | null>(null);
+  const [movieNoMatch, setMovieNoMatch] = useState<AudioLang | null>(null);
+  const [movieFallback, setMovieFallback] = useState(false);
 
   // TV season state
   const [activeSeason, setActiveSeason] = useState<number | null>(null);
@@ -289,6 +331,8 @@ export function DetailPage() {
   const [seasonSources, setSeasonSources] = useState<Source[]>([]);
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [seasonNoMatch, setSeasonNoMatch] = useState<AudioLang | null>(null);
+  const [seasonFallback, setSeasonFallback] = useState(false);
 
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [sheet, setSheet] = useState<{ title: string; subtitle: string; scopeSources: Source[]; season: number | null; episode: number | null } | null>(null);
@@ -316,6 +360,10 @@ export function DetailPage() {
     setEpisodes([]);
     setActiveSeason(null);
     setSourcesError(null);
+    setMovieNoMatch(null);
+    setMovieFallback(false);
+    setSeasonNoMatch(null);
+    setSeasonFallback(false);
 
     async function load(): Promise<void> {
       try {
@@ -358,14 +406,19 @@ export function DetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, mediaType]);
+  }, [id, mediaType, audio]);
 
-  async function loadMovieSources(media: MediaDetail): Promise<void> {
+  async function loadMovieSources(media: MediaDetail, override?: AudioLang): Promise<void> {
+    const reqAudio = override ?? audio;
     setMovieLoading(true);
     setMovieError(null);
+    setMovieNoMatch(null);
+    setMovieFallback(false);
     try {
-      const res = await sources(media.tmdbId, 'movie');
+      const res = await sources(media.tmdbId, 'movie', { audio: reqAudio });
       setMovieSources(res.sources);
+      if (res.noMatchForAudio) setMovieNoMatch(res.noMatchForAudio);
+      if (reqAudio === 'en' && audio !== 'en') setMovieFallback(true);
       if (res.unreachable) setMovieError('Source search unavailable (Prowlarr unreachable).');
       else if (res.authError) setMovieError('Source search unavailable (invalid Prowlarr key).');
     } catch (e) {
@@ -376,17 +429,22 @@ export function DetailPage() {
     }
   }
 
-  async function loadSeason(season: number, media: MediaDetail): Promise<void> {
+  async function loadSeason(season: number, media: MediaDetail, override?: AudioLang): Promise<void> {
+    const reqAudio = override ?? audio;
     setEpisodesLoading(true);
     setSeasonLoading(true);
     setSourcesError(null);
+    setSeasonNoMatch(null);
+    setSeasonFallback(false);
     try {
       const [epRes, srcRes] = await Promise.all([
         seasonEpisodes(media.tmdbId, season),
-        sources(media.tmdbId, 'tv', { season }),
+        sources(media.tmdbId, 'tv', { season, audio: reqAudio }),
       ]);
       setEpisodes(epRes.episodes);
       setSeasonSources(srcRes.sources);
+      if (srcRes.noMatchForAudio) setSeasonNoMatch(srcRes.noMatchForAudio);
+      if (reqAudio === 'en' && audio !== 'en') setSeasonFallback(true);
       if (srcRes.unreachable) setSourcesError('Source search unavailable (Prowlarr unreachable).');
       else if (srcRes.authError) setSourcesError('Source search unavailable (invalid Prowlarr key).');
     } catch (e) {
@@ -555,7 +613,7 @@ export function DetailPage() {
                 <button type="button" className="btn btn-white btn-lg" disabled>
                   <span className="spinner spinner-sm" aria-hidden="true" /> Looking for best source…
                 </button>
-              ) : movieSources.length === 0 ? (
+              ) : movieSources.length === 0 && !movieNoMatch ? (
                 <>
                   <button type="button" className="btn btn-white btn-lg" disabled>
                     No sources found
@@ -647,6 +705,15 @@ export function DetailPage() {
               )}
             </div>
           )}
+          {mediaType === 'movie' && (movieNoMatch || movieFallback) && (
+            <LanguageBanner
+              lang={movieNoMatch ?? audio}
+              fallbackActive={movieFallback}
+              onEnglish={() => void loadMovieSources(detail, 'en')}
+              onBack={() => void loadMovieSources(detail)}
+              onDismiss={() => setMovieNoMatch(null)}
+            />
+          )}
         </div>
       </section>
 
@@ -673,6 +740,16 @@ export function DetailPage() {
           )}
 
           {sourcesError && <div className="inline-error">{sourcesError}</div>}
+
+          {(seasonNoMatch || seasonFallback) && (
+            <LanguageBanner
+              lang={seasonNoMatch ?? audio}
+              fallbackActive={seasonFallback}
+              onEnglish={() => activeSeason != null && void loadSeason(activeSeason, detail, 'en')}
+              onBack={() => activeSeason != null && void loadSeason(activeSeason, detail)}
+              onDismiss={() => setSeasonNoMatch(null)}
+            />
+          )}
 
           {episodesLoading ? (
             <div className="section-block">
@@ -787,6 +864,9 @@ export function DetailPage() {
               <div>
                 <div className="pick-title">{confirm.source.title}</div>
                 <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {audioChipLabel(confirm.source) && (
+                    <span className="chip chip-audio">{audioChipLabel(confirm.source)}</span>
+                  )}
                   {pickQuality(confirm.source) && <span className="chip">{pickQuality(confirm.source)}</span>}
                   <span className="chip">{pickSummary(confirm.source)}</span>
                 </div>

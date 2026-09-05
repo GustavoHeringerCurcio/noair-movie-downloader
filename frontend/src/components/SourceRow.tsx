@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Source } from '../types';
 import { humanSize } from '../api';
+import { audioChipLabel } from '../lib/audio';
 
 interface SourceRowProps {
   source: Source;
@@ -12,6 +13,8 @@ interface SourceRowProps {
 
 function QualityChips({ source }: { source: Source }) {
   const chips: string[] = [];
+  const audio = audioChipLabel(source);
+  if (audio) chips.push(audio);
   if (source.resolution) chips.push(source.resolution);
   if (source.source) chips.push(source.source);
   if (source.codec) chips.push(source.codec);
@@ -21,7 +24,7 @@ function QualityChips({ source }: { source: Source }) {
   return (
     <>
       {chips.map((text) => (
-        <span key={text} className="chip">
+        <span key={text} className={text === audio ? 'chip chip-audio' : 'chip'}>
           {text}
         </span>
       ))}

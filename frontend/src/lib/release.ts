@@ -66,7 +66,9 @@ export function sortSources(sources: Source[], key: SourceSortKey): Source[] {
 
 export function groupKey(source: Source): string {
   const hdr = source.hdr ? 'hdr' : 'sdr';
-  return `${source.cleanTitle}|${source.resolution ?? '?'}|${source.source ?? '?'}|${source.codec ?? '?'}|${hdr}`;
+  const lang = source.audioLang ?? '';
+  const mode = source.audioMode ?? '';
+  return `${source.cleanTitle}|${source.resolution ?? '?'}|${source.source ?? '?'}|${source.codec ?? '?'}|${hdr}|${lang}|${mode}`;
 }
 
 export function groupSources(sources: Source[]): SourceGroup[] {

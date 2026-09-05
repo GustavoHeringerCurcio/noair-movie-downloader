@@ -5,7 +5,7 @@ import { buildMagnet, infoHashFromMagnet } from '../lib/magnet.js';
 import { parseReleaseTitle } from '../lib/releaseParser.js';
 
 export interface ProwlarrClient {
-  search(query: string, category: 2000 | 5000): Promise<Source[]>;
+  search(query: string, category: 2000 | 5000, opts?: { indexerIds?: number[] }): Promise<Source[]>;
 }
 
 export interface ProwlarrClientConfig {
@@ -58,8 +58,11 @@ function normalizeDownloadUrl(url: string, baseUrl: string): string {
 export function createProwlarrClient(config: ProwlarrClientConfig): ProwlarrClient {
   const fetchImpl = config.fetchImpl ?? fetch;
 
-  async function search(query: string, category: 2000 | 5000): Promise<Source[]> {
-    const url = `${config.baseUrl}/api/v1/search?query=${encodeURIComponent(query)}&categories=${category}&type=search`;
+  async function search(query: string, category: 2000 | 5000, opts?: { indexerIds?: number[] }): Promise<Source[]> {
+    let url = `${config.baseUrl}/api/v1/search?query=${encodeURIComponent(query)}&categories=${category}&type=search`;
+    if (opts?.indexerIds && opts.indexerIds.length > 0) {
+      url += `&indexerIds=${opts.indexerIds.join(',')}`;
+    }
     let res: Response;
     try {
       res = await fetchImpl(url, {

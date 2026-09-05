@@ -3,6 +3,8 @@ import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useToastStore } from '@/store/toastStore';
 import type { ImageProvider } from '@/types';
+import type { AudioLang } from '@/types';
+import { AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel } from '@/lib/audio';
 
 const CONFIG_KEYS: Array<{ key: string; description: string }> = [
   { key: 'TMDB_API_KEY', description: 'Metadata & images provider' },
@@ -22,10 +24,12 @@ export function SettingsPage() {
   const connected = useDownloadsStore((s) => s.connected);
   const provider = useSettingsStore((s) => s.provider);
   const fanartConfigured = useSettingsStore((s) => s.fanartConfigured);
+  const audio = useSettingsStore((s) => s.audio);
   const ready = useSettingsStore((s) => s.ready);
   const saving = useSettingsStore((s) => s.saving);
   const loadSettings = useSettingsStore((s) => s.load);
   const saveProvider = useSettingsStore((s) => s.saveProvider);
+  const saveAudio = useSettingsStore((s) => s.saveAudio);
   const toast = useToastStore((s) => s.toast);
 
   useEffect(() => {
@@ -37,6 +41,16 @@ export function SettingsPage() {
     try {
       await saveProvider(next);
       toast('Artwork source updated', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  async function changeAudio(next: AudioLang): Promise<void> {
+    if (next === audio || saving) return;
+    try {
+      await saveAudio(next);
+      toast(`Audio language: ${audioLanguageLabel(next)}`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Save failed', 'error');
     }
@@ -94,6 +108,35 @@ export function SettingsPage() {
             !fanartConfigured,
           )}
         </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>Audio language</h2>
+        <p className="settings-note">
+          Pick the audio your viewers expect. English is the default and shows every release.
+          Other languages filter strictly to matching audio (dubbed, dual or tagged releases)
+          and only fall back to English results after you confirm, if nothing was found.
+        </p>
+        <div className="settings-row">
+          <label htmlFor="audio-lang">Preferred audio</label>
+          <select
+            id="audio-lang"
+            className="sort-select"
+            value={audio}
+            disabled={saving || !ready}
+            onChange={(e) => void changeAudio(e.target.value as AudioLang)}
+          >
+            {AUDIO_LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.label} — {option.hint}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="settings-note">
+          Tip: for results in a specific language, add matching indexers (e.g. Brazilian private
+          trackers) in Prowlarr — the app auto-detects them and uses them for that language.
+        </p>
       </section>
 
       <section className="settings-card">

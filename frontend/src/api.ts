@@ -1,4 +1,5 @@
 import type {
+  AudioLang,
   CreateDownloadPayload,
   DiscoverSection,
   DownloadRecord,
@@ -10,7 +11,7 @@ import type {
   PlayInfo,
   SearchType,
   SeasonEpisodesResponse,
-  Source,
+  SourcesResponse,
   StreamFileInfo,
 } from './types';
 
@@ -43,14 +44,26 @@ export interface ArtworkSettings {
   fanartConfigured: boolean;
 }
 
-export function fetchSettings(): Promise<{ artwork: ArtworkSettings }> {
-  return request<{ artwork: ArtworkSettings }>('/api/settings');
+export interface SiteSettings {
+  artwork: ArtworkSettings;
+  language: { audio: AudioLang };
 }
 
-export function saveArtworkProvider(provider: ImageProvider): Promise<{ artwork: ArtworkSettings }> {
-  return request<{ artwork: ArtworkSettings }>('/api/settings', {
+export function fetchSettings(): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings');
+}
+
+export function saveArtworkProvider(provider: ImageProvider): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings', {
     method: 'PUT',
     body: JSON.stringify({ artwork: { provider } }),
+  });
+}
+
+export function saveAudioLanguage(audio: AudioLang): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ language: { audio } }),
   });
 }
 
@@ -113,16 +126,17 @@ export function seasonEpisodes(id: number, season: number): Promise<SeasonEpisod
 export function sources(
   id: number,
   type: MediaType,
-  context?: { season?: number; episode?: number },
-): Promise<{ sources: Source[]; unreachable?: boolean; authError?: boolean }> {
+  context?: { season?: number; episode?: number; audio?: AudioLang },
+): Promise<SourcesResponse> {
   const params = new URLSearchParams({ type });
+  if (context?.audio != null) {
+    params.set('audio', context.audio);
+  }
   if (context?.season != null) {
     params.set('season', String(context.season));
     if (context.episode != null) params.set('episode', String(context.episode));
   }
-  return request<{ sources: Source[]; unreachable?: boolean; authError?: boolean }>(
-    `/api/media/${id}/sources?${params.toString()}`,
-  );
+  return request<SourcesResponse>(`/api/media/${id}/sources?${params.toString()}`);
 }
 
 export function listDownloads(): Promise<{ downloads: DownloadRecord[] }> {

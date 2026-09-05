@@ -8,7 +8,7 @@ export type DiscoverSection = (typeof DISCOVER_SECTIONS)[number];
 
 export interface TmdbClient {
   searchMulti(q: string, type: SearchType): Promise<MediaItem[]>;
-  details(id: number, type: MediaType): Promise<MediaDetail>;
+  details(id: number, type: MediaType, language?: string): Promise<MediaDetail>;
   browse(section: DiscoverSection): Promise<MediaItem[]>;
   seasonEpisodes(id: number, seasonNumber: number): Promise<TvEpisode[]>;
   tvdbId(id: number): Promise<number | null>;
@@ -105,8 +105,8 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
       }));
   }
 
-  async function details(id: number, type: MediaType): Promise<MediaDetail> {
-    const url = `${config.baseUrl}/${type}/${id}?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+  async function details(id: number, type: MediaType, language = 'en-US'): Promise<MediaDetail> {
+    const url = `${config.baseUrl}/${type}/${id}?language=${encodeURIComponent(language)}&api_key=${encodeURIComponent(config.apiKey)}`;
     let res: Response;
     try {
       res = await fetchWithRetry(fetchImpl, url, {}, { retries: 2, baseBackoffMs: 500, timeoutMs: 10000 });

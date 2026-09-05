@@ -47,6 +47,16 @@ describe('groupSources', () => {
     const groups = groupSources(sources);
     expect(groups).toHaveLength(2);
   });
+
+  it('keeps releases with different audio (Dual/MULTi vs plain) in separate groups', () => {
+    const sources = [
+      makeSource({ audioMode: 'dual' }),
+      makeSource({ audioLang: 'pt' }),
+      makeSource(),
+    ];
+    const groups = groupSources(sources);
+    expect(groups).toHaveLength(3);
+  });
 });
 
 describe('filterSources', () => {

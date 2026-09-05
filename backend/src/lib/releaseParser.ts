@@ -1,4 +1,5 @@
-import type { Coverage } from '../types.js';
+import type { AudioLang, AudioMode, Coverage } from '../types.js';
+import { detectAudioFlags } from './language.js';
 
 export type ReleaseResolution = '2160p' | '1080p' | '720p' | '480p';
 export type ReleaseSource = 'REMUX' | 'BluRay' | 'WEB-DL' | 'WEBRip' | 'BDRip' | 'BRRip' | 'HDTV' | 'DVDRip';
@@ -13,6 +14,8 @@ export interface ParsedRelease {
   group: string | null;
   cleanTitle: string;
   audioCodec: ReleaseAudioCodec | null;
+  audioLang: AudioLang | null;
+  audioMode: AudioMode | null;
   coverage: Coverage[] | null;
 }
 
@@ -314,6 +317,7 @@ export function parseReleaseTitle(title: string): ParsedRelease {
   const group = extractGroup(title);
   const cleanTitle = buildCleanTitle(title, group);
   const audioCodec = detectAudioCodec(norm);
+  const { lang: audioLang, mode: audioMode } = detectAudioFlags(norm);
 
-  return { resolution, source, codec, hdr, isDolbyVision, group, cleanTitle, audioCodec, coverage: parseCoverage(norm) };
+  return { resolution, source, codec, hdr, isDolbyVision, group, cleanTitle, audioCodec, audioLang, audioMode, coverage: parseCoverage(norm) };
 }

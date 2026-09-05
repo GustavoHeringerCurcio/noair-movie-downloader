@@ -7,6 +7,12 @@ export interface ArtSubject {
   tmdbId: number;
 }
 
+/** Primary audio languages we can act on. `en` is the implicit default/original. */
+export type AudioLang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
+
+/** Audio descriptor read from a release title. */
+export type AudioMode = 'dub' | 'dual' | 'multi';
+
 export interface MediaArt {
   thumbUrl: string | null;
   logoUrl: string | null;
@@ -82,6 +88,10 @@ export interface Source {
   group: string | null;
   cleanTitle: string;
   audioCodec: 'AAC' | 'AC3' | 'E-AC3' | 'DTS' | 'TrueHD' | 'FLAC' | 'Opus' | 'MP3' | 'Atmos' | null;
+  /** Language explicitly named in the title (e.g. `DUBLADO` → `pt`). Null when untagged. */
+  audioLang?: AudioLang | null;
+  /** Audio descriptor from the title (`dub`/`dual`/`multi`). Null when absent. */
+  audioMode?: AudioMode | null;
   coverage: Coverage[] | null;
 }
 

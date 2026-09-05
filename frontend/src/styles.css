@@ -1539,6 +1539,12 @@ ul {
   gap: 12px;
   padding: 6px var(--gutter) 12px;
 }
+.watch-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .watch-title-line {
   display: flex;
   align-items: center;
@@ -1775,6 +1781,37 @@ ul {
   .rail-scroll {
     gap: 6px;
   }
+}
+
+.chip-audio {
+  background: rgba(46, 160, 67, 0.18);
+  border-color: rgba(46, 160, 67, 0.45);
+  color: #7ee2a8;
+}
+
+/* Language strict-search fallback banner */
+.language-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-weak);
+  color: var(--text-1);
+  font-size: 13px;
+}
+.language-banner-warn {
+  background: rgba(255, 200, 60, 0.08);
+  border-color: rgba(255, 200, 60, 0.4);
+}
+.language-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     downloads: createDownloadsRepository(pool),
     settings: createSettingsRepository(pool),
     fanart,
+    prowlarrAdmin: createProwlarrAdminClient({ baseUrl: config.prowlarrUrl, apiKey: config.prowlarrApiKey }),
     art: createArtService({
       repo: createArtRepository(pool),
       gateway: createFanartGateway({
@@ -52,7 +53,7 @@ async function main(): Promise<void> {
   };
 
   if (config.prowlarrBootstrapIndexers) {
-    const admin = createProwlarrAdminClient({ baseUrl: config.prowlarrUrl, apiKey: config.prowlarrApiKey });
+    const admin = deps.prowlarrAdmin!;
     void bootstrapIndexers(admin, config.prowlarrBootstrapIndexerNames).catch((error) => {
       console.error('indexer bootstrap gave up', error);
     });
