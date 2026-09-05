@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Download } from 'lucide-react';
 import type { DiscoverSection, DownloadRecord, MediaItem } from '../types';
 import { browse } from '../api';
 import { TitleCard, type TitleCardPrimary } from '../components/TitleCard';
 import { HeroBillboard } from '../components/HeroBillboard';
 import { SectionRail } from '../components/SectionRail';
+import { EmptyState } from '../components/EmptyState';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
+import { useSearchStore } from '../store/searchStore';
 
 interface SectionState {
   items: MediaItem[];
@@ -50,6 +53,7 @@ export function HomePage() {
   const navigate = useNavigate();
   const downloads = useDownloadsStore((s) => s.downloads);
   const recents = useRecentsStore((s) => s.recents);
+  const openSearch = useSearchStore((s) => s.openSet);
 
   const [sections, setSections] = useState<Record<string, SectionState>>(() =>
     Object.fromEntries(HOME_SECTIONS.map((s) => [s.section, emptyState()])),
@@ -117,7 +121,17 @@ export function HomePage() {
           title="My Downloads"
           subtitle={downloads.length > 0 ? `${completed} ready · ${active} downloading` : undefined}
           count={orderedDownloads.length}
-          emptyHint="Nothing downloaded yet. 1 Search · 2 Download · 3 Watch — start by searching above."
+          emptyHint="Nothing downloaded yet."
+          emptyContent={
+            <EmptyState
+              title="Your downloads will live here"
+              hint="Search for a movie or show, pick the best release, and watch it while it downloads."
+              steps={['1 · Search', '2 · Download', '3 · Watch']}
+              icon={<Download size={24} />}
+              actionLabel="Search titles"
+              onAction={() => openSearch(true)}
+            />
+          }
         >
           {orderedDownloads.map((d) => (
             <TitleCard

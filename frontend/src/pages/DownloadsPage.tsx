@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileDown } from 'lucide-react';
+import { Play, Pause, Trash2, FileDown, Download } from 'lucide-react';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../api';
 import { StateBadge } from '../components/StateBadge';
 import { DownloadQualityChips } from '../components/DownloadQualityChips';
+import { EmptyState } from '../components/EmptyState';
 import type { DownloadRecord } from '../types';
 
 type Tab = 'all' | 'downloading' | 'ready';
@@ -107,9 +108,14 @@ export function DownloadsPage() {
       </div>
 
       {ordered.length === 0 ? (
-        <p className="empty-state">
-          Nothing downloaded yet. Search a title and start a download to see it here.
-        </p>
+        <EmptyState
+          title="Nothing downloaded yet"
+          hint="Search for a movie or show, pick the release you want, and it will appear here with live progress — ready to stream before it finishes."
+          steps={['1 · Search', '2 · Download', '3 · Watch']}
+          icon={<Download size={24} />}
+          actionLabel="Browse movies"
+          onAction={() => navigate('/')}
+        />
       ) : visible.length === 0 ? (
         <p className="empty-state">No downloads match this filter.</p>
       ) : (

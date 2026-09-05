@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowDownToLine, Play, Info, Download } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { MediaItem, MediaType } from '../types';
+import type { MediaItem } from '../types';
 import { backdropUrl, posterUrl } from '../api';
 
 export interface TitleCardPrimary {
@@ -41,18 +41,18 @@ export function TitleCard({ item, progress, quality, primary, onOpenDetail }: Ti
   const backdrop = backdropUrl(item.backdropPath);
   const poster = posterUrl(item.posterPath);
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
+  const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
 
-  function goDetail(e?: { stopPropagation(): void }): void {
-    e?.stopPropagation();
+  function goDetail(): void {
     navigate(openDetail(item));
   }
 
   function handleKey(e: ReactKeyboardEvent<HTMLDivElement>): void {
-    if (e.key === 'Enter') navigate(openDetail(item));
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      goDetail();
+    }
   }
-
-  const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
-  const mediaType: MediaType = item.mediaType;
 
   return (
     <div
@@ -60,50 +60,74 @@ export function TitleCard({ item, progress, quality, primary, onOpenDetail }: Ti
       role="button"
       tabIndex={0}
       aria-label={`${title} — open details`}
-      onClick={() => navigate(openDetail(item))}
+      onClick={goDetail}
       onKeyDown={handleKey}
     >
-      {backdrop ? (
-        <img className="title-card-media" src={backdrop} alt="" loading="lazy" />
-      ) : poster ? (
-        <img className="title-card-media" src={poster} alt="" loading="lazy" />
+      {/* Blurred stage behind the sharp poster */}
+      {poster && (
+        <img
+          className="title-card-bg"
+          src={backdrop ?? poster}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+        />
+      )}
+
+      {poster ? (
+        <div className="title-card-stage">
+          <img className="title-card-poster" src={poster} alt="" loading="lazy" />
+        </div>
+      ) : backdrop ? (
+        <>
+          <img className="title-card-media" src={backdrop} alt="" loading="lazy" />
+          <div className="title-card-shade" aria-hidden="true" />
+          <div className="title-card-info">
+            <span className="title-card-title" title={title}>
+              {item.title}
+            </span>
+          </div>
+        </>
       ) : (
         <div className="title-card-fallback" aria-hidden="true">
           {item.title.charAt(0).toUpperCase()}
         </div>
       )}
 
-      <div className="title-card-overlay" onClick={(e) => e.stopPropagation()}>
+      <div className="title-card-chips" aria-hidden="true">
+        {quality && <span className="chip">{quality}</span>}
+        {item.mediaType === 'tv' && <span className="chip">TV</span>}
+      </div>
+
+      <div className="title-card-overlay">
         {primary && (
           <button
             type="button"
             className="tc-btn tc-primary"
             aria-label={primary.label}
             title={primary.label}
-            onClick={primary.onClick}
+            onClick={(e) => {
+              e.stopPropagation();
+              primary?.onClick();
+            }}
             disabled={primary.disabled}
           >
             {glyphFor(primary.icon)}
           </button>
         )}
-        {onOpenDetail ? (
-          <button type="button" className="tc-btn" aria-label="More info" title="More info" onClick={onOpenDetail}>
-            <Info size={18} />
-          </button>
-        ) : (
-          <button type="button" className="tc-btn" aria-label="More info" title="More info" onClick={goDetail}>
-            <Info size={18} />
-          </button>
-        )}
-      </div>
-
-      <div className="title-card-shade" aria-hidden="true" />
-      <div className="title-card-info">
-        <span className="title-card-title" title={title}>
-          {item.title}
-        </span>
-        {quality && <span className="chip">{quality}</span>}
-        {mediaType === 'tv' && <span className="chip">TV</span>}
+        <button
+          type="button"
+          className="tc-btn"
+          aria-label="More info"
+          title="More info"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onOpenDetail) onOpenDetail();
+            else goDetail();
+          }}
+        >
+          <Info size={18} />
+        </button>
       </div>
 
       {pct != null && (

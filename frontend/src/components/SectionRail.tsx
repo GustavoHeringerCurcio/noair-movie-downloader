@@ -8,6 +8,7 @@ interface SectionRailProps {
   loading?: boolean;
   error?: string | null;
   emptyHint?: string;
+  emptyContent?: ReactNode;
   onRetry?: () => void;
   children: ReactNode;
 }
@@ -19,6 +20,7 @@ export function SectionRail({
   loading,
   error,
   emptyHint,
+  emptyContent,
   onRetry,
   children,
 }: SectionRailProps) {
@@ -62,7 +64,7 @@ export function SectionRail({
       el.removeEventListener('scroll', onScroll);
       cancelAnimationFrame(raf);
     };
-  }, [measure]);
+  }, [measure, count, loading]);
 
   useEffect(() => {
     measure();
@@ -73,6 +75,8 @@ export function SectionRail({
     if (!el) return;
     el.scrollBy({ left: direction * Math.max(el.clientWidth * 0.85, 300), behavior: 'smooth' });
   }
+
+  const showContent = count > 0 && !error && !loading;
 
   return (
     <section className="rail">
@@ -93,40 +97,45 @@ export function SectionRail({
           )}
         </div>
       ) : loading ? (
-        <div className="rail-scroller" ref={scrollerRef}>
-          <div className="rail-scroll" aria-hidden="true">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="title-card skeleton" />
-            ))}
+        <div className="rail-body">
+          <div className="rail-scroller" ref={scrollerRef} aria-hidden="true">
+            <div className="rail-scroll">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="title-card skeleton" />
+              ))}
+            </div>
           </div>
         </div>
-      ) : count > 0 ? (
-        <div className="rail-scroller" ref={scrollerRef}>
-          <div className="rail-scroll">{children}</div>
+      ) : showContent ? (
+        <div className="rail-body">
+          <div className="rail-scroller" ref={scrollerRef}>
+            <div className="rail-scroll">{children}</div>
+          </div>
+          {canLeft && (
+            <button
+              type="button"
+              className="rail-arrow left"
+              aria-label={`Scroll ${title} left`}
+              onClick={() => scrollBy(-1)}
+            >
+              <ChevronLeft size={40} />
+            </button>
+          )}
+          {canRight && (
+            <button
+              type="button"
+              className="rail-arrow right"
+              aria-label={`Scroll ${title} right`}
+              onClick={() => scrollBy(1)}
+            >
+              <ChevronRight size={40} />
+            </button>
+          )}
         </div>
+      ) : emptyContent ? (
+        <div className="rail-empty-rich">{emptyContent}</div>
       ) : (
         <div className="rail-empty">{emptyHint ?? 'Nothing here yet.'}</div>
-      )}
-
-      {canLeft && (
-        <button
-          type="button"
-          className="rail-arrow left"
-          aria-label={`Scroll ${title} left`}
-          onClick={() => scrollBy(-1)}
-        >
-          <ChevronLeft size={40} />
-        </button>
-      )}
-      {canRight && (
-        <button
-          type="button"
-          className="rail-arrow right"
-          aria-label={`Scroll ${title} right`}
-          onClick={() => scrollBy(1)}
-        >
-          <ChevronRight size={40} />
-        </button>
       )}
     </section>
   );

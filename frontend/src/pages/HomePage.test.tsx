@@ -92,7 +92,7 @@ describe('HomePage', () => {
     expect(await screen.findByText('Trending This Week')).toBeInTheDocument();
     expect(screen.getByText('Best Movies')).toBeInTheDocument();
     expect(screen.getByText('Best Series')).toBeInTheDocument();
-    expect((await screen.findAllByText('Inception')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole('button', { name: /inception/i })).length).toBeGreaterThan(0);
   });
 
   it('shows a hero and empty-state hints when nothing exists yet', async () => {
@@ -104,7 +104,7 @@ describe('HomePage', () => {
     );
 
     expect(screen.getByRole('heading', { name: /find it\. download it/i })).toBeInTheDocument();
-    expect(await screen.findByText(/nothing downloaded yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/your downloads will live here/i)).toBeInTheDocument();
     expect(screen.getByText(/will appear here/i)).toBeInTheDocument();
   });
 
@@ -131,9 +131,9 @@ describe('HomePage', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Shawshank Redemption')).toBeInTheDocument();
-    expect(await screen.findByText('The Godfather')).toBeInTheDocument();
-    const watchButtons = await screen.findAllByRole('button', { name: /watch/i });
+    expect((await screen.findAllByRole('button', { name: /shawshank/i })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole('button', { name: /the godfather/i })).length).toBeGreaterThan(0);
+    const watchButtons = await screen.findAllByRole('button', { name: /^watch/i });
     expect(watchButtons.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -156,7 +156,7 @@ describe('HomePage', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('The Matrix')).toBeInTheDocument();
+    expect((await screen.findAllByRole('button', { name: /the matrix/i })).length).toBeGreaterThan(0);
   });
 
   it('shows an error message when browse sections fail to load', async () => {

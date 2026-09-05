@@ -27,7 +27,8 @@
   --nav-h: 68px;
   --gutter: 4%;
   --card-w: clamp(160px, 16.5vw, 300px);
-  --card-r: 4px;
+  --radius-card: 10px;
+  --radius-poster: 6px;
   --rail-gap: 14px;
 
   --font: 'Netflix Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
@@ -554,15 +555,23 @@ ul {
   white-space: nowrap;
 }
 
+.rail-body {
+  position: relative;
+}
 .rail-scroller {
   position: relative;
-  overflow-x: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   scroll-behavior: smooth;
+}
+.rail-scroller::-webkit-scrollbar {
+  display: none;
 }
 .rail-scroll {
   display: flex;
   gap: 8px;
-  padding: 0 var(--gutter);
+  padding: 22px var(--gutter) 30px;
   width: max-content;
   min-width: 100%;
 }
@@ -575,28 +584,35 @@ ul {
   top: 0;
   bottom: 0;
   width: 56px;
-  z-index: 5;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--white);
-  background: linear-gradient(to right, rgba(0, 0, 0, 0.65), transparent);
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.55), transparent);
   opacity: 0;
   transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.rail-arrow:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.rail-body:hover .rail-arrow {
+  opacity: 1;
+  pointer-events: auto;
 }
 .rail-arrow:hover {
   background: rgba(0, 0, 0, 0.7);
 }
-.rail:hover .rail-arrow,
-.rail-arrow:focus-visible {
-  opacity: 1;
-}
 .rail-arrow.left {
   left: 0;
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
 }
 .rail-arrow.right {
   right: 0;
-  background: linear-gradient(to left, rgba(0, 0, 0, 0.65), transparent);
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.55), transparent);
 }
 
 .rail-empty,
@@ -608,11 +624,57 @@ ul {
   border: 1px dashed var(--border);
   border-radius: 6px;
 }
+.rail-empty-rich {
+  margin: 0 var(--gutter);
+  padding: 18px var(--gutter) 26px;
+}
 .rail-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* Rich empty state (library / downloads) */
+.empty-state-card {
+  text-align: center;
+  padding: 40px 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-card);
+}
+.empty-state-card h3 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--white);
+}
+.empty-state-card p {
+  margin: 0 auto;
+  max-width: 460px;
+  color: var(--text-3);
+  font-size: 14px;
+}
+.empty-state-card .guide-steps {
+  margin-top: 16px;
+}
+.empty-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.empty-state-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
 }
 
 /* Skeleton */
@@ -634,24 +696,57 @@ ul {
   position: relative;
   width: var(--card-w);
   aspect-ratio: 16 / 9;
-  border-radius: var(--card-r);
+  border-radius: var(--radius-card);
   overflow: hidden;
   background: var(--bg-2);
   border: 1px solid transparent;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-radius 0.18s ease;
 }
 .title-card:hover,
 .title-card:focus-within {
-  transform: scale(1.12);
-  z-index: 4;
-  box-shadow: 0 0 0 2px var(--white), 0 14px 34px rgba(0, 0, 0, 0.7);
+  transform: scale(1.16);
+  z-index: 5;
+  box-shadow: 0 0 0 2px var(--white), 0 16px 38px rgba(0, 0, 0, 0.72);
 }
+
+/* Posterized artwork: blurred stage + sharp centered poster */
+.title-card-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.06) blur(22px);
+  transform: scale(1.18);
+  pointer-events: none;
+}
+.title-card-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4%;
+}
+.title-card-poster {
+  height: 94%;
+  max-width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-poster);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  filter: grayscale(1);
+}
+
+/* Sharp full-bleed fallback (backdrop only) + caption */
 .title-card-media {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  filter: grayscale(1);
 }
 .title-card-fallback {
   position: absolute;
@@ -677,10 +772,6 @@ ul {
   right: 0;
   bottom: 0;
   padding: 20px 10px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 .title-card-title {
   font-size: 13px;
@@ -690,6 +781,26 @@ ul {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Metadata chips over the blur margin */
+.title-card-chips {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: none;
+  z-index: 3;
+}
+.title-card-chips .chip {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text-1);
+  backdrop-filter: blur(4px);
+}
+
 .title-card .progress-track {
   position: absolute;
   left: 0;
@@ -697,6 +808,7 @@ ul {
   bottom: 0;
   height: 4px;
   border-radius: 0;
+  z-index: 7;
 }
 
 .title-card-overlay {
@@ -706,9 +818,10 @@ ul {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: rgba(0, 0, 0, 0.45);
   opacity: 0;
   transition: opacity 0.15s ease;
+  pointer-events: none;
+  z-index: 8;
 }
 .title-card:hover .title-card-overlay,
 .title-card:focus-within .title-card-overlay {
@@ -719,12 +832,14 @@ ul {
   height: 42px;
   border-radius: 50%;
   border: 1px solid var(--border-strong);
-  background: rgba(20, 20, 20, 0.85);
+  background: rgba(20, 20, 20, 0.9);
   color: var(--white);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: transform 0.15s ease, background-color 0.15s ease;
+  pointer-events: auto;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
 }
 .tc-btn:hover {
   transform: scale(1.1);
