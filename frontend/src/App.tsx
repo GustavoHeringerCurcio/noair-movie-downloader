@@ -1,59 +1,43 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { useDownloadsStore } from './store/downloadsStore';
-import { useUiStore } from './store/uiStore';
-import { DownloadsPanel } from './components/DownloadsPanel';
-import { Toasts } from './components/Toasts';
-import { HomePage } from './pages/HomePage';
-import { DetailPage } from './pages/DetailPage';
-import { WatchPage } from './pages/WatchPage';
-
-function Header() {
-  const downloads = useDownloadsStore((s) => s.downloads);
-  const connected = useDownloadsStore((s) => s.connected);
-  const setPanelOpen = useUiStore((s) => s.setPanelOpen);
-  return (
-    <header className="app-header">
-      <Link to="/" className="brand">
-        <span className="brand-mark">▶</span> Movie Downloader
-      </Link>
-      <div className="header-actions">
-        <span className={`conn-dot ${connected ? 'conn-on' : 'conn-off'}`} title={connected ? 'Live' : 'Offline'} />
-        <button type="button" className="btn" onClick={() => setPanelOpen(true)}>
-          Downloads{downloads.length > 0 ? ` (${downloads.length})` : ''}
-        </button>
-      </div>
-    </header>
-  );
-}
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { Toasts } from '@/components/Toasts';
+import { HomePage } from '@/pages/HomePage';
+import { DownloadsPage } from '@/pages/DownloadsPage';
+import { SettingsPage } from '@/pages/SettingsPage';
+import { DetailPage } from '@/pages/DetailPage';
+import { WatchPage } from '@/pages/WatchPage';
+import { useDownloadsStore } from '@/store/downloadsStore';
 
 function Shell() {
-  const panelOpen = useUiStore((s) => s.panelOpen);
-  const setPanelOpen = useUiStore((s) => s.setPanelOpen);
-  const location = useLocation();
   const connect = useDownloadsStore((s) => s.connect);
 
   useEffect(() => {
     connect();
   }, [connect]);
 
-  useEffect(() => {
-    setPanelOpen(false);
-  }, [location, setPanelOpen]);
-
   return (
-    <div className="app">
-      <Header />
-      <main className="app-main">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/media/:id" element={<DetailPage />} />
-          <Route path="/watch/:infoHash" element={<WatchPage />} />
-        </Routes>
-      </main>
-      <DownloadsPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+    <>
+      <SidebarProvider>
+        <AppSidebar />
+        <div className="flex min-h-svh w-full flex-1 flex-col">
+          <header className="app-topbar">
+            <SidebarTrigger className="md:hidden" />
+          </header>
+          <main className="app-main">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/downloads" element={<DownloadsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/media/:id" element={<DetailPage />} />
+              <Route path="/watch/:infoHash" element={<WatchPage />} />
+            </Routes>
+          </main>
+        </div>
+      </SidebarProvider>
       <Toasts />
-    </div>
+    </>
   );
 }
 

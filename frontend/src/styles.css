@@ -71,30 +71,7 @@ select {
   flex-direction: column;
 }
 
-/* Header */
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  background: rgba(11, 13, 20, 0.72);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: 0.2px;
-}
-
+/* Sidebar / shell */
 .brand-mark {
   display: inline-flex;
   align-items: center;
@@ -105,12 +82,25 @@ select {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: #fff;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
-.header-actions {
+.app-topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-start;
+  padding: 14px 20px 0;
+}
+
+.app-topbar [data-sidebar='trigger'] {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+}
+
+@media (min-width: 768px) {
+  .app-topbar {
+    display: none;
+  }
 }
 
 .conn-dot {
@@ -135,7 +125,8 @@ select {
   width: 100%;
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 24px 48px;
+  padding: 8px 24px 48px;
+  min-width: 0;
 }
 
 /* Buttons */
@@ -973,67 +964,21 @@ select {
   width: 100%;
 }
 
-/* Downloads panel */
-.panel-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(3px);
-  z-index: 50;
+/* Downloads */
+.downloads-page {
+  padding-top: 8px;
 }
 
-.downloads-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(440px, 94vw);
-  background: rgba(15, 18, 32, 0.98);
-  backdrop-filter: blur(10px);
-  border-left: 1px solid var(--border);
-  z-index: 51;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow);
-  animation: slide-in 0.22s ease;
-}
-
-@keyframes slide-in {
-  from {
-    transform: translateX(30px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.panel-header h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.panel-empty {
-  padding: 48px 24px;
+.downloads-page-head {
+  margin: 18px 0 24px;
   text-align: center;
-  color: var(--text-dim);
 }
 
-.downloads-list {
+.downloads-page .downloads-list {
   list-style: none;
   margin: 0;
-  padding: 16px;
-  overflow-y: auto;
-  flex: 1;
+  padding: 0;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1282,6 +1227,90 @@ select {
 
 .toast-info {
   border-color: rgba(79, 156, 255, 0.5);
+}
+
+/* Settings */
+.settings-page {
+  padding-top: 8px;
+}
+
+.settings-page-head {
+  margin: 18px 0 24px;
+  text-align: center;
+}
+
+.settings-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  margin-bottom: 18px;
+}
+
+.settings-card .rail-title {
+  margin-bottom: 10px;
+}
+
+.settings-note {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  margin: 0 0 14px;
+}
+
+.settings-note code,
+.settings-list code {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 12.5px;
+  color: #b3aaff;
+}
+
+.settings-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row dt {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.settings-row dd {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  text-align: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .settings-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .settings-row dd {
+    text-align: left;
+  }
 }
 
 /* Responsive */

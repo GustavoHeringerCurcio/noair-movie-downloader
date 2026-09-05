@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* shadcn semantic tokens — mapped to the app's dark palette */
+    --background: 229 30% 6%;
+    --foreground: 229 60% 96%;
+    --card: 228 30% 12%;
+    --card-foreground: 229 60% 96%;
+    --popover: 228 30% 12%;
+    --popover-foreground: 229 60% 96%;
+    --primary: 247 100% 71%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 31% 16%;
+    --secondary-foreground: 229 60% 96%;
+    --muted: 224 26% 14%;
+    --muted-foreground: 224 17% 66%;
+    --accent: 230 34% 17%;
+    --accent-foreground: 229 60% 96%;
+    --destructive: 355 100% 68%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 226 20% 18%;
+    --input: 226 20% 18%;
+    --ring: 247 100% 71%;
+    --radius: 0.75rem;
+
+    /* sidebar tokens */
+    --sidebar-background: 228 28% 8%;
+    --sidebar-foreground: 229 45% 88%;
+    --sidebar-primary: 247 100% 71%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 228 30% 14%;
+    --sidebar-accent-foreground: 229 60% 96%;
+    --sidebar-border: 226 20% 14%;
+    --sidebar-ring: 247 100% 71%;
+  }
+  .dark {
+    --sidebar-background: 228 28% 8%;
+    --sidebar-foreground: 229 45% 88%;
+    --sidebar-primary: 247 100% 71%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 228 30% 14%;
+    --sidebar-accent-foreground: 229 60% 96%;
+    --sidebar-border: 226 20% 14%;
+    --sidebar-ring: 247 100% 71%;
+  }
+}

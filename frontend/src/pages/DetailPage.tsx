@@ -7,7 +7,6 @@ import { Spinner } from '../components/Spinner';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
-import { useUiStore } from '../store/uiStore';
 import { useRecentsStore } from '../store/recentsStore';
 
 const PAGE_SIZE = 30;
@@ -57,7 +56,6 @@ export function DetailPage() {
 
   const downloads = useDownloadsStore((s) => s.downloads);
   const toast = useToastStore((s) => s.toast);
-  const setPanelOpen = useUiStore((s) => s.setPanelOpen);
   const recordRecent = useRecentsStore((s) => s.record);
 
   useEffect(() => {
@@ -172,7 +170,6 @@ export function DetailPage() {
         indexer: source.indexer,
       });
       toast('Added to downloads', 'success');
-      setPanelOpen(true);
     } catch (e) {
       if (e instanceof Error && (e as Error & { status?: number }).status === 409) {
         toast('Already downloading', 'error');
