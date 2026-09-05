@@ -40,8 +40,15 @@ services:
       PUID: "1000"
       PGID: "1000"
       TZ: Etc/UTC
+      # Used by deploy/prowlarr-api-key.sh (mounted below) to pin the API key in
+      # config.xml on every boot, so it can never drift from the backend's
+      # PROWLARR_API_KEY when the prowlarr-config volume is recreated.
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:?set PROWLARR_API_KEY in .env}
     volumes:
       - prowlarr-config:/config
+      # linuxserver/prowlarr ignores PROWLARR__* env overrides; this init script
+      # seeds/patches config.xml before Prowlarr starts.
+      - ./deploy/prowlarr-api-key.sh:/custom-cont-init.d/99-prowlarr-api-key.sh:ro
     ports:
       - "9696:9696"
     restart: unless-stopped

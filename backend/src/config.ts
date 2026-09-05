@@ -28,6 +28,8 @@ export interface AppConfig {
   tmdbImageBaseUrl: string;
   prowlarrUrl: string;
   prowlarrApiKey: string;
+  prowlarrBootstrapIndexers: boolean;
+  prowlarrBootstrapIndexerNames: string[];
   qbittorrentUrl: string;
   qbittorrentUser: string;
   qbittorrentPass: string;
@@ -44,6 +46,11 @@ export function loadConfig(): AppConfig {
     tmdbImageBaseUrl: 'https://image.tmdb.org/t/p',
     prowlarrUrl: requireEnv('PROWLARR_URL'),
     prowlarrApiKey: requireEnv('PROWLARR_API_KEY'),
+    prowlarrBootstrapIndexers: optionalEnv('PROWLARR_BOOTSTRAP_INDEXERS', '1') === '1',
+    prowlarrBootstrapIndexerNames: optionalEnv('PROWLARR_BOOTSTRAP_INDEXERS_LIST', 'YTS,LimeTorrents,TorrentDownload,1337x')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean),
     qbittorrentUrl: requireEnv('QBITTORRENT_URL'),
     qbittorrentUser: requireEnv('QBITTORRENT_USER'),
     qbittorrentPass: requireEnv('QBITTORRENT_PASS'),

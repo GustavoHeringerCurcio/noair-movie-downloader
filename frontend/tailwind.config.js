@@ -1,12 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ['class', 'class'],
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   corePlugins: { preflight: false },
   theme: {
   	extend: {
   		colors: {
-  			border: 'hsl(var(--border))',
+  			border: 'hsl(var(--ui-border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
   			background: 'hsl(var(--background))',
@@ -28,8 +28,8 @@ export default {
   				foreground: 'hsl(var(--muted-foreground))'
   			},
   			accent: {
-  				DEFAULT: 'hsl(var(--accent))',
-  				foreground: 'hsl(var(--accent-foreground))'
+  				DEFAULT: 'hsl(var(--ui-accent))',
+  				foreground: 'hsl(var(--ui-accent-foreground))'
   			},
   			popover: {
   				DEFAULT: 'hsl(var(--popover))',

@@ -3,6 +3,27 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Preflight is disabled (corePlugins.preflight: false) because the app's
+   * bespoke styles.css owns base element styling. shadcn components still
+   * rely on a few resets, reproduced here so utility borders/buttons render.
+   * Tokens are prefixed --ui-* so they never clash with styles.css's raw
+   * color tokens (--accent, --border, ...) that share :root scope.
+   */
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: hsl(var(--ui-border));
+  }
+
+  button {
+    background-color: transparent;
+    background-image: none;
+  }
+
   :root {
     /* shadcn semantic tokens — mapped to the app's dark palette */
     --background: 229 30% 6%;
@@ -17,11 +38,11 @@
     --secondary-foreground: 229 60% 96%;
     --muted: 224 26% 14%;
     --muted-foreground: 224 17% 66%;
-    --accent: 230 34% 17%;
-    --accent-foreground: 229 60% 96%;
+    --ui-accent: 230 34% 17%;
+    --ui-accent-foreground: 229 60% 96%;
     --destructive: 355 100% 68%;
     --destructive-foreground: 0 0% 100%;
-    --border: 226 20% 18%;
+    --ui-border: 226 20% 18%;
     --input: 226 20% 18%;
     --ring: 247 100% 71%;
     --radius: 0.75rem;
