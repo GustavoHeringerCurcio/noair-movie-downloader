@@ -7,3 +7,5 @@ qbconfig/
 prowlarr-config/
 .DS_Store
 *.log
+.opencode/
+.playwright-mcp/
