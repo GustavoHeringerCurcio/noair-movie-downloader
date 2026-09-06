@@ -66,7 +66,9 @@ describe('createPackageManager', () => {
     });
     await waitUntil(() => manager.status(key)?.phase === 'ready');
 
-    expect(maps).toEqual(['0:v:0', '0:1', '0:2', '0:3']);
+    // Renditions run concurrently, so completion order is not guaranteed — the
+    // set of ffmpeg maps (video + each audio track + embedded subtitle) is.
+    expect(maps.sort()).toEqual(['0:1', '0:2', '0:3', '0:v:0']);
     expect(maps.some((m) => m.includes('a:') || m.includes('s:'))).toBe(false);
   });
 

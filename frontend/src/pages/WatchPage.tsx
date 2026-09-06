@@ -23,6 +23,21 @@ function baseName(relative: string): string {
 
 type PackagePhase = 'idle' | 'packaging' | 'ready' | 'failed';
 
+/**
+ * Preflight before any HLS packaging starts: if the browser's MSE cannot decode
+ * the rendition's video codec (playinfo carries candidate `MediaSource` type
+ * strings), skip the package build and go straight to the local-player screen.
+ */
+function canPlayHlsInBrowser(play: PlayInfo): boolean {
+  if (play.mode !== 'hls' || play.mseProbe == null) return true;
+  try {
+    if (typeof window === 'undefined' || typeof MediaSource === 'undefined') return true;
+    return play.mseProbe.some((type) => MediaSource.isTypeSupported(type));
+  } catch {
+    return true;
+  }
+}
+
 export function WatchPage() {
   const { infoHash = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -47,6 +62,7 @@ export function WatchPage() {
   const [pkgFailed, setPkgFailed] = useState(false);
   const [pkgError, setPkgError] = useState<string | null>(null);
   const [pkgTick, setPkgTick] = useState(0);
+  const [codecUnsupported, setCodecUnsupported] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastSave = useRef(0);
   const stallTimer = useRef<number | undefined>(undefined);
@@ -110,6 +126,7 @@ export function WatchPage() {
     setPkgFailed(false);
     setPkgError(null);
     setPkgProgress(0);
+    setCodecUnsupported(false);
 
     async function load(): Promise<void> {
       try {
@@ -127,6 +144,7 @@ export function WatchPage() {
         if (cancelled) return;
         if (target) setSelectedFile(target);
         setPlay(info);
+        setCodecUnsupported(!canPlayHlsInBrowser(info));
         const saved = getPosition(infoHash, target ?? null);
         if (saved > 15) setResumeSeconds(saved);
         setState('ok');
@@ -153,10 +171,12 @@ export function WatchPage() {
       setPkgFailed(false);
       setPkgError(null);
       setPkgProgress(0);
+      setCodecUnsupported(false);
       playInfo(infoHash, file ?? undefined)
         .then((info) => {
           if (cancelled) return;
           setPlay(info);
+          setCodecUnsupported(!canPlayHlsInBrowser(info));
           const saved = getPosition(infoHash, file);
           if (saved > 15) setResumeSeconds(saved);
           setState('ok');
@@ -197,7 +217,8 @@ export function WatchPage() {
     setStall(false);
   }
 
-  const isHls = play != null && play.mode === 'hls';
+  const isHls = play != null && play.mode === 'hls' && !codecUnsupported;
+  const needsPlayer = play != null && (play.mode === 'player-required' || (play.mode === 'hls' && codecUnsupported));
 
   useEffect(() => {
     if (!isHls) return;
@@ -317,12 +338,18 @@ export function WatchPage() {
     );
   }
 
-  if (play.mode === 'player-required') {
+  if (needsPlayer) {
+    const codecLabel =
+      play.mode === 'hls'
+        ? [play.video?.codec, play.video?.profile].filter(Boolean).join(' ')
+        : null;
     return (
       <div className="page-state">
         <p className="empty-state">
-          This release can’t be decoded in the browser. Play it bit-perfect in your own player (VLC,
-          MPV, …) instead:
+          {codecLabel
+            ? `This release uses ${codecLabel} video, which this browser can't decode in a web player.`
+            : "This release can't be decoded in the browser."}{' '}
+          Play it bit-perfect in your own player (VLC, MPV, …) instead:
         </p>
         <ol className="guide-steps">
           <li className="guide-step">Set up your local player once (Settings → Local player)</li>

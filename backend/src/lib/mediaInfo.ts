@@ -10,6 +10,12 @@ export interface VideoInfo {
   width: number | null;
   height: number | null;
   hdr: boolean;
+  /** Codec profile label (e.g. "High", "Main", "Main 10") — used for browser-decode support checks. */
+  profile?: string | null;
+  /** Pixel format (e.g. "yuv420p", "yuv420p10le") — bit depth gate for HEVC. */
+  pixFmt?: string | null;
+  /** ffprobe level value (e.g. 120 = HEVC level 4.0). */
+  level?: number | null;
 }
 
 export interface AudioInfo {
@@ -19,6 +25,10 @@ export interface AudioInfo {
   title: string | null;
   channels: number | null;
   default: boolean;
+  /** Codec profile label (e.g. "LC") — aac-lc can be stream-copied, HE-AAC cannot. */
+  profile?: string | null;
+  /** Sample rate in Hz. */
+  sampleRate?: number | null;
 }
 
 export interface SubtitleInfo {
@@ -63,6 +73,12 @@ interface FfprobeStream {
   height?: number;
   channels?: number;
   color_transfer?: string;
+  /** Codec profile label, e.g. video "High"/"Main 10", audio "LC". */
+  profile?: string;
+  pix_fmt?: string;
+  /** Codec level idc, e.g. HEVC 120 = level 4.0. */
+  level?: number;
+  sample_rate?: string;
   disposition?: { default?: number; forced?: number };
   tags?: {
     language?: string;
@@ -161,6 +177,8 @@ export async function probeMediaInfo(filePath: string): Promise<MediaInfo | null
         title: s.tags?.title ?? null,
         channels: s.channels ?? null,
         default: (s.disposition?.default ?? 0) === 1,
+        profile: s.profile ?? null,
+        sampleRate: s.sample_rate ? Number(s.sample_rate) || null : null,
       }));
 
     const subtitleTracks: SubtitleInfo[] = streams
@@ -185,6 +203,9 @@ export async function probeMediaInfo(filePath: string): Promise<MediaInfo | null
             width: primaryVideo.width ?? null,
             height: primaryVideo.height ?? null,
             hdr: videoHdr(primaryVideo),
+            profile: primaryVideo.profile ?? null,
+            pixFmt: primaryVideo.pix_fmt ?? null,
+            level: primaryVideo.level ?? null,
           }
         : null,
       audioTracks,

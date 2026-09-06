@@ -21,11 +21,15 @@ import { probeMediaInfo } from '../lib/mediaInfo.js';
 
 const HASH = 'ab'.repeat(20);
 
-function mediaFor(probe: { videoCodec: string | null; audioCodec: string | null; height: number | null }, container: string) {
+function mediaFor(
+  probe: { videoCodec: string | null; audioCodec: string | null; height: number | null },
+  container: string,
+  videoExtra: Record<string, unknown> = {},
+) {
   return {
     container,
     durationSeconds: 5400,
-    video: { index: 0, codec: probe.videoCodec, width: 1920, height: probe.height, hdr: false },
+    video: { index: 0, codec: probe.videoCodec, width: 1920, height: probe.height, hdr: false, ...videoExtra },
     audioTracks:
       probe.audioCodec == null
         ? []
@@ -83,6 +87,42 @@ describe('GET /api/downloads/:infoHash/playinfo', () => {
     const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);
     expect(res.body.mode).toBe('hls');
     expect(res.body.manifestUrl).toBe(`/api/playback/pkg/${HASH}-movie.mkv/master.m3u8`);
+  });
+
+  it('exposes MSE probe type strings for hls video (browser preflight)', async () => {
+    const app = setup({ videoCodec: 'h264', audioCodec: 'aac', height: 1080 }, { container: 'mkv' });
+    const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);
+    expect(res.body.mseProbe.length).toBeGreaterThan(0);
+    expect(res.body.mseProbe[0]).toContain('avc1');
+    expect(res.body.mseProbe[0]).toContain('mp4a.40.2');
+  });
+
+  it('returns no candidates for 10-bit HEVC (skip packaging, use player)', async () => {
+    vi.mocked(probeMediaInfo).mockResolvedValue(
+      mediaFor({ videoCodec: 'hevc', audioCodec: 'aac', height: 1080 }, 'mkv', {
+        profile: 'Main 10',
+        pixFmt: 'yuv420p10le',
+        level: 120,
+      }),
+    );
+    const downloadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'playinfo-hevc10-'));
+    const file = path.join(downloadDir, 'movie.mkv');
+    fs.writeFileSync(file, Buffer.alloc(1000));
+    const deps = makeTestDeps({
+      config: { ...makeTestDeps().config, downloadDir },
+      downloads: {
+        ...makeTestDeps().downloads,
+        findByInfoHash: async () =>
+          makeDownloadRecord({
+            infoHash: HASH,
+            contentPath: file,
+            streamFilePath: relativeToDownloadDir(downloadDir, file),
+          }),
+      },
+    });
+    const res = await request(createApp(deps)).get(`/api/downloads/${HASH}/playinfo`);
+    expect(res.body.mode).toBe('hls');
+    expect(res.body.mseProbe).toEqual([]);
   });
 
   it('reports hls when audio needs normalization even in a playable container', async () => {

@@ -108,15 +108,36 @@ export function videoSegmentArgs(input: string, dir: string): string[] {
   ];
 }
 
+/**
+ * A browser-safe AAC track can be stream-copied into the fMP4 rendition —
+ * re-encoding it (AAC → AAC) wastes minutes of single-core CPU for no gain.
+ * Only AAC-LC ≤ 48 kHz is copied; HE-AAC (SBR/PS) keeps its container codec
+ * quirks that MSE players don't handle, so it is still re-encoded.
+ */
+export function canCopyAudioTrack(track: { codec?: string | null; profile?: string | null; sampleRate?: number | null }): boolean {
+  if ((track.codec ?? '').toLowerCase() !== 'aac') return false;
+  const profile = (track.profile ?? '').toLowerCase();
+  if (profile && profile !== 'lc') return false;
+  const rate = track.sampleRate;
+  return rate == null || (rate > 0 && rate <= 48000);
+}
+
 /** One audio track → AAC, separate fMP4 HLS rendition in `<dir>/main.m3u8`. */
-export function audioSegmentArgs(input: string, streamIndex: number, dir: string): string[] {
+export function audioSegmentArgs(
+  input: string,
+  streamIndex: number,
+  dir: string,
+  opts: { copy?: boolean } = {},
+): string[] {
+  const encode = opts.copy
+    ? ['-c:a', 'copy']
+    : ['-c:a', 'aac', '-b:a', '192k', '-aac_coder', 'fast'];
   return [
     '-hide_banner',
     '-loglevel', 'error',
     '-i', input,
     '-map', `0:${streamIndex}`,
-    '-c:a', 'aac',
-    '-b:a', '192k',
+    ...encode,
     '-f', 'hls',
     '-hls_time', '6',
     '-hls_playlist_type', 'vod',
@@ -263,6 +284,66 @@ function videoCodecNameToCodecs(codec: string): string {
     default:
       return codec;
   }
+}
+
+/**
+ * MediaSource type strings (one per codec-string spelling) that describe a
+ * packaged HLS rendition's video track (+ its always-AAC audio). The browser
+ * preflight probes these with `MediaSource.isTypeSupported` *before* any
+ * packaging starts, so content the browser can never decode (e.g. HEVC
+ * Main10 in Chrome/Firefox) is routed straight to the external-player flow
+ * instead of paying for a doomed package build.
+ *
+ * Returns `[]` when the codec is definitely not browser-decodable, so callers
+ * can short-circuit to the player screen.
+ */
+export interface MseVideoProbe {
+  codec: string | null;
+  profile?: string | null;
+  level?: number | null;
+  pixFmt?: string | null;
+}
+
+export function mseProbeTypes(video: MseVideoProbe | null): string[] {
+  if (!video || !video.codec) return [];
+  const codec = video.codec.toLowerCase();
+  const audio = ',mp4a.40.2';
+  switch (codec) {
+    case 'h264':
+    case 'avc1':
+      return [`video/mp4; codecs="avc1.640028${audio}"`, `video/mp4; codecs="avc1.4d401f${audio}"`];
+    case 'vp9':
+      return [`video/mp4; codecs="vp09.00.10.08${audio}"`];
+    case 'av1':
+      return [`video/mp4; codecs="av01.0.04M.08${audio}"`];
+    case 'hevc':
+    case 'h265': {
+      if (hevcBeyondBrowserSupport(video)) return [];
+      const level = hevcLevelIdc(video.level);
+      return [
+        `video/mp4; codecs="hvc1.1.6.L${level}.B0${audio}"`,
+        `video/mp4; codecs="hev1.1.6.L${level}.B0${audio}"`,
+      ];
+    }
+    default:
+      // Unknown/legacy codecs never reach hls packaging (they go to
+      // transcode/player-required instead) — stay permissive.
+      return [];
+  }
+}
+
+/** Chrome/Firefox cannot decode HEVC beyond 8-bit Main; detect and gate out. */
+function hevcBeyondBrowserSupport(video: MseVideoProbe): boolean {
+  const pix = (video.pixFmt ?? '').toLowerCase();
+  const profile = (video.profile ?? '').toLowerCase();
+  if (/(p0?10|p0?12|10le|12le|yuv420p10|yuv444)/.test(pix)) return true;
+  if (/main\s*10|main10|12|rext|422|444/.test(profile)) return true;
+  return false;
+}
+
+/** ffprobe HEVC `level` is level * 30 (e.g. 120 = 4.0); default to a safe 3.1. */
+function hevcLevelIdc(level: number | null | undefined): number {
+  return typeof level === 'number' && level > 0 ? level : 93;
 }
 
 export interface PackageLayout {

@@ -3,8 +3,10 @@ import path from 'node:path';
 import {
   audioSegmentArgs,
   buildMasterPlaylist,
+  canCopyAudioTrack,
   embeddedSubtitleArgs,
   languageLabel,
+  mseProbeTypes,
   packageKey,
   pickAudioRenditions,
   pickSubtitleRenditions,
@@ -89,6 +91,18 @@ describe('ffmpeg argument builders', () => {
     expect(args[args.length - 1]).toBe(path.join('/packages', 'k', 'audio', '2', 'main.m3u8'));
   });
 
+  it('audio segment args stream-copy when the track is browser-safe AAC', () => {
+    const args = audioSegmentArgs('/x.mkv', 2, path.join('/packages', 'k', 'audio', '2'), { copy: true });
+    expect(args[args.indexOf('-c:a') + 1]).toBe('copy');
+    expect(args).not.toContain('aac_coder');
+  });
+
+  it('audio segment args use the fast AAC coder for genuine encodes', () => {
+    const args = audioSegmentArgs('/x.mkv', 2, path.join('/packages', 'k', 'audio', '2'));
+    expect(args).toContain('-aac_coder');
+    expect(args[args.indexOf('-aac_coder') + 1]).toBe('fast');
+  });
+
   it('audio segment args map a single audio track at global index 1 to 0:1', () => {
     const args = audioSegmentArgs('/x.mkv', 1, path.join('/packages', 'k', 'audio', '1'));
     expect(args[args.indexOf('-map') + 1]).toBe('0:1');
@@ -137,5 +151,49 @@ describe('buildMasterPlaylist', () => {
     const master = buildMasterPlaylist({ durationSeconds: 10, audio: [], subtitles: [], bandwidth: 100 });
     expect(master).not.toContain('#EXT-X-MEDIA');
     expect(master).not.toContain('AUDIO="');
+  });
+});
+
+describe('canCopyAudioTrack', () => {
+  it('copies AAC-LC at 48kHz and leaves everything else to the encoder', () => {
+    expect(canCopyAudioTrack({ codec: 'aac', profile: 'LC', sampleRate: 48000 })).toBe(true);
+    expect(canCopyAudioTrack({ codec: 'aac', sampleRate: 44100 })).toBe(true);
+    expect(canCopyAudioTrack({ codec: 'aac', profile: null, sampleRate: null })).toBe(true);
+  });
+
+  it('refuses to copy non-AAC, HE-AAC, or >48kHz tracks', () => {
+    expect(canCopyAudioTrack({ codec: 'dts', profile: null, sampleRate: 48000 })).toBe(false);
+    expect(canCopyAudioTrack({ codec: 'aac', profile: 'HE-AAC', sampleRate: 44100 })).toBe(false);
+    expect(canCopyAudioTrack({ codec: 'aac', profile: 'LC', sampleRate: 96000 })).toBe(false);
+    expect(canCopyAudioTrack({ codec: 'eac3' })).toBe(false);
+  });
+});
+
+describe('mseProbeTypes', () => {
+  it('provides avc1 candidates for h264 and vp09/av01 for the modern codecs', () => {
+    expect(mseProbeTypes({ codec: 'h264', profile: 'High', level: 40 })).toEqual([
+      'video/mp4; codecs="avc1.640028,mp4a.40.2"',
+      'video/mp4; codecs="avc1.4d401f,mp4a.40.2"',
+    ]);
+    expect(mseProbeTypes({ codec: 'vp9' })[0]).toContain('vp09');
+    expect(mseProbeTypes({ codec: 'av1' })[0]).toContain('av01');
+  });
+
+  it('routes 8-bit HEVC through an hvc1/hev1 probe pair', () => {
+    const types = mseProbeTypes({ codec: 'hevc', profile: 'Main', pixFmt: 'yuv420p', level: 120 });
+    expect(types).toEqual([
+      'video/mp4; codecs="hvc1.1.6.L120.B0,mp4a.40.2"',
+      'video/mp4; codecs="hev1.1.6.L120.B0,mp4a.40.2"',
+    ]);
+  });
+
+  it('declares 10-bit HEVC unsupported (no candidates → skip packaging)', () => {
+    expect(mseProbeTypes({ codec: 'hevc', profile: 'Main 10', pixFmt: 'yuv420p10le', level: 120 })).toEqual([]);
+    expect(mseProbeTypes({ codec: 'hevc', profile: 'Main', pixFmt: 'yuv420p12le' })).toEqual([]);
+  });
+
+  it('is permissive for unknown or missing video', () => {
+    expect(mseProbeTypes(null)).toEqual([]);
+    expect(mseProbeTypes({ codec: 'mpeg4' })).toEqual([]);
   });
 });

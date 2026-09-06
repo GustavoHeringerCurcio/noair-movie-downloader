@@ -180,9 +180,13 @@ const DEFAULT_HLS_STATUS: HlsStatus = { phase: 'ready', progress: 1, error: null
 /**
  * Fetch stub for the HLS flow. The status queue is consumed in order and falls
  * back to `ready` once empty, so tests can push more statuses later (e.g. after
- * a retry) to drive the transition packaging → ready.
+ * a retry) to drive the transition packaging → ready. `opts.mseProbe` sets the
+ * playinfo preflight candidate list.
  */
-function stubHls(statuses: HlsStatus[]): {
+function stubHls(
+  statuses: HlsStatus[],
+  opts: { mseProbe?: string[] } = {},
+): {
   calls: { playinfo: number; status: number; deleted: number };
   push: (status: HlsStatus) => void;
 } {
@@ -199,7 +203,9 @@ function stubHls(statuses: HlsStatus[]): {
       }
       if (url.includes('/playinfo')) {
         calls.playinfo += 1;
-        return jsonResponse(hlsPlayInfo());
+        const playinfo = { ...hlsPlayInfo() };
+        if (opts.mseProbe !== undefined) playinfo.mseProbe = opts.mseProbe;
+        return jsonResponse(playinfo);
       }
       if (url.includes('/files')) {
         return jsonResponse({ files: [singleCompleteFile()] });
@@ -330,6 +336,34 @@ describe('WatchPage HLS playback', () => {
 
     // the reload nonce keys the player, so retry unmounts and re-mounts it fresh
     await waitFor(() => expect(shakaDouble.mounts).toBe(2));
+    expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+  });
+
+  it('skips packaging entirely when the browser cannot decode the hls video codec', async () => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: vi.fn(() => false) });
+    const { calls } = stubHls([], { mseProbe: ['video/mp4; codecs="hvc1.1.6.L120.B0,mp4a.40.2"'] });
+    renderWatch();
+
+    // The player-required screen appears instantly: no packaging status polling
+    // ever starts and the Shaka player never mounts.
+    expect(await screen.findByText(/can't decode in a web player/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /open in your player/i })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^movie:\/\//),
+    );
+    expect(shakaDouble.mounts).toBe(0);
+    expect(calls.status).toBe(0);
+    expect(screen.queryByText(/preparing a browser-friendly copy/i)).not.toBeInTheDocument();
+  });
+
+  it('proceeds to package when the browser supports the hls codec', async () => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: vi.fn(() => true) });
+    stubHls([{ phase: 'ready', progress: 1, error: null }], {
+      mseProbe: ['video/mp4; codecs="avc1.640028,mp4a.40.2"'],
+    });
+    renderWatch();
+
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
     expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
   });
 });

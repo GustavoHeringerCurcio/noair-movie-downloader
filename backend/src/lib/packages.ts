@@ -7,6 +7,7 @@ import { listStreamableFiles } from './streaming.js';
 import {
   audioSegmentArgs,
   buildMasterPlaylist,
+  canCopyAudioTrack,
   embeddedSubtitleArgs,
   layoutFor,
   packageKey,
@@ -46,17 +47,41 @@ export interface PackageManager {
   deletePackage(key: string): void;
 }
 
-/** Run one ffmpeg/ffprobe-style command; resolves with its exit code. */
-export type CommandRunner = (args: string[]) => Promise<number>;
+/**
+ * Run one ffmpeg-style command. `onProgress` (when given) receives the parsed
+ * `out_time_us` from ffmpeg's `-progress pipe:1` so the manager can surface
+ * in-flight progress instead of coarse per-command jumps.
+ */
+export type CommandRunner = (args: string[], onProgress?: (outTimeUs: number | null) => void) => Promise<number>;
 
 function realRunner(): CommandRunner {
-  return (args) =>
+  return (args, onProgress) =>
     new Promise((resolve) => {
-      const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const progressArgs = onProgress ? ['-progress', 'pipe:1', '-nostats'] : [];
+      const proc = spawn('ffmpeg', [...progressArgs, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
       let stderr = '';
       proc.stderr.on('data', (chunk: Buffer) => {
         stderr = `${stderr}${chunk.toString()}`.slice(-4000);
       });
+      if (onProgress) {
+        let buf = '';
+        proc.stdout.setEncoding('utf8');
+        proc.stdout.on('data', (chunk: string) => {
+          buf += chunk;
+          let newline: number;
+          while ((newline = buf.indexOf('\n')) !== -1) {
+            const line = buf.slice(0, newline).trim();
+            buf = buf.slice(newline + 1);
+            const eq = line.indexOf('=');
+            if (eq !== -1 && line.slice(0, eq).trim() === 'out_time_us') {
+              const value = Number(line.slice(eq + 1).trim());
+              onProgress(Number.isFinite(value) ? value : null);
+            }
+          }
+        });
+      } else {
+        proc.stdout.resume();
+      }
       proc.on('error', () => resolve(1));
       proc.on('exit', (code) => {
         if (code !== 0) console.error(`[packages] ffmpeg exited ${code}: ${stderr.split('\n').slice(-6).join('\n')}`);
@@ -124,11 +149,12 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
     try {
       const steps: Array<{ weight: number; args: string[]; note: string }> = [];
       steps.push({ weight: 0.5, args: videoSegmentArgs(request.absolutePath, layout.videoDir), note: 'video' });
-      audio.forEach((a) => {
+      media.audioTracks.forEach((track) => {
+        const copy = canCopyAudioTrack(track);
         steps.push({
-          weight: 0.45 / Math.max(audio.length, 1),
-          args: audioSegmentArgs(request.absolutePath, a.streamIndex, layout.audioDir(a.streamIndex)),
-          note: `audio ${a.streamIndex}`,
+          weight: 0.45 / Math.max(media.audioTracks.length, 1),
+          args: audioSegmentArgs(request.absolutePath, track.index, layout.audioDir(track.index), { copy }),
+          note: `audio ${track.index}${copy ? ' (copy)' : ''}`,
         });
       });
       if (subs.length > 0) {
@@ -157,14 +183,34 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
         });
       }
 
-      let completed = 0;
-      for (const step of steps) {
-        update(key, { progress: 0.05 + completed });
-        const code = await runCommand(step.args);
-        if (code !== 0) throw new Error(`ffmpeg ${step.note} failed (exit ${code})`);
-        completed += step.weight;
-        update(key, { progress: 0.05 + completed });
-      }
+      // Media renditions are independent ffmpeg runs against the same input, so
+      // run them concurrently (each on its own core) instead of as serialized
+      // full-file passes. In-flight progress comes from ffmpeg's -progress.
+      const durationUs = duration && duration > 0 ? duration * 1_000_000 : null;
+      const fracs = new Map<(typeof steps)[number], number>();
+      const publish = (): void => {
+        let done = 0;
+        for (const step of steps) {
+          const frac = fracs.get(step) ?? 0;
+          done += step.weight * Math.min(Math.max(frac, 0), 1);
+        }
+        update(key, { progress: Math.min(0.05 + 0.95 * done, 1) });
+      };
+      const results = await Promise.allSettled(
+        steps.map((step) =>
+          runCommand(step.args, (outTimeUs) => {
+            const frac = durationUs && outTimeUs != null ? outTimeUs / durationUs : 0;
+            fracs.set(step, frac);
+            publish();
+          }).then((code) => {
+            if (code !== 0) throw new Error(`ffmpeg ${step.note} failed (exit ${code})`);
+            fracs.set(step, 1);
+            publish();
+          }),
+        ),
+      );
+      const failure = results.find((r) => r.status === 'rejected');
+      if (failure) throw failure.reason;
 
       writeSubtitlePlaylists(subs, duration, layout);
       writeMaster(key, request, audio, subs, duration, media, layout);
