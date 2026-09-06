@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { TitleCard } from './TitleCard';
 import { useSettingsStore } from '../store/settingsStore';
+import { trailerFor } from '../api';
 import type { MediaItem } from '../types';
+
+vi.mock('../api', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../api')>();
+  return { ...mod, trailerFor: vi.fn() };
+});
+
+const mockTrailerFor = vi.mocked(trailerFor);
 
 const FULL: MediaItem = {
   tmdbId: 27205,
@@ -147,5 +155,73 @@ describe('TitleCard poster-first style (D17)', () => {
     expect(document.querySelector('.title-card-figure')).toBeNull();
     expect(document.querySelector('.title-card-bg-empty')).not.toBeNull();
     expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
+  });
+});
+
+describe('TitleCard hover-trailer preview (D18)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockTrailerFor.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function hoverFor(card: HTMLElement, ms: number): Promise<void> {
+    fireEvent.mouseEnter(card);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  it('starts the muted embed after a sustained hover and stops on leave', async () => {
+    mockTrailerFor.mockResolvedValue({ provider: 'youtube', videoId: 'abc', name: null });
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+
+    await hoverFor(card, 600);
+    await act(async () => {});
+
+    expect(mockTrailerFor).toHaveBeenCalledTimes(1);
+    expect(mockTrailerFor).toHaveBeenCalledWith({ tmdbId: 27205, mediaType: 'movie' });
+    const iframe = document.querySelector('.title-card-trailer') as HTMLIFrameElement | null;
+    expect(iframe?.src).toContain('youtube-nocookie.com/embed/abc');
+    expect(iframe?.src).toContain('autoplay=1');
+    expect(iframe?.src).toContain('mute=1');
+
+    fireEvent.mouseLeave(card);
+    await act(async () => {});
+    expect(document.querySelector('.title-card-trailer')).toBeNull();
+  });
+
+  it('does not fetch on a quick hover sweep', async () => {
+    mockTrailerFor.mockResolvedValue(null);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+
+    await hoverFor(card, 300);
+    fireEvent.mouseLeave(card);
+    await act(async () => {});
+
+    expect(mockTrailerFor).not.toHaveBeenCalled();
+  });
+
+  it('keeps the card static when the title has no trailer', async () => {
+    mockTrailerFor.mockResolvedValue(null);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+
+    await hoverFor(card, 600);
+    await act(async () => {});
+
+    expect(mockTrailerFor).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.title-card-trailer')).toBeNull();
+
+    fireEvent.mouseLeave(card);
+    fireEvent.mouseEnter(card);
+    await hoverFor(card, 600);
+    await act(async () => {});
+    expect(mockTrailerFor).toHaveBeenCalledTimes(1);
   });
 });

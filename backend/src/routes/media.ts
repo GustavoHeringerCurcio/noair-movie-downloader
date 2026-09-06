@@ -5,6 +5,7 @@ import { filterSourcesToMedia } from '../lib/releaseFilter.js';
 import { coverageCovers, isWholeSeriesTitle, seasonQueryToken } from '../lib/releaseParser.js';
 import { audioProfile, isAudioLang, loadAudioPreference, titleMatchesAudio } from '../lib/language.js';
 import { enrichDetail } from '../lib/enrich.js';
+import { pickTrailer } from '../lib/trailer.js';
 import type { AppDeps } from '../deps.js';
 
 function parseType(value: unknown): MediaType | null {
@@ -165,6 +166,30 @@ export function createMediaRouter(deps: AppDeps): Router {
       }
       const episodes = await deps.tmdb.seasonEpisodes(id, season);
       res.json({ season: seasonSummary, episodes });
+    } catch (error) {
+      if (error instanceof UpstreamError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  });
+
+  // S15 — best hover-trailer for a title (never blocks the UI; failures → null client-side).
+  router.get('/media/:id/trailer', async (req, res) => {
+    const id = parseInt(req.params.id ?? '', 10);
+    const type = parseType(req.query.type);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ error: 'invalid media id' });
+      return;
+    }
+    if (!type) {
+      res.status(400).json({ error: 'missing or invalid type (movie|tv)' });
+      return;
+    }
+    try {
+      const videos = await deps.tmdb.videos(id, type);
+      res.json({ trailer: pickTrailer(videos) });
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });

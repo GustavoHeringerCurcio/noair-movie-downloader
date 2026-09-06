@@ -129,6 +129,13 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Packaging (`lib/hls.ts` + `lib/packages.ts`, cache root `PACKAGE_DIR` default `/packages` on a `packages` compose volume): ffmpeg stream-copies video, re-encodes each audio track to AAC into a separate HLS audio rendition, converts embedded text + sidecar subtitles to WebVTT, then writes `video/main.m3u8`, `audio/<idx>/main.m3u8`, `subs/<id>.{vtt,m3u8}` and a `master.m3u8` with EXT-X-MEDIA AUDIO/SUBTITLES groups. Done marker makes cached packages reusable across restarts. Packages are removed on torrent delete (S6).
 - Watch plays `mode:"hls"` through **Shaka Player** (lazy-loaded `shaka-player`, its own controls overlay with audio-language/subtitle menus) after polling `status`; packaging/failure states show progress or external-player/Download-file fallbacks.
 
+### S15 `GET /api/media/:id/trailer`
+- Auth: none.
+- Request: query `type: "movie" | "tv"` (required).
+- Behavior: fetches TMDB `GET /{movie|tv}/{id}/videos` (`language=en-US`), normalizes each video to `{ site, key, kind, official, language, publishedAt }`, then picks the best one with `lib/trailer.ts`. Pick rule (pure, unit-tested): keep only embeddable sites (`YouTube` > `Vimeo`, others dropped); prefer the `en` subset when it has ≥ 1 candidate, else any language; rank by kind `Trailer` → `Teaser` → other, then `official` first, then newest `published_at`, then YouTube over Vimeo.
+- Response: `200` → `{ trailer: Trailer | null }` where `Trailer = { provider: "youtube" | "vimeo", videoId: string, name: string | null }`. `trailer: null` when no usable video exists.
+- Errors: `400` missing/invalid `type`; `502` TMDB unreachable. The frontend treats any failure (HTTP error included) as `null` — a trailer is never allowed to block or break the card.
+
 ## 2. Data model
 
 Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver: `pg`.
@@ -204,6 +211,8 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 - Empty: "No results for '<q>'".
 - **Result selection**: activating a result (click/Enter) navigates to `/media/:id?type=…`; the overlay closes on any route change committed beneath it (so the destination is never hidden behind the full-screen layer). Closing resets query/results; no auto-save of the typed term into recent searches.
 
+- **Hover-trailer previews (D18, on every `TitleCard`)**: any card in a rail, the My Downloads rail, the landscape result grid, or the search overlay shows a **muted, looping trailer embed** on hover. Trigger: sustained hover (debounced ~600ms) → `trailerFor(item)` (S15, in-memory cache keyed `tmdbId:mediaType`, ~1h TTL) → an absolutely-positioned `<iframe>` overlay fills the card above the artwork but below the action overlay/progress (z 4). Embeds: YouTube `https://www.youtube-nocookie.com/embed/{videoId}?autoplay=1&mute=1&controls=0&playsinline=1&loop=1&playlist={videoId}&modestbranding=1`; Vimeo `https://player.vimeo.com/video/{videoId}?autoplay=1&muted=1&loop=1&controls=0`. The iframe is `pointer-events: none` (the whole card stays one click target), mounts only while hovered (unmounts on mouse leave / route change), and the still art remains beneath until playback begins. `trailer: null`, a fetch failure, or any HTTP error → static card, no layout shift, no toast. TV cards play the series trailer.
+
 ### Screen: Media Detail (`/media/:id`)
 - Hero: `w1280` backdrop, title, meta row (year · genres · runtime · rating; TV adds "N Seasons"), overview, grayscale overlays.
 - **Movie**: primary ▶ **Download** (friendly: most-seeded S3 movie source; disabled + spinner until the on-mount S3 fetch resolves) · **Advanced** (opens `SourcePickerModal`) · if an active download exists → **Watch** + trash.
@@ -244,8 +253,9 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 ### 4.1 TMDB
 - Base URL: `https://api.themoviedb.org/3`
 - Auth: `api_key` query param (v3), key from `TMDB_API_KEY`.
-- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`; `GET /tv/{id}/season/{n}` (S12).
+- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`; `GET /tv/{id}/season/{n}` (S12); `GET /{movie|tv}/{id}/videos` (S15).
 - TV seasons: from `GET /tv/{id}` map `seasons` to `TvSeasonSummary[]`, dropping `season_number === 0` and `episode_count <= 0` (S2). Episodes from `/tv/{id}/season/{n}` map `still_path` → `stillPath`, `runtime`, `air_date` → `airDate`.
+- Videos (S15): map `GET /{movie|tv}/{id}/videos` results to `{ site, key, kind, official, language, publishedAt }` — `site` kept verbatim (`"YouTube"`/`"Vimeo"`), `key` = the platform video id (YouTube key is directly embeddable; no YouTube Data API needed), `iso_639_1` → `language` (empty → `null`), `published_at` → `publishedAt` (empty → `null`). Ranking lives in the pure `lib/trailer.ts`, not in the TMDB client.
 - Images: `https://image.tmdb.org/t/p/{w500|w1280}/{path}` (proxied, S8).
 - Timeouts: 10s connect/read. Retries: 2, exponential backoff (0.5s, 1s).
 - Error mapping: non-2xx or network → throw `UpstreamError` → routes respond `502`.
@@ -373,3 +383,6 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 | Art file kind (S8b) | `poster` \| `background` \| `logo` |
 | Local artwork route | `/api/images/art/:mediaType/:tmdbId/:kind` |
 | Temporary card A/B setting | `artwork.style`: `backdrop` (default) \| `poster` (D17) |
+| Trailer pick (S15) | `Trailer = { provider, videoId, name }` (`provider`: `youtube` \| `vimeo`) |
+| Trailer lookup route | `GET /api/media/:id/trailer` |
+| Trailer player | YouTube `youtube-nocookie.com/embed/{videoId}` · Vimeo `player.vimeo.com/video/{videoId}` (muted autoplay loop) |

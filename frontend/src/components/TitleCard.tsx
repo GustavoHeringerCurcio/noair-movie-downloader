@@ -2,9 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowDownToLine, Play, Download } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { MediaItem } from '../types';
-import { cardImages, posterStyleLayers } from '../api';
+import type { MediaItem, Trailer } from '../types';
+import { cardImages, posterStyleLayers, trailerEmbedUrl, trailerFor } from '../api';
 import { useArtPreference, useCardStyle, useImageProvider } from '../store/settingsStore';
+
+/** How long a card must stay hovered before the trailer fetch/play starts (D18). */
+const TRAILER_HOVER_DELAY_MS = 600;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 export interface TitleCardPrimary {
   label: string;
@@ -66,6 +77,36 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
   const resetKey = `${item.tmdbId}:${item.mediaType}:${provider}:${preference.tmdb}:${preference.fanart}:${style}`;
 
+  const subjectKey = `${item.mediaType}:${item.tmdbId}`;
+  const [hovering, setHovering] = useState(false);
+  const [trailer, setTrailer] = useState<Trailer | null>(null);
+  const [trailerResolved, setTrailerResolved] = useState(false);
+
+  // D18 hover-trailer: debounced fetch on a sustained hover; art stays put until
+  // playback begins; a "no trailer" answer is remembered so the card stays static.
+  useEffect(() => {
+    setTrailer(null);
+    setTrailerResolved(false);
+  }, [subjectKey]);
+
+  useEffect(() => {
+    if (!hovering || trailerResolved || prefersReducedMotion()) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void trailerFor({ tmdbId: item.tmdbId, mediaType: item.mediaType }).then((tr) => {
+        if (cancelled) return;
+        setTrailer(tr);
+        setTrailerResolved(true);
+      });
+    }, TRAILER_HOVER_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [hovering, trailerResolved, item.tmdbId, item.mediaType]);
+
+  const showTrailer = hovering && trailerResolved && trailer !== null;
+
   const isPoster = style === 'poster';
 
   const figureSources = useMemo(
@@ -96,6 +137,8 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
       aria-label={`${title} — open details`}
       onClick={goDetail}
       onKeyDown={handleKey}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
     >
       {isPoster ? (
         <>
@@ -136,6 +179,17 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
             {glyphFor(primary.icon)}
           </button>
         </div>
+      )}
+
+      {showTrailer && trailer && (
+        <iframe
+          className="title-card-trailer"
+          src={trailerEmbedUrl(trailer)}
+          title={`${title} trailer preview`}
+          aria-hidden="true"
+          tabIndex={-1}
+          allow="autoplay; encrypted-media; picture-in-picture"
+        />
       )}
 
       {pct != null && (

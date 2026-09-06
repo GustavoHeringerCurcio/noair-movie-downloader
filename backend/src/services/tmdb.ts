@@ -6,12 +6,29 @@ export const DISCOVER_SECTIONS = ['trending-week', 'best-movies', 'best-tv'] as 
 
 export type DiscoverSection = (typeof DISCOVER_SECTIONS)[number];
 
+/** Normalized TMDB `/videos` result (S15). `site` stays verbatim ("YouTube"/"Vimeo"). */
+export interface TmdbVideo {
+  /** Video display name from TMDB. */
+  name: string | null;
+  /** Platform video id — for YouTube this is directly embeddable. */
+  key: string;
+  /** Upstream `site` field, verbatim. */
+  site: string;
+  /** Upstream `type` field (e.g. "Trailer", "Teaser", "Clip"). */
+  kind: string;
+  official: boolean;
+  language: string | null;
+  publishedAt: string | null;
+}
+
 export interface TmdbClient {
   searchMulti(q: string, type: SearchType): Promise<MediaItem[]>;
   details(id: number, type: MediaType, language?: string): Promise<MediaDetail>;
   browse(section: DiscoverSection): Promise<MediaItem[]>;
   seasonEpisodes(id: number, seasonNumber: number): Promise<TvEpisode[]>;
   tvdbId(id: number): Promise<number | null>;
+  /** Raw `/movie|tv/{id}/videos` results (S15); a 404 (unknown id) maps to `[]`. */
+  videos(id: number, type: MediaType): Promise<TmdbVideo[]>;
 }
 
 export interface TmdbClientConfig {
@@ -68,6 +85,16 @@ interface TmdbEpisodeDto {
 
 interface TmdbExternalIds {
   tvdb_id?: number | null;
+}
+
+interface TmdbVideoDto {
+  name?: string | null;
+  key?: string;
+  site?: string;
+  type?: string;
+  official?: boolean;
+  iso_639_1?: string | null;
+  published_at?: string | null;
 }
 
 function yearFromDate(date: string | null | undefined): number | null {
@@ -217,7 +244,32 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     return Number.isInteger(tvdb) && (tvdb as number) > 0 ? (tvdb as number) : null;
   }
 
-  return { searchMulti, details, browse, seasonEpisodes, tvdbId };
+  async function videos(id: number, type: MediaType): Promise<TmdbVideo[]> {
+    const url = `${config.baseUrl}/${type}/${id}/videos?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+    let res: Response;
+    try {
+      res = await fetchWithRetry(fetchImpl, url, {}, { retries: 1, baseBackoffMs: 300, timeoutMs: 8000 });
+    } catch {
+      throw new UpstreamError(502, 'TMDB unreachable');
+    }
+    // An unknown id has no videos — not an error for the trailer feature.
+    if (res.status === 404) return [];
+    if (!res.ok) throw new UpstreamError(502, `TMDB videos failed (HTTP ${res.status})`);
+    const data = (await res.json()) as { results?: TmdbVideoDto[] };
+    return (data.results ?? [])
+      .filter((v) => typeof v.key === 'string' && v.key.length > 0)
+      .map((v) => ({
+        name: v.name ?? null,
+        key: v.key as string,
+        site: v.site ?? '',
+        kind: v.type ?? '',
+        official: v.official ?? false,
+        language: v.iso_639_1 ? v.iso_639_1 : null,
+        publishedAt: v.published_at ?? null,
+      }));
+  }
+
+  return { searchMulti, details, browse, seasonEpisodes, tvdbId, videos };
 }
 
 function sectionPaths(section: DiscoverSection): string[] {

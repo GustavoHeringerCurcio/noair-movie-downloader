@@ -231,3 +231,63 @@ describe('TmdbClient.seasonEpisodes', () => {
     await expect(client.seasonEpisodes(100, 9)).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe('TmdbClient.videos', () => {
+  it('maps a movie videos payload (S15)', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/movie/550/videos'),
+        respond: () =>
+          createResponse(200, {
+            id: 550,
+            results: [
+              {
+                iso_639_1: 'en',
+                name: 'Fight Club Trailer',
+                key: 'O-b2VfmmbyA',
+                site: 'YouTube',
+                size: 720,
+                type: 'Trailer',
+                official: false,
+                published_at: '2016-03-05T02:03:14.000Z',
+              },
+              { key: '', site: 'YouTube', type: 'Trailer' },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const videos = await client.videos(550, 'movie');
+    expect(videos).toEqual([
+      {
+        name: 'Fight Club Trailer',
+        key: 'O-b2VfmmbyA',
+        site: 'YouTube',
+        kind: 'Trailer',
+        official: false,
+        language: 'en',
+        publishedAt: '2016-03-05T02:03:14.000Z',
+      },
+    ]);
+  });
+
+  it('returns [] for an unknown id (404)', async () => {
+    const fetchImpl = makeFetch([{ match: () => true, respond: () => createResponse(404, {}) }]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.videos(999999, 'movie')).resolves.toEqual([]);
+  });
+
+  it('throws UpstreamError on other non-2xx or network failure', async () => {
+    const fetchImpl = makeFetch([
+      { match: () => true, respond: () => createResponse(502, {}) },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.videos(550, 'movie')).rejects.toBeInstanceOf(UpstreamError);
+
+    const down = makeFetch([
+      { match: () => true, respond: () => { throw new TypeError('network down'); } },
+    ]);
+    const clientDown = createTmdbClient({ ...CONFIG, fetchImpl: down });
+    await expect(clientDown.videos(550, 'movie')).rejects.toBeInstanceOf(UpstreamError);
+  });
+});

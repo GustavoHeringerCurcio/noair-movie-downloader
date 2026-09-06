@@ -64,6 +64,17 @@ export interface TvEpisode {
   airDate: string | null;
 }
 
+/** Platform whose embed a trailer key belongs to (S15). */
+export type TrailerProvider = 'youtube' | 'vimeo';
+
+/** Best-trailer pick for a title (S15). `videoId` is embeddable directly. */
+export interface Trailer {
+  provider: TrailerProvider;
+  videoId: string;
+  /** Upstream video name (e.g. "Official Trailer"); may be null. */
+  name: string | null;
+}
+
 /**
  * Which seasons/episodes a release covers, parsed from its title.
  * `episodes: null` means a whole season. `season: 0` is never produced.

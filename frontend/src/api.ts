@@ -17,6 +17,7 @@ import type {
   SourcesResponse,
   StreamFileInfo,
   TmdbArtKind,
+  Trailer,
 } from './types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -256,6 +257,40 @@ export function browse(section: DiscoverSection): Promise<{ items: MediaItem[] }
 
 export function mediaDetails(id: number, type: MediaType): Promise<MediaDetail> {
   return request<MediaDetail>(`/api/media/${id}?type=${type}`);
+}
+
+const TRAILER_TTL_MS = 60 * 60 * 1000;
+const trailerCache = new Map<string, { promise: Promise<Trailer | null>; expires: number }>();
+
+/**
+ * Best hover-trailer for a title (S15). In-flight requests are deduped and
+ * results (including "no trailer") cached ~1h. Any failure degrades to `null` —
+ * a trailer must never block or break a card.
+ */
+export function trailerFor(item: { tmdbId: number; mediaType: MediaType }): Promise<Trailer | null> {
+  const key = `${item.mediaType}:${item.tmdbId}`;
+  const cached = trailerCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.promise;
+  const promise = request<{ trailer: Trailer | null }>(
+    `/api/media/${item.tmdbId}/trailer?type=${item.mediaType}`,
+  )
+    .then((body) => body?.trailer ?? null)
+    .catch(() => null);
+  trailerCache.set(key, { promise, expires: Date.now() + TRAILER_TTL_MS });
+  return promise;
+}
+
+/** Test hook — clears the module-level trailer cache. */
+export function clearTrailerCache(): void {
+  trailerCache.clear();
+}
+
+/** Muted-autoplay looping embed URL for the hover preview (D18). */
+export function trailerEmbedUrl(trailer: Trailer): string {
+  if (trailer.provider === 'vimeo') {
+    return `https://player.vimeo.com/video/${encodeURIComponent(trailer.videoId)}?autoplay=1&muted=1&loop=1&controls=0&title=0&byline=0&portrait=0`;
+  }
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.videoId)}?autoplay=1&mute=1&controls=0&playsinline=1&loop=1&playlist=${encodeURIComponent(trailer.videoId)}&modestbranding=1`;
 }
 
 export function seasonEpisodes(id: number, season: number): Promise<SeasonEpisodesResponse> {

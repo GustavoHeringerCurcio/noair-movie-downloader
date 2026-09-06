@@ -69,6 +69,13 @@ export interface TvSeasonSummary {
   episodeCount: number;
 }
 
+/** Best hover-trailer for a title (S15); `videoId` is directly embeddable. */
+export interface Trailer {
+  provider: 'youtube' | 'vimeo';
+  videoId: string;
+  name: string | null;
+}
+
 export interface TvEpisode {
   seasonNumber: number;
   episodeNumber: number;
