@@ -82,7 +82,7 @@ describe('GET /api/downloads/:infoHash/playinfo', () => {
     const app = setup({ videoCodec: 'h264', audioCodec: 'aac', height: 1080 }, { container: 'mkv' });
     const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);
     expect(res.body.mode).toBe('hls');
-    expect(res.body.manifestUrl).toBe(`/api/playback/${HASH}/hls/master.m3u8`);
+    expect(res.body.manifestUrl).toBe(`/api/playback/pkg/${HASH}-movie.mkv/master.m3u8`);
   });
 
   it('reports hls when audio needs normalization even in a playable container', async () => {

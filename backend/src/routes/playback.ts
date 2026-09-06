@@ -129,6 +129,10 @@ export function createPlaybackRouter(deps: AppDeps): Router {
       res.status(404).json({ error: 'not found' });
       return;
     }
+    if (subPath.toLowerCase().endsWith('.m3u8')) {
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Cache-Control', 'no-cache');
+    }
     res.sendFile(file);
   });
 

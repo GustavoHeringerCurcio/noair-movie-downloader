@@ -25,11 +25,26 @@ type ShakaModule = {
   polyfill: { installAll(): void };
   Player: new () => { attach(el: HTMLVideoElement): Promise<void>; load(url: string): Promise<void>; configure(o: Record<string, unknown>): void; destroy(): Promise<void> };
   ui?: { Overlay: new (container: HTMLDivElement, video: HTMLVideoElement, player: unknown) => OverlayHandle };
+  default?: ShakaModule;
 };
 
 function messageFromError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * Shaka ships as a UMD/CJS bundle; under Vite's dev CJS→ESM interop the API can
+ * sit behind the module's `default` export while the production build exposes it
+ * directly — normalize both.
+ */
+async function loadShaka(): Promise<NonNullable<ShakaModule['default']>> {
+  const loaded = (await import('shaka-player/dist/shaka-player.ui.js')) as unknown as ShakaModule;
+  const shaka = (loaded.default ?? loaded) as NonNullable<ShakaModule['default']>;
+  if (!shaka || typeof shaka.Player !== 'function') {
+    throw new Error('Shaka Player failed to initialize (unexpected module shape)');
+  }
+  return shaka;
 }
 
 /**
@@ -66,7 +81,7 @@ export function ShakaPlayer({ manifestUrl, resumeAt, onTick, onPlayback, onError
     void (async () => {
       try {
         await teardown();
-        const module = (await import('shaka-player/dist/shaka-player.ui.js')) as unknown as ShakaModule;
+        const module = await loadShaka();
         await import('shaka-player/dist/controls.css');
         if (cancelled) return;
 

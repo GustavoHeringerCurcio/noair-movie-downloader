@@ -13,6 +13,7 @@ import { probeMedia } from '../lib/probe.js';
 import { probeMediaInfo, listSidecarSubtitles } from '../lib/mediaInfo.js';
 import { decidePlaybackMode, decideStreamMode } from '../lib/streamPlan.js';
 import { cleanupTorrentPackages } from '../lib/packages.js';
+import { packageKey } from '../lib/hls.js';
 import { episodeKeyFromFilename } from '../lib/releaseParser.js';
 import { enrichDownloads } from '../lib/enrich.js';
 
@@ -212,7 +213,7 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       streamUrl: `/api/stream/${infoHash}/watch${qs}`,
       playUrl: `/api/stream/${infoHash}${qs}`,
       fileUrl: `/api/downloads/${infoHash}/file${qs}`,
-      manifestUrl: mode === 'hls' ? `/api/playback/${infoHash}/hls/master.m3u8${qs}` : null,
+      manifestUrl: mode === 'hls' ? `/api/playback/pkg/${packageKey(infoHash, resolved.relative)}/master.m3u8` : null,
     });
   });
 
