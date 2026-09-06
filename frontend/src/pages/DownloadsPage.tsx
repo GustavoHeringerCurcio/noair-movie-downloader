@@ -9,15 +9,14 @@ import {
   resumeDownload,
   externalPlayerUrl,
   fileUrl,
+  cardPosterUrl,
   humanSpeed,
   humanEta,
 } from '../api';
 import { StateBadge } from '../components/StateBadge';
 import { DownloadQualityChips } from '../components/DownloadQualityChips';
 import { EmptyState } from '../components/EmptyState';
-import { cardImages } from '../api';
 import { movieGroupKey, versionLabel } from '../lib/versions';
-import { useArtPreference, useImageProvider } from '../store/settingsStore';
 import type { DownloadRecord } from '../types';
 
 type Tab = 'all' | 'downloading' | 'ready';
@@ -59,8 +58,6 @@ export function DownloadsPage() {
   const removeLocal = useDownloadsStore((s) => s.removeLocal);
   const toast = useToastStore((s) => s.toast);
   const navigate = useNavigate();
-  const provider = useImageProvider();
-  const preference = useArtPreference();
   const [tab, setTab] = useState<Tab>('all');
 
   const ordered = useMemo(
@@ -181,11 +178,12 @@ export function DownloadsPage() {
               );
             }
             const d = entry.d;
-            const srcs = cardImages(d, provider, preference);
+            const posterSrc =
+              d.tmdbId != null && d.mediaType != null ? cardPosterUrl(d.mediaType, d.tmdbId) : null;
             return (
               <li key={d.infoHash} className="download-row">
-                {srcs.length > 0 ? (
-                  <img className="download-thumb" src={srcs[0]} alt="" loading="lazy" />
+                {posterSrc ? (
+                  <img className="download-thumb" src={posterSrc} alt="" loading="lazy" />
                 ) : (
                   <div className="download-thumb skeleton" aria-hidden="true" />
                 )}

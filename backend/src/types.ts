@@ -1,7 +1,7 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
 
-/** A title we may want key art / logos for (currently Fanart.tv-sourced). */
+/** A title we may want a portrait poster for (OMDb via its IMDb id). */
 export interface ArtSubject {
   mediaType: MediaType;
   tmdbId: number;
@@ -13,14 +13,6 @@ export type AudioLang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
 /** Audio descriptor read from a release title. */
 export type AudioMode = 'dub' | 'dual' | 'multi';
 
-export interface MediaArt {
-  thumbUrl: string | null;
-  /** Fanart.tv HD wide art (`moviebackground` for movies, `showbackground` for TV). */
-  backgroundUrl?: string | null;
-  posterUrl?: string | null;
-  logoUrl: string | null;
-}
-
 export interface MediaItem {
   tmdbId: number;
   mediaType: MediaType;
@@ -30,7 +22,6 @@ export interface MediaItem {
   backdropPath: string | null;
   overview: string;
   voteAverage: number;
-  art?: MediaArt | null;
 }
 
 export interface MediaDetail {
@@ -45,7 +36,6 @@ export interface MediaDetail {
   genres: string[];
   runtime: number | null;
   seasons?: TvSeasonSummary[] | null;
-  art?: MediaArt | null;
 }
 
 export interface TvSeasonSummary {
@@ -154,7 +144,6 @@ export interface DownloadRecord {
   audioLang?: AudioLang | null;
   /** Audio descriptor from the release title (`dub`/`dual`/`multi`). */
   audioMode?: AudioMode | null;
-  art?: MediaArt | null;
 }
 
 export interface CreateDownloadInput {

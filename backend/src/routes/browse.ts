@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { DISCOVER_SECTIONS, type DiscoverSection } from '../services/tmdb.js';
 import { UpstreamError } from '../types.js';
-import { enrichItems } from '../lib/enrich.js';
 import type { AppDeps } from '../deps.js';
 
 function parseSection(value: unknown): DiscoverSection | null {
@@ -20,8 +19,7 @@ export function createBrowseRouter(deps: AppDeps): Router {
     }
     try {
       const items = await deps.tmdb.browse(section);
-      const enriched = await enrichItems(items, deps);
-      res.json({ items: enriched });
+      res.json({ items });
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });

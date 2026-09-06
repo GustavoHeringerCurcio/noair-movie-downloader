@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { DownloadsPage } from './DownloadsPage';
 import { SettingsPage } from './SettingsPage';
 import { useDownloadsStore } from '@/store/downloadsStore';
-import { useSettingsStore } from '@/store/settingsStore';
 import type { DownloadRecord } from '@/types';
 
 function makeDownload(infoHash: string, overrides: Partial<DownloadRecord> = {}): DownloadRecord {
@@ -46,7 +45,6 @@ function makeDownload(infoHash: string, overrides: Partial<DownloadRecord> = {})
 beforeEach(() => {
   window.localStorage.clear();
   useDownloadsStore.setState({ downloads: [], connected: false });
-  useSettingsStore.setState({ provider: 'tmdb', fanartConfigured: false, ready: true, saving: false });
 });
 
 afterEach(() => {
@@ -137,32 +135,6 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Configuration')).toBeInTheDocument();
     expect(screen.getByText('About')).toBeInTheDocument();
     expect(screen.getByText('TMDB_API_KEY')).toBeInTheDocument();
-  });
-
-  it('offers an artwork source switch with FanArt disabled when no key is configured', () => {
-    render(
-      <MemoryRouter>
-        <SettingsPage />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByRole('group', { name: /artwork source/i })).toBeInTheDocument();
-    const fanart = screen.getByRole('button', { name: /fanart\.tv/i }) as HTMLButtonElement;
-    expect(fanart.disabled).toBe(true);
-    const tmdb = screen.getByRole('button', { name: /^tmdb/i }) as HTMLButtonElement;
-    expect(tmdb).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('enables FanArt once a key is configured', () => {
-    useSettingsStore.setState({ provider: 'fanart', fanartConfigured: true, ready: true });
-    render(
-      <MemoryRouter>
-        <SettingsPage />
-      </MemoryRouter>,
-    );
-
-    const fanart = screen.getByRole('button', { name: /fanart\.tv/i }) as HTMLButtonElement;
-    expect(fanart.disabled).toBe(false);
-    expect(fanart).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('OMDB_API_KEY')).toBeInTheDocument();
   });
 });

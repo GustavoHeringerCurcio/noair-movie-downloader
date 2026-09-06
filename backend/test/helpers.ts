@@ -1,42 +1,7 @@
 import type pg from 'pg';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import type { AppDeps } from '../src/deps.js';
-import { createArtService, type ArtService } from '../src/lib/artService.js';
-import { createFanartGateway } from '../src/lib/fanartGateway.js';
-import type { ArtRepository, MediaArtRow } from '../src/db/artRepo.js';
-import type { ArtSubject, CreateDownloadInput, DownloadRecord, TorrentState } from '../src/types.js';
-
-export function createMemoryArtRepo(seed: MediaArtRow[] = []): ArtRepository {
-  const rows = new Map<string, MediaArtRow>();
-  for (const row of seed) rows.set(`${row.mediaType}:${row.tmdbId}`, row);
-  return {
-    async getMany(keys: ArtSubject[]) {
-      return keys
-        .map((key) => rows.get(`${key.mediaType}:${key.tmdbId}`))
-        .filter((row): row is MediaArtRow => row != null);
-    },
-    async upsertMany(newRows: MediaArtRow[]) {
-      for (const row of newRows) {
-        rows.set(`${row.mediaType}:${row.tmdbId}`, { ...row, fetchedAt: row.fetchedAt ?? new Date().toISOString() });
-      }
-    },
-  };
-}
-
-/** An art service that resolves nothing — useful when art behavior is out of scope. */
-export function makeEmptyArtService(): ArtService {
-  return {
-    resolveManyCached: async () => new Map(),
-    enqueueMissing: () => {},
-    resolveOne: async () => null,
-    refresh: () => {},
-    refreshExpired: async () => 0,
-    refreshThumbless: async () => 0,
-    drain: async () => {},
-    clear: () => {},
-  };
-}
-
+import type { CreateDownloadInput, DownloadRecord, TorrentState } from '../src/types.js';
 
 export function createResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
   return {
@@ -135,7 +100,7 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
       },
       browse: async () => [],
       seasonEpisodes: async () => [],
-      tvdbId: async () => null,
+      imdbId: async () => null,
       videos: async () => [],
       certification: async () => null,
     },
@@ -164,16 +129,6 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     },
   };
   const deps = { ...base, ...overrides } as Partial<AppDeps>;
-  if (!deps.art) {
-    deps.art = createArtService({
-      repo: createMemoryArtRepo(),
-      gateway: createFanartGateway({
-        fanart: deps.fanart ?? null,
-        resolveTvdbId: (tmdbId) => deps.tmdb!.tvdbId(tmdbId),
-        minGapMs: 0,
-      }),
-    });
-  }
   return deps as AppDeps;
 }
 

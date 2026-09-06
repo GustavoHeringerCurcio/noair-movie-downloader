@@ -31,7 +31,7 @@
   --radius-poster: 6px;
   --rail-gap: 14px;
 
-  --font: 'Netflix Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 }
 
 * {
@@ -799,15 +799,6 @@ ul {
   transition: none;
 }
 
-/* Full-bleed colored artwork (Fanart.tv thumb > TMDB backdrop > poster) */
-.title-card-media {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center top;
-}
 .title-card-fallback {
   position: absolute;
   inset: 0;
@@ -820,8 +811,8 @@ ul {
   background: linear-gradient(135deg, var(--bg-2), var(--bg-3));
 }
 
-/* Poster-first layered tile (D17, temporary A/B): blurred poster/art as the
-   full-bleed ground, crisp centered poster as the figure (the identity). */
+/* Netflix-style wide tile (D21): portrait poster from the art volume as both
+   the blurred full-bleed ground and the crisp centered figure. */
 .title-card-poster .title-card-bg,
 .title-card-poster .title-card-bg-empty {
   position: absolute;
@@ -1006,12 +997,6 @@ ul {
   align-items: center;
   pointer-events: none;
 }
-.tc-pop-logo {
-  max-height: 46px;
-  max-width: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.85));
-}
 .tc-pop-title-text {
   font-size: clamp(16px, 1.2vw, 22px);
   font-weight: 800;
@@ -1046,8 +1031,9 @@ ul {
 
 .tc-pop-details {
   background: var(--bg-2);
-  padding: 12px 14px 14px;
-  color: var(--text-1);
+  padding: 12px 16px 14px;
+  color: var(--white);
+  line-height: 1.35;
 }
 .tc-pop-actions {
   display: flex;
@@ -1071,10 +1057,10 @@ ul {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(40, 40, 40, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(32, 32, 32, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   color: var(--white);
-  transition: transform 0.12s ease, background-color 0.15s ease, color 0.15s ease;
+  transition: transform 0.12s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .tc-pop-btn:hover {
   background: var(--white);
@@ -1092,10 +1078,10 @@ ul {
 
 .tc-pop-variants {
   display: flex;
-  gap: 5px;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  max-width: 100%;
 }
 .tc-pop-variants .tc-version-chip {
   font-size: 10px;
@@ -1105,37 +1091,40 @@ ul {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--white);
+  line-height: 1.3;
 }
 .tc-pop-cert {
   flex: none;
-  min-width: 26px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 3px;
+  padding: 1px 4px;
+  border-radius: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-4);
-  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   color: var(--white);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.4px;
 }
 .tc-pop-meta-text {
-  font-weight: 600;
-  color: var(--text-1);
+  font-weight: 500;
+  color: var(--white);
   white-space: nowrap;
 }
 .tc-pop-hd {
   flex: none;
+  padding: 1px 4px;
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 2px;
-  padding: 0 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.2;
   color: var(--white);
 }
 
@@ -1144,19 +1133,19 @@ ul {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.3;
 }
 .tc-pop-tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
 }
 .tc-pop-tag-sep {
-  color: var(--text-3);
+  margin-right: 6px;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 /* Landscape result grid (search, generic) */
@@ -1341,22 +1330,16 @@ ul {
   align-items: flex-end;
 }
 .detail-hero .hero-media {
-  filter: none;
+  /* Portrait OMDb poster becomes a cinematic blurred colour field (D21). */
+  filter: blur(26px) brightness(0.6) saturate(1.15);
+  transform: scale(1.18);
+  object-position: center;
 }
 .dh-content {
   position: relative;
   z-index: 2;
   padding: 40px var(--gutter) 34px;
   width: 100%;
-}
-.dh-logo {
-  max-width: min(420px, 70%);
-  max-height: 96px;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  margin: 0 0 14px;
-  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.7));
 }
 .dh-title {
   margin: 0 0 10px;
@@ -1911,11 +1894,12 @@ ul {
   padding: 12px;
 }
 .download-thumb {
-  width: 168px;
-  aspect-ratio: 16 / 9;
-  border-radius: 4px;
+  width: 96px;
+  aspect-ratio: 2 / 3;
+  border-radius: 6px;
   object-fit: cover;
   flex-shrink: 0;
+  align-self: center;
   background: var(--bg-3);
 }
 .download-info {
@@ -2106,97 +2090,6 @@ ul {
   font-size: 12px;
   opacity: 0.75;
   font-weight: 400;
-}
-.artwork-size-group {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-weak);
-}
-.artwork-size-title {
-  margin: 0 0 6px;
-  font-size: 15px;
-  color: var(--white);
-}
-.artwork-size-option {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: stretch;
-  padding: 0;
-  border: 1px solid var(--border-weak);
-  border-radius: 6px;
-  background: var(--bg-1);
-  overflow: hidden;
-  width: 220px;
-  cursor: pointer;
-}
-.artwork-size-option:hover {
-  border-color: var(--border-strong);
-}
-.artwork-size-option.selected {
-  border-color: var(--white);
-  box-shadow: 0 0 0 1px var(--white);
-}
-.artwork-size-option:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-.artwork-size-preview {
-  display: block;
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  background: var(--bg-2);
-  overflow: hidden;
-}
-.artwork-size-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.artwork-size-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 8px;
-  color: var(--text-3);
-  font-size: 12px;
-  text-align: center;
-  white-space: pre-line;
-  line-height: 1.4;
-}
-.artwork-size-label {
-  padding: 6px 10px;
-  font-size: 13px;
-  color: var(--text-2);
-  text-align: left;
-  border-top: 1px solid var(--border-weak);
-}
-.artwork-tester {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-weak);
-}
-.artwork-tester-sample {
-  margin-top: 8px;
-}
-.artwork-tester-custom {
-  justify-content: flex-start;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.artwork-tester-custom-input {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.artwork-tester-custom-input .sort-select {
-  width: 240px;
-}
-.artwork-size-group .artwork-size-label,
-.artwork-size-group .artwork-option {
-  min-width: 0;
 }
 
 /* --------------------------------------------------------------------------

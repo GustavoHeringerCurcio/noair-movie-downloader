@@ -110,7 +110,6 @@ export function WatchPage() {
       backdropPath: download.backdropPath,
       overview: '',
       voteAverage: 0,
-      art: download.art ?? null,
     });
   }, [download, recents, recordRecent]);
 

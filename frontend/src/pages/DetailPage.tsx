@@ -20,7 +20,7 @@ import type {
   TvEpisode,
 } from '../types';
 import {
-  backdropUrl,
+  cardPosterUrl,
   createDownload,
   externalPlayerUrl,
   humanEta,
@@ -41,7 +41,7 @@ import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
-import { useAudioLanguage, useImageProvider } from '../store/settingsStore';
+import { useAudioLanguage } from '../store/settingsStore';
 import { useVersionStore, versionKey } from '../store/versionStore';
 import {
   bestPlayable,
@@ -873,22 +873,13 @@ export function DetailPage() {
     void loadMovieSources(detail);
   }, [detail, mediaType, id, downloads, movieSources, movieLoading, movieError, audio]);
 
-  const provider = useImageProvider();
-  // STRICT hero art: FanArt provider shows only FanArt.tv art (HD background →
-  // key-art thumb → poster), never TMDB; TMDB provider shows only TMDB backdrops,
-  // never FanArt.
-  const backdrop =
-    provider === 'fanart'
-      ? (detail?.art?.backgroundUrl ??
-        detail?.art?.thumbUrl ??
-        detail?.art?.posterUrl ??
-        null)
-      : backdropUrl(detail?.backdropPath ?? null);
-
-  const [heroArtFailed, setHeroArtFailed] = useState({ media: false, logo: false });
+  // Hero ground (D21): the OMDb portrait poster, blurred full-bleed so the page
+  // reads as a cinematic colour field that matches the title. No TMDB/FanArt art.
+  const heroPoster = detail ? cardPosterUrl(detail.mediaType, detail.tmdbId) : null;
+  const [heroArtFailed, setHeroArtFailed] = useState({ media: false });
   useEffect(() => {
-    setHeroArtFailed({ media: false, logo: false });
-  }, [backdrop, detail?.art?.logoUrl]);
+    setHeroArtFailed({ media: false });
+  }, [heroPoster]);
 
   if (detailError || !detail) {
     return (
@@ -908,25 +899,18 @@ export function DetailPage() {
   return (
     <div className="detail-page">
       <section className="detail-hero">
-        {backdrop && !heroArtFailed.media && (
-          <img className="hero-media" src={backdrop} alt="" onError={() => setHeroArtFailed((s) => ({ ...s, media: true }))} />
+        {heroPoster && !heroArtFailed.media && (
+          <img
+            className="hero-media"
+            src={heroPoster}
+            alt=""
+            onError={() => setHeroArtFailed((s) => ({ ...s, media: true }))}
+          />
         )}
         <div className="hero-overlay-l" aria-hidden="true" />
         <div className="hero-overlay-b" aria-hidden="true" />
         <div className="dh-content">
-          {provider === 'fanart' && detail.art?.logoUrl && !heroArtFailed.logo ? (
-            <>
-              <img
-                className="dh-logo"
-                src={detail.art.logoUrl}
-                alt=""
-                onError={() => setHeroArtFailed((s) => ({ ...s, logo: true }))}
-              />
-              <h1 className="sr-only">{detail.title}</h1>
-            </>
-          ) : (
-            <h1 className="dh-title">{detail.title}</h1>
-          )}
+          <h1 className="dh-title">{detail.title}</h1>
           <div className="dh-meta">
             <span>{detail.year ?? '—'}</span>
             <span>{detail.genres.join(' · ')}</span>

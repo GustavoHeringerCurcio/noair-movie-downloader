@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app.js';
-import { makeDownloadRecord, makeTestDeps, createMemoryArtRepo } from '../../test/helpers.js';
-import { createArtService } from '../lib/artService.js';
-import { createFanartGateway } from '../lib/fanartGateway.js';
+import { makeDownloadRecord, makeTestDeps } from '../../test/helpers.js';
 import { UpstreamError } from '../types.js';
 import type { MediaDetail } from '../types.js';
 
@@ -203,57 +201,6 @@ describe('routes', () => {
     expect(res.status).toBe(204);
   });
 
-  it('GET /api/downloads attaches cached Fanart art to rows in Fanart mode only', async () => {
-    const record = makeDownloadRecord({ infoHash: HASH });
-    const fanart = {
-      getMovieArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
-      getTvArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
-    };
-    const list = async () => [record];
-    const seededArt = createArtService({
-      repo: createMemoryArtRepo([
-        {
-          mediaType: 'movie',
-          tmdbId: 1,
-          tvdbId: null,
-          thumbUrl: 'https://fanart.tv/t.jpg',
-          logoUrl: 'https://fanart.tv/l.png',
-          status: 'ok',
-          fetchedAt: new Date().toISOString(),
-        },
-      ]),
-      gateway: createFanartGateway({ fanart, minGapMs: 0 }),
-    });
-
-    const fanartApp = createApp(
-      makeTestDeps({
-        fanart,
-        art: seededArt,
-        downloads: { ...makeTestDeps().downloads, list },
-        settings: { get: async () => ({ provider: 'fanart' }), set: async () => {} },
-      }),
-    );
-    const fanartRes = await request(fanartApp).get('/api/downloads');
-    expect(fanartRes.status).toBe(200);
-    expect(fanartRes.body.downloads[0].art).toEqual({
-      thumbUrl: 'https://fanart.tv/t.jpg',
-      backgroundUrl: null,
-      posterUrl: null,
-      logoUrl: 'https://fanart.tv/l.png',
-    });
-
-    const tmdbApp = createApp(
-      makeTestDeps({
-        fanart,
-        downloads: { ...makeTestDeps().downloads, list },
-        settings: { get: async () => ({ provider: 'tmdb' }), set: async () => {} },
-      }),
-    );
-    const tmdbRes = await request(tmdbApp).get('/api/downloads');
-    expect(tmdbRes.status).toBe(200);
-    expect(tmdbRes.body.downloads[0].art).toBeUndefined();
-  });
-
   it('POST /api/downloads persists season/episode and backdrop', async () => {
     let captured: unknown = null;
     const deps = makeTestDeps({
@@ -446,26 +393,5 @@ describe('S12 GET /api/media/:id/season/:n', () => {
     const app = createApp(makeTestDeps());
     const res = await request(app).get('/api/media/94997/season/1');
     expect(res.status).toBe(400);
-  });
-});
-
-describe('Fanart enrichment on detail', () => {
-  it('returns art on GET /api/media/:id when a fanart client is configured', async () => {
-    const deps = makeTestDeps({
-      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
-      fanart: {
-        getMovieArt: async () => ({ status: 'ok' as const, thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' }),
-        getTvArt: async () => ({ status: 'empty' as const, thumbUrl: null, logoUrl: null }),
-      },
-    });
-    const app = createApp(deps);
-    const res = await request(app).get('/api/media/27205?type=movie');
-    expect(res.status).toBe(200);
-    expect(res.body.art).toEqual({
-      thumbUrl: 'https://fanart.tv/t.jpg',
-      backgroundUrl: null,
-      posterUrl: null,
-      logoUrl: 'https://fanart.tv/l.png',
-    });
   });
 });

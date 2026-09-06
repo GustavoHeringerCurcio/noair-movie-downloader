@@ -5,20 +5,18 @@ import { createPool } from './db/pool.js';
 import { runSchema } from './db/migrate.js';
 import { createDownloadsRepository } from './db/downloadsRepo.js';
 import { createSettingsRepository } from './db/settingsRepo.js';
-import { createArtRepository } from './db/artRepo.js';
 import { createArtFilesRepository } from './db/artFilesRepo.js';
-import { createArtService } from './lib/artService.js';
 import { createArtCache } from './lib/artCache.js';
-import { createFanartGateway } from './lib/fanartGateway.js';
 import { startArtWarmLoop } from './lib/warmArt.js';
 import { createTmdbClient } from './services/tmdb.js';
-import { createFanartClient } from './services/fanart.js';
+import { createOmdbClient } from './services/omdb.js';
 import { createProwlarrClient } from './services/prowlarr.js';
 import { createProwlarrAdminClient, type ProwlarrAdminClient } from './services/prowlarrAdmin.js';
 import { createQbittorrentClient } from './services/qbittorrent.js';
 import { createApp } from './app.js';
 import { attachSocket, startPollLoop } from './socket/hub.js';
 import type { AppDeps } from './deps.js';
+import type { ArtSubject } from './types.js';
 
 async function main(): Promise<void> {
   const pool = createPool(config.databaseUrl);
@@ -26,16 +24,21 @@ async function main(): Promise<void> {
   console.log('schema ready');
 
   const tmdb = createTmdbClient({ baseUrl: config.tmdbBaseUrl, apiKey: config.tmdbApiKey });
-  const fanart = config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null;
-  const artRepo = createArtRepository(pool);
-  const artService = createArtService({
-    repo: artRepo,
-    gateway: createFanartGateway({
-      fanart,
-      resolveTvdbId: (tmdbId) => tmdb.tvdbId(tmdbId),
-      minGapMs: config.fanartMinGapMs,
-    }),
-  });
+  const omdb = config.omdbApiKey ? createOmdbClient({ apiKey: config.omdbApiKey }) : null;
+  const artFiles = createArtFilesRepository(pool);
+
+  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL. Throws
+  // on transient OMDb failures (unreachable / daily budget) so the cache never
+  // records "no poster" for an outage; returns null for a true no-poster title.
+  const resolvePosterOrigin = async (subject: ArtSubject): Promise<string | null> => {
+    if (!omdb) return null;
+    const imdbId = await tmdb.imdbId(subject.tmdbId, subject.mediaType);
+    if (!imdbId) return null;
+    const result = await omdb.fetchPoster(imdbId);
+    if (result.status === 'error') throw new Error(`OMDb transient failure for ${subject.mediaType}:${subject.tmdbId}`);
+    return result.status === 'ok' ? result.posterUrl : null;
+  };
+  const artCache = createArtCache({ repo: artFiles, artDir: config.artDir, resolveOrigin: resolvePosterOrigin });
 
   const deps: AppDeps = {
     config,
@@ -51,16 +54,10 @@ async function main(): Promise<void> {
     }),
     downloads: createDownloadsRepository(pool),
     settings: createSettingsRepository(pool),
-    fanart,
+    omdb,
     prowlarrAdmin: createProwlarrAdminClient({ baseUrl: config.prowlarrUrl, apiKey: config.prowlarrApiKey }),
-    art: artService,
-    artFiles: createArtFilesRepository(pool),
-    artCache: createArtCache({
-      repo: createArtFilesRepository(pool),
-      artDir: config.artDir,
-      tmdbImageBaseUrl: config.tmdbImageBaseUrl,
-      resolveMediaArt: (subjects) => artService.resolveManyCached(subjects),
-    }),
+    artFiles,
+    artCache,
   };
 
   if (config.prowlarrBootstrapIndexers) {
@@ -76,7 +73,7 @@ async function main(): Promise<void> {
 
   attachSocket(io, deps);
   startPollLoop(deps, io, config.pollIntervalMs);
-  startArtWarmLoop(deps, config.artWarmIntervalMs, 7 * 24 * 60 * 60 * 1000);
+  startArtWarmLoop(deps, config.artWarmIntervalMs);
 
   server.listen(config.port, () => {
     console.log(`backend listening on :${config.port}`);

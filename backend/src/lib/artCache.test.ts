@@ -4,9 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createArtCache } from './artCache.js';
 import type { ArtFilesRepository, ArtFileRow } from '../db/artFilesRepo.js';
-import type { MediaArt } from '../types.js';
-
-const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
+import type { ArtSubject } from '../types.js';
 
 function createMemoryArtFilesRepo(seed: ArtFileRow[] = []): ArtFilesRepository {
   const rows = new Map<string, ArtFileRow>();
@@ -14,7 +12,7 @@ function createMemoryArtFilesRepo(seed: ArtFileRow[] = []): ArtFilesRepository {
   return {
     async getMany(subjects) {
       return subjects
-        .flatMap((s) => [rows.get(`${s.mediaType}:${s.tmdbId}:poster`), rows.get(`${s.mediaType}:${s.tmdbId}:background`), rows.get(`${s.mediaType}:${s.tmdbId}:logo`)])
+        .flatMap((s) => [rows.get(`${s.mediaType}:${s.tmdbId}:poster`)])
         .filter((row): row is ArtFileRow => row != null);
     },
     async upsertMany(newRows) {
@@ -25,12 +23,7 @@ function createMemoryArtFilesRepo(seed: ArtFileRow[] = []): ArtFilesRepository {
   };
 }
 
-const art = (partial: Partial<MediaArt> = {}): MediaArt | null => ({
-  thumbUrl: null,
-  posterUrl: null,
-  logoUrl: null,
-  ...partial,
-});
+const SUBJECT: ArtSubject = { mediaType: 'movie', tmdbId: 550 };
 
 function artResponse(contentType = 'image/jpeg'): Response {
   return new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': contentType } });
@@ -50,33 +43,58 @@ describe('artCache', () => {
     await fs.rm(artDir, { recursive: true, force: true });
   });
 
-  function cache(resolveMediaArt = async () => new Map<string, MediaArt | null>()) {
+  function cache(resolveOrigin: (subject: ArtSubject) => Promise<string | null>) {
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       urls.push(url);
       return artResponse('image/png');
     }) as typeof fetch;
-    return createArtCache({ repo, artDir, tmdbImageBaseUrl: TMDB_IMAGE_BASE, resolveMediaArt, fetchImpl });
+    return createArtCache({ repo, artDir, resolveOrigin, fetchImpl });
   }
 
-  it('downloads the TMDB poster when Fanart has none and records it', async () => {
+  const omdbPoster = 'https://m.media-amazon.com/images/M/poster.jpg';
+
+  it('downloads the OMDb portrait poster and records it', async () => {
     repo = createMemoryArtFilesRepo();
-    const written = await cache().warm([{ mediaType: 'movie', tmdbId: 550, posterPath: '/p.jpg' }]);
+    const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(1);
-    expect(urls).toEqual([`${TMDB_IMAGE_BASE}/t/p/w780/p.jpg`]);
+    expect(urls).toEqual([omdbPoster]);
     const file = await fs.readdir(artDir);
     expect(file).toHaveLength(1);
     expect(file[0]).toBe('movie_550_poster.png');
+    const rows = await repo.getMany([SUBJECT]);
+    expect(rows[0]?.kind).toBe('poster');
+    expect(rows[0]?.originUrl).toBe(omdbPoster);
   });
 
-  it('prefers the Fanart hi-res poster over the TMDB poster', async () => {
+  it('records empty (no poster) when resolveOrigin returns null', async () => {
     repo = createMemoryArtFilesRepo();
-    const fanartPoster = 'https://fanart.tv/poster.jpg';
-    const written = await cache(async () => new Map([['movie:550', art({ posterUrl: fanartPoster })]]))?.warm([
-      { mediaType: 'movie', tmdbId: 550, posterPath: '/p.jpg' },
+    const written = await cache(async () => null).warm([SUBJECT]);
+    expect(written).toBe(0);
+    expect(urls).toHaveLength(0);
+    const rows = await repo.getMany([SUBJECT]);
+    expect(rows[0]?.status).toBe('empty');
+  });
+
+  it('does not re-ask OMDb for an empty row recorded recently', async () => {
+    repo = createMemoryArtFilesRepo([
+      {
+        mediaType: 'movie',
+        tmdbId: 550,
+        kind: 'poster',
+        originUrl: null,
+        filePath: null,
+        status: 'empty',
+        fetchedAt: new Date().toISOString(),
+      },
     ]);
-    expect(written).toBe(1);
-    expect(urls).toEqual([fanartPoster]);
+    let calls = 0;
+    const written = await cache(async () => {
+      calls += 1;
+      return omdbPoster;
+    }).warm([SUBJECT]);
+    expect(written).toBe(0);
+    expect(calls).toBe(0);
   });
 
   it('skips files already downloaded and on disk', async () => {
@@ -85,14 +103,14 @@ describe('artCache', () => {
         mediaType: 'movie',
         tmdbId: 550,
         kind: 'poster',
-        originUrl: `${TMDB_IMAGE_BASE}/t/p/w780/p.jpg`,
+        originUrl: omdbPoster,
         filePath: 'movie_550_poster.jpg',
         status: 'ok',
         fetchedAt: new Date().toISOString(),
       },
     ]);
     await fs.writeFile(path.join(artDir, 'movie_550_poster.jpg'), Buffer.from([1, 2, 3]));
-    const written = await cache().warm([{ mediaType: 'movie', tmdbId: 550, posterPath: '/p.jpg' }]);
+    const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(0);
     expect(urls).toHaveLength(0);
   });
@@ -103,39 +121,30 @@ describe('artCache', () => {
         mediaType: 'movie',
         tmdbId: 550,
         kind: 'poster',
-        originUrl: `${TMDB_IMAGE_BASE}/t/p/w780/p.jpg`,
+        originUrl: omdbPoster,
         filePath: 'movie_550_poster.jpg',
         status: 'ok',
         fetchedAt: new Date().toISOString(),
       },
     ]);
-    const written = await cache().warm([{ mediaType: 'movie', tmdbId: 550, posterPath: '/p.jpg' }]);
+    const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(1);
-    expect(urls).toHaveLength(1);
+    expect(urls).toEqual([omdbPoster]);
   });
 
-  it('does nothing when no candidate exists for a title', async () => {
+  it('skips (records nothing) when resolveOrigin throws — transient failure must not be cached', async () => {
     repo = createMemoryArtFilesRepo();
-    const written = await cache().warm([{ mediaType: 'movie', tmdbId: 550, posterPath: null }]);
-    expect(written).toBe(0);
-    expect(urls).toHaveLength(0);
-  });
-
-  it('records nothing when the download fails so the next pass retries', async () => {
-    repo = createMemoryArtFilesRepo();
-    const failing = (async () => {
-      throw new Error('network down');
-    }) as unknown as typeof fetch;
     const c = createArtCache({
       repo,
       artDir,
-      tmdbImageBaseUrl: TMDB_IMAGE_BASE,
-      resolveMediaArt: async () => new Map(),
-      fetchImpl: failing,
+      resolveOrigin: async () => {
+        throw new Error('OMDb unreachable');
+      },
+      fetchImpl: (async () => artResponse()) as typeof fetch,
     });
-    const written = await c.warm([{ mediaType: 'movie', tmdbId: 550, posterPath: '/p.jpg' }]);
+    const written = await c.warm([SUBJECT]);
     expect(written).toBe(0);
-    const rows = await repo.getMany([{ mediaType: 'movie', tmdbId: 550 }]);
+    const rows = await repo.getMany([SUBJECT]);
     expect(rows).toEqual([]);
   });
 });

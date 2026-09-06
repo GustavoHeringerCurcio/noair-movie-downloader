@@ -1,8 +1,8 @@
 import type pg from 'pg';
 import type { ArtSubject, MediaType } from '../types.js';
 
-/** What the artwork pipeline stores on disk for a title (poster-first tiles, D17). */
-export type ArtKind = 'poster' | 'background' | 'logo';
+/** What the poster pipeline stores on disk for a title (OMDb portrait, D21). */
+export type ArtKind = 'poster';
 
 export type ArtFileStatus = 'ok' | 'empty';
 

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import type { SearchType } from '../types.js';
 import { UpstreamError } from '../types.js';
-import { enrichItems } from '../lib/enrich.js';
 import type { AppDeps } from '../deps.js';
 
 export function createSearchRouter(deps: AppDeps): Router {
@@ -17,8 +16,7 @@ export function createSearchRouter(deps: AppDeps): Router {
     const type: SearchType = rawType === 'movie' || rawType === 'tv' ? rawType : 'all';
     try {
       const items = await deps.tmdb.searchMulti(q, type);
-      const enriched = await enrichItems(items, deps);
-      res.json({ items: enriched });
+      res.json({ items });
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });

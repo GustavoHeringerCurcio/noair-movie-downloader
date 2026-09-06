@@ -1,20 +1,6 @@
 export type MediaType = 'movie' | 'tv';
 export type SearchType = MediaType | 'all';
 export type DiscoverSection = 'trending-week' | 'best-movies' | 'best-tv';
-export type ImageProvider = 'tmdb' | 'fanart';
-
-/** Temporary card A/B (D17): `backdrop` = current full-bleed tile; `poster` = poster-first layered tile. */
-export type CardStyle = 'backdrop' | 'poster';
-
-/** TMDB-native card art kinds (never FanArt). */
-export type TmdbArtKind = 'backdrop' | 'poster';
-/** FanArt.tv-native sizes; FanArt never falls back to TMDB art. */
-export type FanartArtKind = 'thumb' | 'background' | 'poster';
-
-export interface ArtPreference {
-  tmdb: TmdbArtKind;
-  fanart: FanartArtKind;
-}
 
 /** Primary audio languages we can act on. `en` is the implicit default/original. */
 export type AudioLang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
@@ -44,13 +30,6 @@ export interface SeasonEpisodesResponse {
   episodes: TvEpisode[];
 }
 
-export interface MediaArt {
-  thumbUrl: string | null;
-  backgroundUrl?: string | null;
-  posterUrl?: string | null;
-  logoUrl: string | null;
-}
-
 export interface MediaItem {
   tmdbId: number;
   mediaType: MediaType;
@@ -60,7 +39,6 @@ export interface MediaItem {
   backdropPath: string | null;
   overview: string;
   voteAverage: number;
-  art?: MediaArt | null;
 }
 
 export interface TvSeasonSummary {
@@ -120,7 +98,6 @@ export interface MediaDetail {
   genres: string[];
   runtime: number | null;
   seasons?: TvSeasonSummary[] | null;
-  art?: MediaArt | null;
 }
 
 export interface Source {
@@ -218,7 +195,6 @@ export interface DownloadRecord {
   audioLang?: AudioLang | null;
   /** Audio descriptor from the release title (`dub`/`dual`/`multi`). */
   audioMode?: AudioMode | null;
-  art?: MediaArt | null;
 }
 
 export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required' | 'hls';

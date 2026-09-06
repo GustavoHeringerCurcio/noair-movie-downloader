@@ -1,14 +1,9 @@
 import type {
   AudioLang,
-  ArtPreference,
-  CardStyle,
   CreateDownloadPayload,
   DiscoverSection,
   DownloadRecord,
-  FanartArtKind,
   HoverCardInfo,
-  ImageProvider,
-  MediaArt,
   MediaDetail,
   MediaItem,
   MediaType,
@@ -17,7 +12,6 @@ import type {
   SeasonEpisodesResponse,
   SourcesResponse,
   StreamFileInfo,
-  TmdbArtKind,
   Trailer,
 } from './types';
 
@@ -45,50 +39,21 @@ export function backdropUrl(backdropPath: string | null): string | null {
   return backdropPath ? `/api/images/tmdb/w1280${backdropPath}` : null;
 }
 
-/** S8b — artwork the pipeline downloaded to the backend `art` volume. */
-export function localArtUrl(mediaType: MediaType, tmdbId: number, kind: 'poster' | 'background' | 'logo'): string {
-  return `/api/images/art/${mediaType}/${tmdbId}/${kind}`;
-}
-
-export interface ArtworkSettings {
-  provider: ImageProvider;
-  fanartConfigured: boolean;
-  preference: ArtPreference;
-  /** Temporary card A/B (D17). */
-  style: CardStyle;
+/**
+ * Portrait poster the backend downloaded to its `art` volume (D21). The image
+ * route lazily warms a title on first request, so this resolves for anything
+ * that has an OMDb poster; otherwise it 404s and the card shows its monogram.
+ */
+export function cardPosterUrl(mediaType: MediaType, tmdbId: number): string {
+  return `/api/images/art/${mediaType}/${tmdbId}/poster`;
 }
 
 export interface SiteSettings {
-  artwork: ArtworkSettings;
   language: { audio: AudioLang };
 }
 
-export const DEFAULT_ART_PREFERENCE: ArtPreference = { tmdb: 'backdrop', fanart: 'thumb' };
-export const DEFAULT_CARD_STYLE: CardStyle = 'backdrop';
-
 export function fetchSettings(): Promise<SiteSettings> {
   return request<SiteSettings>('/api/settings');
-}
-
-export function saveArtworkProvider(provider: ImageProvider): Promise<SiteSettings> {
-  return request<SiteSettings>('/api/settings', {
-    method: 'PUT',
-    body: JSON.stringify({ artwork: { provider } }),
-  });
-}
-
-export function saveArtworkPreference(preference: Partial<ArtPreference>): Promise<SiteSettings> {
-  return request<SiteSettings>('/api/settings', {
-    method: 'PUT',
-    body: JSON.stringify({ artwork: { preference } }),
-  });
-}
-
-export function saveCardStyle(style: CardStyle): Promise<SiteSettings> {
-  return request<SiteSettings>('/api/settings', {
-    method: 'PUT',
-    body: JSON.stringify({ artwork: { style } }),
-  });
 }
 
 export function saveAudioLanguage(audio: AudioLang): Promise<SiteSettings> {
@@ -96,110 +61,6 @@ export function saveAudioLanguage(audio: AudioLang): Promise<SiteSettings> {
     method: 'PUT',
     body: JSON.stringify({ language: { audio } }),
   });
-}
-
-export interface CardArtSource {
-  backdropPath: string | null;
-  posterPath: string | null;
-  art?: MediaArt | null;
-}
-
-/** FanArt candidate order: preferred kind first, then the other FanArt sizes. */
-const FANART_KIND_ORDER: FanartArtKind[] = ['thumb', 'background', 'poster'];
-
-function fanartUrls(art: MediaArt | null | undefined): Record<FanartArtKind, string | null> {
-  return {
-    thumb: art?.thumbUrl ?? null,
-    background: art?.backgroundUrl ?? null,
-    poster: art?.posterUrl ?? null,
-  };
-}
-
-/**
- * Candidate card images for a title under a given artwork provider + preference.
- *
- * STRICT: candidates never mix providers.
- * - TMDB mode → only TMDB proxy URLs (preferred kind first, then the other TMDB kind).
- * - FanArt mode → only FanArt.tv URLs (preferred FanArt size first, then other FanArt sizes).
- * A title with nothing from the active provider yields an empty list (UI shows a
- * placeholder) — it never silently borrows the other provider's art.
- */
-export function cardImages(item: CardArtSource, provider: ImageProvider, preference: ArtPreference): string[] {
-  if (provider === 'fanart') {
-    const urls = fanartUrls(item.art);
-    const preferred = preference.fanart;
-    const ordered = [preferred, ...FANART_KIND_ORDER.filter((k) => k !== preferred)];
-    return ordered.map((kind) => urls[kind]).filter((v): v is string => Boolean(v));
-  }
-  // TMDB mode — strictly TMDB proxy URLs (backdrop → poster), never FanArt.
-  const backdrop = backdropUrl(item.backdropPath);
-  const poster = posterUrl(item.posterPath);
-  const preferred: TmdbArtKind = preference.tmdb;
-  const ordered = preferred === 'backdrop' ? [backdrop, poster] : [poster, backdrop];
-  return ordered.filter((v): v is string => Boolean(v));
-}
-
-/** Poster-first layered tile (D17, temporary): needs the title's identity to build S8b URLs. */
-export interface PosterCardLayers {
-  /** Ordered background candidates (full-bleed, CSS-blurred unless it is 16:9 key art). */
-  background: string[];
-  /** Ordered poster candidates (the crisp figure — title identity). */
-  figure: string[];
-}
-
-export function dedupeUrls(urls: Array<string | null>): string[] {
-  return urls.filter((u): u is string => Boolean(u)).filter((u, i, all) => all.indexOf(u) === i);
-}
-
-export function posterStyleLayers(
-  item: CardArtSource & { mediaType: MediaType; tmdbId: number },
-): PosterCardLayers {
-  const posterUrlHi = posterUrl(item.posterPath, 'w780');
-  const posterUrlLo = posterUrl(item.posterPath);
-  const localPoster = item.posterPath ? localArtUrl(item.mediaType, item.tmdbId, 'poster') : null;
-
-  const figure = dedupeUrls([localPoster, item.art?.posterUrl ?? null, posterUrlHi, posterUrlLo]);
-  const background = dedupeUrls([
-    item.art?.thumbUrl ?? null,
-    backdropUrl(item.backdropPath),
-    localPoster,
-    item.art?.posterUrl ?? null,
-    posterUrlHi,
-  ]);
-  return { background, figure };
-}
-
-export function fanartArtKindLabel(kind: FanartArtKind): string {
-  switch (kind) {
-    case 'thumb':
-      return 'Key art (16:9 thumb)';
-    case 'background':
-      return 'HD background';
-    case 'poster':
-      return 'Poster';
-  }
-}
-
-export function tmdbArtKindLabel(kind: TmdbArtKind): string {
-  return kind === 'backdrop' ? 'Backdrop' : 'Poster';
-}
-
-export function artworkPreview(tmdbId: number, type: MediaType): Promise<ArtworkPreview> {
-  return request<ArtworkPreview>(`/api/settings/artwork-preview?tmdbId=${tmdbId}&type=${type}`);
-}
-
-export interface ArtworkPreview {
-  title: string;
-  year: number | null;
-  mediaType: MediaType;
-  tmdbId: number;
-  tmdb: { posterPath: string | null; backdropPath: string | null };
-  fanart: {
-    thumbUrl: string | null;
-    backgroundUrl: string | null;
-    posterUrl: string | null;
-    logoUrl: string | null;
-  } | null;
 }
 
 export function streamUrl(infoHash: string, file?: string): string {

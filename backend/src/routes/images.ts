@@ -2,11 +2,10 @@ import { Readable } from 'node:stream';
 import type { ReadableStream } from 'node:stream/web';
 import { Router } from 'express';
 import type { AppDeps } from '../deps.js';
-import type { ArtKind } from '../db/artFilesRepo.js';
 
 const TMDB_IMAGE_PATH_RE = /^[a-zA-Z0-9/_.-]+$/;
 const ALLOWED_SIZES = new Set(['w500', 'w780', 'w1280']);
-const ART_KINDS: ArtKind[] = ['poster', 'background', 'logo'];
+const POSTER_KIND = 'poster';
 
 const MIME_BY_EXT: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -20,7 +19,8 @@ const MIME_BY_EXT: Record<string, string> = {
 export function createImagesRouter(deps: AppDeps): Router {
   const router = Router();
 
-  // S8 — TMDB image proxy (key never reaches the browser).
+  // S8 — TMDB image proxy (key never reaches the browser). Still used for TV
+  // episode stills; card/poster art is served from the art volume instead (D21).
   router.get('/images/tmdb/*', async (req, res) => {
     const imagePath = (req.params as Record<string, string>)['0'] ?? '';
     if (!TMDB_IMAGE_PATH_RE.test(imagePath)) {
@@ -52,9 +52,10 @@ export function createImagesRouter(deps: AppDeps): Router {
     }
   });
 
-  // S8b — locally cached artwork from the pipeline (D17). The file name always
-  // comes from the `art_files` row — never from the request — so traversal is
-  // impossible; `root` containment is an extra guard.
+  // Locally cached OMDb portrait poster (D21). The file name always comes from
+  // the `art_files` row — never from the request — so traversal is impossible;
+  // `root` containment is an extra guard. A title that isn't cached yet is
+  // warmed on demand (one OMDb fetch max) so newly-rendered cards resolve fast.
   router.get('/images/art/:mediaType/:tmdbId/:kind', async (req, res) => {
     const { mediaType, tmdbId: tmdbIdRaw, kind } = req.params as Record<string, string>;
     if (mediaType !== 'movie' && mediaType !== 'tv') {
@@ -62,7 +63,7 @@ export function createImagesRouter(deps: AppDeps): Router {
       return;
     }
     const tmdbId = Number(tmdbIdRaw);
-    if (!Number.isInteger(tmdbId) || tmdbId <= 0 || !ART_KINDS.includes(kind as ArtKind)) {
+    if (!Number.isInteger(tmdbId) || tmdbId <= 0 || kind !== POSTER_KIND) {
       res.status(404).json({ error: 'not found' });
       return;
     }
@@ -70,12 +71,22 @@ export function createImagesRouter(deps: AppDeps): Router {
       res.status(404).json({ error: 'not found' });
       return;
     }
-    const rows = await deps.artFiles.getMany([{ mediaType, tmdbId }]);
-    const row = rows.find((r) => r.kind === kind);
+
+    const subject = { mediaType, tmdbId } as { mediaType: 'movie' | 'tv'; tmdbId: number };
+    let rows = await deps.artFiles.getMany([subject]);
+    let row = rows.find((r) => r.kind === POSTER_KIND);
+    if (!row || row.status !== 'ok' || !row.filePath) {
+      if (deps.artCache) {
+        await deps.artCache.warm([subject]);
+        rows = await deps.artFiles.getMany([subject]);
+        row = rows.find((r) => r.kind === POSTER_KIND);
+      }
+    }
     if (!row || row.status !== 'ok' || !row.filePath) {
       res.status(404).json({ error: 'not found' });
       return;
     }
+
     const fileName = row.filePath;
     if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) {
       res.status(404).json({ error: 'not found' });

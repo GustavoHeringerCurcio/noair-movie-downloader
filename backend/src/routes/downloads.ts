@@ -15,7 +15,6 @@ import { decidePlaybackMode, decideStreamMode } from '../lib/streamPlan.js';
 import { cleanupTorrentPackages } from '../lib/packages.js';
 import { packageKey, mseProbeTypes } from '../lib/hls.js';
 import { episodeKeyFromFilename } from '../lib/releaseParser.js';
-import { enrichDownloads } from '../lib/enrich.js';
 
 function toIntOrNull(value: unknown): number | null {
   if (value === null || value === undefined) return null;
@@ -51,8 +50,7 @@ export function createDownloadsRouter(deps: AppDeps): Router {
   const router = Router();
 
   router.get('/downloads', async (_req, res) => {
-    const records = await deps.downloads.list();
-    const downloads = await enrichDownloads(records, deps);
+    const downloads = await deps.downloads.list();
     res.json({ downloads });
   });
 

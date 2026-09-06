@@ -1,65 +1,47 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ArtKind, ArtFilesRepository } from '../db/artFilesRepo.js';
-import type { MediaArt, MediaType } from '../types.js';
+import type { ArtFilesRepository } from '../db/artFilesRepo.js';
+import type { ArtSubject } from '../types.js';
 
 /**
- * Artwork download pipeline (D17, temporary).
+ * Portrait-poster download pipeline (D21).
  *
- * For a set of titles it makes sure a `poster` (+ optional `background`,
- * `logo`) image exists on the `art` volume, downloading only what is missing:
- *   - poster      → Fanart `posterUrl` (hi-res) else TMDB poster `w780`
- *   - background  → Fanart `thumbUrl` (else UI blurs the poster)
- *   - logo        → Fanart `logoUrl`
+ * For a set of titles it makes sure a `poster` image (kind `poster`, sourced
+ * from OMDb via `resolveOrigin`) exists on the `art` volume, downloading only
+ * what is missing. `resolveOrigin` resolves the Amazon portrait URL
+ * (IMDb id via TMDB → OMDb) and is expected to return `null` for titles with
+ * no poster or when no OMDb key is configured.
  *
- * Candidate URLs are resolved locally (DB-backed, never blocking on a network
- * fetch of Fanart metadata). Only actual image downloads hit the network.
- * Files are written atomically and recorded in `art_files`; a transient
- * download failure leaves no row so the next pass retries it.
+ * Only actual image downloads hit the network. Files are written atomically and
+ * recorded in `art_files`; a transient download failure leaves no row so the
+ * next pass retries it. Titles resolved as having no poster are recorded as
+ * `status='empty'` so the pass (and the image route) does not re-ask OMDb for
+ * them until `EMPTY_RETRY_MS` elapses.
  */
-export type ArtWarmSubject = {
-  mediaType: MediaType;
-  tmdbId: number;
-  /** TMDB poster path (`/xxx.jpg`); the fallback source when Fanart has none. */
-  posterPath: string | null;
-};
-
 export interface ArtCache {
-  /** Download any missing art files for the subjects. Returns the number of files written. */
-  warm(subjects: ArtWarmSubject[]): Promise<number>;
+  /** Download any missing poster files for the subjects. Returns the number of files written. */
+  warm(subjects: ArtSubject[]): Promise<number>;
 }
 
 export interface ArtCacheConfig {
   repo: ArtFilesRepository;
   artDir: string;
-  tmdbImageBaseUrl: string;
-  /** Non-blocking Fanart-art resolver (memo + DB). Map keyed `${mediaType}:${tmdbId}`. */
-  resolveMediaArt: (subjects: Array<{ mediaType: MediaType; tmdbId: number }>) => Promise<Map<string, MediaArt | null>>;
+  /** Resolve the OMDb/Amazon portrait URL for a subject (null = no poster / no key). */
+  resolveOrigin: (subject: ArtSubject) => Promise<string | null>;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
 
-/** Re-fetch a stored file after this long (art may be replaced upstream). */
+/** Re-fetch a stored file after this long (poster may be replaced upstream). */
 const REFRESH_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+/** Do not re-ask a title recorded as "no poster" more often than this. */
+const EMPTY_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 const CONCURRENCY = 4;
 const TIMEOUT_MS = 20_000;
 
-interface Candidate {
-  kind: ArtKind;
-  originUrl: string;
-}
-
-function subjectKey(mediaType: MediaType, tmdbId: number): string {
-  return `${mediaType}:${tmdbId}`;
-}
-
-function rowKey(mediaType: MediaType, tmdbId: number, kind: ArtKind): string {
-  return `${mediaType}:${tmdbId}:${kind}`;
-}
-
-function tmdbPosterUrl(baseUrl: string, posterPath: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/t/p/w780${posterPath}`;
+function subjectKey(subject: ArtSubject): string {
+  return `${subject.mediaType}:${subject.tmdbId}`;
 }
 
 function extForContentType(contentType: string | null): string {
@@ -85,25 +67,9 @@ async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
 }
 
 export function createArtCache(config: ArtCacheConfig): ArtCache {
-  const { repo, artDir, tmdbImageBaseUrl, resolveMediaArt } = config;
+  const { repo, artDir, resolveOrigin } = config;
   const fetchImpl = config.fetchImpl ?? fetch;
   const nowMs = config.now ?? Date.now;
-
-  async function candidatesFor(subjects: ArtWarmSubject[]): Promise<Map<string, Candidate>> {
-    const mediaArt = await resolveMediaArt(subjects);
-    const out = new Map<string, Candidate>();
-    for (const subject of subjects) {
-      const art = mediaArt.get(subjectKey(subject.mediaType, subject.tmdbId)) ?? null;
-      const add = (kind: ArtKind, originUrl: string | null): void => {
-        if (!originUrl) return;
-        out.set(rowKey(subject.mediaType, subject.tmdbId, kind), { kind, originUrl });
-      };
-      add('poster', art?.posterUrl ?? (subject.posterPath ? tmdbPosterUrl(tmdbImageBaseUrl, subject.posterPath) : null));
-      add('background', art?.thumbUrl ?? null);
-      add('logo', art?.logoUrl ?? null);
-    }
-    return out;
-  }
 
   async function fileExists(filePath: string): Promise<boolean> {
     try {
@@ -114,13 +80,13 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
     }
   }
 
-  async function downloadOne(row: ArtWarmSubject, candidate: Candidate): Promise<string | null> {
+  async function downloadOne(subject: ArtSubject, originUrl: string): Promise<string | null> {
     try {
-      const res = await fetchImpl(candidate.originUrl, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+      const res = await fetchImpl(originUrl, { signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (!res.ok) return null;
       const contentType = res.headers.get('content-type');
       const ext = extForContentType(contentType);
-      const fileName = `${row.mediaType}_${row.tmdbId}_${candidate.kind}.${ext}`;
+      const fileName = `${subject.mediaType}_${subject.tmdbId}_poster.${ext}`;
       const finalPath = path.join(artDir, fileName);
       const tmpPath = `${finalPath}.tmp`;
       const buffer = Buffer.from(await res.arrayBuffer());
@@ -135,55 +101,77 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
 
   return {
     async warm(subjects) {
-      const unique = new Map(subjects.map((s) => [subjectKey(s.mediaType, s.tmdbId), s]));
+      const unique = new Map(subjects.map((s) => [subjectKey(s), s]));
       const list = Array.from(unique.values());
       if (list.length === 0) return 0;
 
-      const candidates = await candidatesFor(list);
-      const existing = await repo.getMany(list);
-      const byRow = new Map(existing.map((r) => [rowKey(r.mediaType, r.tmdbId, r.kind), r]));
+      const rows = await repo.getMany(list);
+      const bySubject = new Map(rows.filter((r) => r.kind === 'poster').map((r) => [subjectKey(r), r]));
 
-      const toDownload: Array<{ subject: ArtWarmSubject; candidate: Candidate }> = [];
+      const toResolve: ArtSubject[] = [];
       for (const subject of list) {
-        for (const kind of ['poster', 'background', 'logo'] as const) {
-          const candidate = candidates.get(rowKey(subject.mediaType, subject.tmdbId, kind));
-          if (!candidate) continue;
-          const row = byRow.get(rowKey(subject.mediaType, subject.tmdbId, kind));
-          if (
-            row &&
-            row.status === 'ok' &&
-            row.filePath &&
-            row.originUrl === candidate.originUrl &&
-            nowMs() - Date.parse(row.fetchedAt) < REFRESH_AFTER_MS &&
-            (await fileExists(path.join(artDir, row.filePath)))
-          ) {
-            continue;
-          }
-          toDownload.push({ subject, candidate });
+        const row = bySubject.get(subjectKey(subject));
+        if (!row) {
+          toResolve.push(subject);
+          continue;
         }
+        if (row.status === 'ok' && row.filePath && (await fileExists(path.join(artDir, row.filePath)))) {
+          if (nowMs() - Date.parse(row.fetchedAt) >= REFRESH_AFTER_MS) toResolve.push(subject);
+          continue;
+        }
+        if (row.status === 'empty' && nowMs() - Date.parse(row.fetchedAt) < EMPTY_RETRY_MS) continue;
+        toResolve.push(subject);
       }
 
       let written = 0;
-      const writtenRows: Array<{ subject: ArtWarmSubject; candidate: Candidate; filePath: string }> = [];
-      await mapWithConcurrency(toDownload, CONCURRENCY, async ({ subject, candidate }) => {
-        const filePath = await downloadOne(subject, candidate);
+      const upserts: Array<{
+        mediaType: ArtSubject['mediaType'];
+        tmdbId: number;
+        kind: 'poster';
+        originUrl: string | null;
+        filePath: string | null;
+        status: 'ok' | 'empty';
+      }> = [];
+
+      await mapWithConcurrency(toResolve, CONCURRENCY, async (subject) => {
+        // `resolveOrigin` throws only for transient failures (OMDb unreachable /
+        // daily budget). Those must NOT be recorded as "no poster" — skip and
+        // let a later pass retry. A `null` result means "definitively no
+        // poster" and is persisted so OMDb is not re-asked for a while.
+        let originUrl: string | null = null;
+        try {
+          originUrl = await resolveOrigin(subject);
+        } catch {
+          return;
+        }
+        if (!originUrl) {
+          upserts.push({
+            mediaType: subject.mediaType,
+            tmdbId: subject.tmdbId,
+            kind: 'poster',
+            originUrl: null,
+            filePath: null,
+            status: 'empty',
+          });
+          return;
+        }
+        const filePath = await downloadOne(subject, originUrl);
         if (filePath) {
           written += 1;
-          writtenRows.push({ subject, candidate, filePath });
+          upserts.push({
+            mediaType: subject.mediaType,
+            tmdbId: subject.tmdbId,
+            kind: 'poster',
+            originUrl,
+            filePath,
+            status: 'ok',
+          });
         }
       });
 
-      if (writtenRows.length > 0) {
+      if (upserts.length > 0) {
         await repo.upsertMany(
-          writtenRows.map(({ subject, candidate, filePath }) => ({
-            mediaType: subject.mediaType,
-            tmdbId: subject.tmdbId,
-            kind: candidate.kind,
-            originUrl: candidate.originUrl,
-            filePath,
-            status: 'ok' as const,
-            fetchedAt: new Date(nowMs()).toISOString(),
-          })),
+          upserts.map((u) => ({ ...u, fetchedAt: new Date(nowMs()).toISOString() })),
         );
       }
       return written;

@@ -40,7 +40,7 @@ System design for `movie-downloader-qbitorrent`. Owns: components, data flow, bo
 ### 2.1 Frontend (React SPA, served by nginx)
 - Responsibility: search UI, media detail + source list, live downloads panel, in-browser video player.
 - Talks to: Backend via `/api` (REST) and `/socket.io` (realtime).
-- Boundary/constraints: never holds TMDB/Prowlarr/qBittorrent credentials; gets all data and images from the backend. All poster/backdrop `<img>` src point to `/api/images/tmdb/*`.
+- Boundary/constraints: never holds TMDB/Prowlarr/qBittorrent credentials; gets all data and images from the backend. Card/hero `<img>` src point to `/api/images/art/*` (locally-cached OMDb portraits); TV episode stills use `/api/images/tmdb/*`.
 
 ### 2.2 Backend (Express + TypeScript)
 - Responsibility: single entry point for the UI. Owns TMDB client, Prowlarr client, qBittorrent client, magnet builder, media-file finder + range streamer, PostgreSQL access, Socket.IO hub.

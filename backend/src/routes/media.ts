@@ -4,7 +4,6 @@ import { UpstreamError } from '../types.js';
 import { filterSourcesToMedia } from '../lib/releaseFilter.js';
 import { coverageCovers, isWholeSeriesTitle, seasonQueryToken } from '../lib/releaseParser.js';
 import { audioProfile, isAudioLang, loadAudioPreference, titleMatchesAudio } from '../lib/language.js';
-import { enrichDetail } from '../lib/enrich.js';
 import { pickTrailer } from '../lib/trailer.js';
 import type { AppDeps } from '../deps.js';
 
@@ -129,8 +128,7 @@ export function createMediaRouter(deps: AppDeps): Router {
     }
     try {
       const detail = await deps.tmdb.details(id, type);
-      const enriched = await enrichDetail(detail, deps);
-      res.json(enriched);
+      res.json(detail);
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });

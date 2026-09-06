@@ -26,7 +26,7 @@ export interface AppConfig {
   tmdbApiKey: string;
   tmdbBaseUrl: string;
   tmdbImageBaseUrl: string;
-  fanartApiKey: string | null;
+  omdbApiKey: string | null;
   prowlarrUrl: string;
   prowlarrApiKey: string;
   prowlarrBootstrapIndexers: boolean;
@@ -38,12 +38,9 @@ export interface AppConfig {
   downloadDir: string;
   /** Root for the HLS package cache produced for completed files (Playback). */
   packageDir: string;
-  /** Root where the artwork pipeline stores downloaded images (poster-first tiles). */
+  /** Root where the poster pipeline stores downloaded portrait posters (OMDb). */
   artDir: string;
-  /** Dev-only artwork comparison grid (`/api/dev/artgrid`). Off in production. */
-  artGrid: boolean;
   pollIntervalMs: number;
-  fanartMinGapMs: number;
   artWarmIntervalMs: number;
 }
 
@@ -53,7 +50,7 @@ export function loadConfig(): AppConfig {
     tmdbApiKey: requireEnv('TMDB_API_KEY'),
     tmdbBaseUrl: 'https://api.themoviedb.org/3',
     tmdbImageBaseUrl: 'https://image.tmdb.org/t/p',
-    fanartApiKey: optionalEnv('FANART_API_KEY', '') || null,
+    omdbApiKey: optionalEnv('OMDB_API_KEY', '') || null,
     prowlarrUrl: requireEnv('PROWLARR_URL'),
     prowlarrApiKey: requireEnv('PROWLARR_API_KEY'),
     prowlarrBootstrapIndexers: optionalEnv('PROWLARR_BOOTSTRAP_INDEXERS', '1') === '1',
@@ -68,9 +65,7 @@ export function loadConfig(): AppConfig {
     downloadDir: optionalEnv('DOWNLOAD_DIR', '/downloads'),
     packageDir: optionalEnv('PACKAGE_DIR', '/packages'),
     artDir: optionalEnv('ART_DIR', '/art'),
-    artGrid: optionalEnv('ART_GRID', '0') === '1',
     pollIntervalMs: 2000,
-    fanartMinGapMs: parseInt(optionalEnv('FANART_MIN_GAP_MS', '800'), 10),
     artWarmIntervalMs: parseInt(optionalEnv('ART_WARM_INTERVAL_MS', String(12 * 60 * 60 * 1000)), 10),
   };
 }

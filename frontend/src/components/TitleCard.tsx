@@ -1,12 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownToLine, Play, Download, ChevronDown, Volume2, VolumeX } from 'lucide-react';
+import { ArrowDownToLine, Play, Plus, Download, ChevronDown, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import type { HoverCardInfo, MediaItem } from '../types';
-import { cardImages, hoverCardFor, posterStyleLayers, trailerEmbedUrl } from '../api';
+import { cardPosterUrl, hoverCardFor, trailerEmbedUrl } from '../api';
 import { durationLabel, hoverTags, seasonCountLabel } from '../lib/hoverCard';
-import { useArtPreference, useCardStyle, useImageProvider } from '../store/settingsStore';
 
 /** How long a card must stay hovered before the expanded card (D20) opens (D18). */
 const TRAILER_HOVER_DELAY_MS = 600;
@@ -14,6 +13,14 @@ const TRAILER_HOVER_DELAY_MS = 600;
 const POP_SCALE = 1.7;
 /** Small close grace so the pointer can move from the card onto the pop-up. */
 const POP_CLOSE_GRACE_MS = 200;
+/**
+ * How many times a card retries its poster before showing the monogram. The
+ * image route warms a title on first request (TMDB→IMDb→OMDb→download), which
+ * can take longer than an <img> fetch failure budget on a cold cache — so the
+ * card retries a few times with a pause instead of giving up instantly.
+ */
+const POSTER_RETRIES = 4;
+const POSTER_RETRY_DELAY_MS = 1500;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -69,38 +76,45 @@ function glyphFor(type?: 'download' | 'play' | 'down'): JSX.Element {
   }
 }
 
-/** Walk an ordered candidate list: on error advance to the next, then give up. */
-function useImageChain(sources: string[], resetKey: string): { src: string | null; onError: () => void } {
-  const [index, setIndex] = useState(0);
+/**
+ * Load the OMDb-backed poster for a subject, retrying a few times before giving
+ * up (the backend image route warms a title on first request). Each retry is a
+ * keyed remount so the browser re-issues the fetch. When the poster finally
+ * exists the same URL is used for both the blurred ground and the crisp figure,
+ * so a single successful fetch resolves the whole tile.
+ */
+function usePosterArt(src: string, resetKey: string): { src: string | null; onError: () => void; reloadKey: string } {
+  const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    setIndex(0);
+    setAttempt(0);
     setFailed(false);
   }, [resetKey]);
 
-  const src = !failed && index < sources.length ? sources[index] : null;
-  const onError = (): void => {
-    if (index + 1 < sources.length) {
-      setIndex((i) => i + 1);
-    } else {
-      setFailed(true);
-    }
+  useEffect(() => {
+    if (!failed || attempt >= POSTER_RETRIES) return;
+    const timer = window.setTimeout(() => {
+      setAttempt((a) => a + 1);
+      setFailed(false);
+    }, POSTER_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [failed, attempt, resetKey]);
+
+  const givenUp = failed && attempt >= POSTER_RETRIES;
+  return {
+    src: givenUp ? null : src,
+    onError: () => setFailed(true),
+    reloadKey: `${resetKey}:${attempt}`,
   };
-  return { src, onError };
 }
 
 export function TitleCard({ item, progress, primary, variants, onVariantSelect }: TitleCardProps) {
   const navigate = useNavigate();
-  const provider = useImageProvider();
-  const preference = useArtPreference();
-  const style = useCardStyle();
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
-  const resetKey = `${item.tmdbId}:${item.mediaType}:${provider}:${preference.tmdb}:${preference.fanart}:${style}`;
-
+  const resetKey = `${item.tmdbId}:${item.mediaType}`;
   const subjectKey = `${item.mediaType}:${item.tmdbId}`;
-  const isPoster = style === 'poster';
 
   const cardRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -110,7 +124,6 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   const [info, setInfo] = useState<HoverCardInfo | null>(null);
   const [geometry, setGeometry] = useState<PopGeometry | null>(null);
   const [soundOn, setSoundOn] = useState(true);
-  const [logoFailed, setLogoFailed] = useState(false);
 
   const leavingRef = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
@@ -122,7 +135,6 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
     setInfo(null);
     setGeometry(null);
     setSoundOn(true);
-    setLogoFailed(false);
   }, [subjectKey]);
 
   const canHover = item.tmdbId > 0 && !prefersReducedMotion();
@@ -147,7 +159,6 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   useEffect(() => {
     if (!expanded) return;
     let cancelled = false;
-    setLogoFailed(false);
     setSoundOn(true);
     setInfo(null);
     void hoverCardFor({ tmdbId: item.tmdbId, mediaType: item.mediaType }).then((res) => {
@@ -226,17 +237,11 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
 
   const showTrailer = info?.trailer != null;
 
-  const figureSources = useMemo(
-    () => (isPoster ? posterStyleLayers(item).figure : cardImages(item, provider, preference)),
-    [item, provider, preference, isPoster],
-  );
-  const backgroundSources = useMemo(() => (isPoster ? posterStyleLayers(item).background : []), [item, isPoster]);
-
-  const figure = useImageChain(figureSources, resetKey);
-  const background = useImageChain(backgroundSources, resetKey);
+  const poster = usePosterArt(cardPosterUrl(item.mediaType, item.tmdbId), resetKey);
+  const posterSrc = poster.src;
 
   // Artwork for the pop-up's media half while there is no trailer (or none at all).
-  const popArtUrl = isPoster ? background.src ?? figure.src : figure.src;
+  const popArtUrl = posterSrc;
 
   function goDetail(): void {
     navigate(openDetail(item));
@@ -291,13 +296,12 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   const metaLabel =
     item.mediaType === 'tv' ? seasonCountLabel(info?.seasons ?? null) : durationLabel(info?.runtime ?? null);
   const tags = hoverTags(info?.genres ?? []);
-  const logoUrl = item.art?.logoUrl ?? null;
 
   return (
     <>
       <div
         ref={cardRef}
-        className={`title-card ${isPoster ? 'title-card-poster' : ''} ${expanded ? 'tc-pop-open' : ''}`}
+        className={`title-card title-card-poster ${expanded ? 'tc-pop-open' : ''}`}
         role="button"
         tabIndex={0}
         aria-label={`${title} — open details`}
@@ -309,23 +313,20 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
         }}
         onMouseLeave={scheduleClose}
       >
-        {isPoster ? (
-          <>
-            {background.src ? (
-              <img className="title-card-bg" src={background.src} alt="" aria-hidden="true" onError={background.onError} />
-            ) : (
-              <div className="title-card-bg-empty" aria-hidden="true" />
-            )}
-            {figure.src ? (
-              <img className="title-card-figure" src={figure.src} alt="" loading="lazy" onError={figure.onError} />
-            ) : (
-              <div className="title-card-fallback" aria-hidden="true">
-                {item.title.charAt(0).toUpperCase()}
-              </div>
-            )}
-          </>
-        ) : figure.src ? (
-          <img className="title-card-media" src={figure.src} alt="" loading="lazy" onError={figure.onError} />
+        {posterSrc ? (
+          <img
+            key={`${poster.reloadKey}:bg`}
+            className="title-card-bg"
+            src={posterSrc}
+            alt=""
+            aria-hidden="true"
+            onError={poster.onError}
+          />
+        ) : (
+          <div className="title-card-bg-empty" aria-hidden="true" />
+        )}
+        {posterSrc ? (
+          <img key={`${poster.reloadKey}:fg`} className="title-card-figure" src={posterSrc} alt="" loading="lazy" onError={poster.onError} />
         ) : (
           <div className="title-card-fallback" aria-hidden="true">
             {item.title.charAt(0).toUpperCase()}
@@ -395,7 +396,7 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                   allow="autoplay; encrypted-media; picture-in-picture"
                 />
               ) : popArtUrl ? (
-                <img className="tc-pop-art" src={popArtUrl} alt="" loading="lazy" onError={figure.onError} />
+                <img key={`${poster.reloadKey}:pop`} className="tc-pop-art" src={popArtUrl} alt="" loading="lazy" onError={poster.onError} />
               ) : (
                 <div className="tc-pop-fallback" aria-hidden="true">
                   {item.title.charAt(0).toUpperCase()}
@@ -403,16 +404,7 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
               )}
               <div className="tc-pop-scrim" aria-hidden="true" />
               <div className="tc-pop-title">
-                {logoUrl && !logoFailed ? (
-                  <img
-                    className="tc-pop-logo"
-                    src={logoUrl}
-                    alt=""
-                    onError={() => setLogoFailed(true)}
-                  />
-                ) : (
-                  <span className="tc-pop-title-text">{item.title}</span>
-                )}
+                <span className="tc-pop-title-text">{item.title}</span>
               </div>
               {showTrailer && (
                 <button
@@ -440,24 +432,22 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                   >
                     <Play size={20} fill="currentColor" />
                   </button>
-                  {variants && variants.length > 0 && (
-                    <div className="tc-pop-variants">
-                      {variants.map((v) => (
-                        <button
-                          key={v.id}
-                          type="button"
-                          className={`tc-version-chip ${v.active ? 'active' : ''}`}
-                          title={v.label}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onVariantSelect?.(v.id);
-                          }}
-                        >
-                          {v.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    className="tc-pop-btn tc-pop-btn-secondary"
+                    aria-label="Add to list"
+                    title="My List — coming soon"
+                  >
+                    <Plus size={20} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className="tc-pop-btn tc-pop-btn-secondary"
+                    aria-label="Rate"
+                    title="Rate — coming soon"
+                  >
+                    <ThumbsUp size={16} strokeWidth={2} />
+                  </button>
                 </div>
                 <div className="tc-pop-actions-r">
                   <button
@@ -473,6 +463,25 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                   </button>
                 </div>
               </div>
+
+              {variants && variants.length > 0 && (
+                <div className="tc-pop-variants">
+                  {variants.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      className={`tc-version-chip ${v.active ? 'active' : ''}`}
+                      title={v.label}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onVariantSelect?.(v.id);
+                      }}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {(info?.certification || metaLabel) && (
                 <div className="tc-pop-meta">

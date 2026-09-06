@@ -26,7 +26,8 @@ export interface TmdbClient {
   details(id: number, type: MediaType, language?: string): Promise<MediaDetail>;
   browse(section: DiscoverSection): Promise<MediaItem[]>;
   seasonEpisodes(id: number, seasonNumber: number): Promise<TvEpisode[]>;
-  tvdbId(id: number): Promise<number | null>;
+  /** IMDb id (`tt1234567`) resolved from TMDB external ids (feeds the OMDb poster pipeline). */
+  imdbId(id: number, type: MediaType): Promise<string | null>;
   /** Raw `/movie|tv/{id}/videos` results (S15); a 404 (unknown id) maps to `[]`. */
   videos(id: number, type: MediaType): Promise<TmdbVideo[]>;
   /** US age rating (`R`, `PG-13`, `TV-MA`, …) for the hover card (S16); null when the title has no US certification. */
@@ -86,7 +87,7 @@ interface TmdbEpisodeDto {
 }
 
 interface TmdbExternalIds {
-  tvdb_id?: number | null;
+  imdb_id?: string | null;
 }
 
 interface TmdbReleaseDatesResult {
@@ -242,8 +243,8 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     }, []);
   }
 
-  async function tvdbId(id: number): Promise<number | null> {
-    const url = `${config.baseUrl}/tv/${id}/external_ids?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+  async function imdbId(id: number, type: MediaType): Promise<string | null> {
+    const url = `${config.baseUrl}/${type}/${id}/external_ids?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
     let res: Response;
     try {
       res = await fetchWithRetry(fetchImpl, url, {}, { retries: 1, baseBackoffMs: 300, timeoutMs: 8000 });
@@ -252,8 +253,8 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     }
     if (!res.ok) return null;
     const data = (await res.json()) as TmdbExternalIds;
-    const tvdb = data.tvdb_id;
-    return Number.isInteger(tvdb) && (tvdb as number) > 0 ? (tvdb as number) : null;
+    const imdb = data.imdb_id;
+    return typeof imdb === 'string' && /^tt\d+$/.test(imdb) ? imdb : null;
   }
 
   async function videos(id: number, type: MediaType): Promise<TmdbVideo[]> {
@@ -305,7 +306,7 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     return rating.trim().length > 0 ? rating.trim() : null;
   }
 
-  return { searchMulti, details, browse, seasonEpisodes, tvdbId, videos, certification };
+  return { searchMulti, details, browse, seasonEpisodes, imdbId, videos, certification };
 }
 
 function sectionPaths(section: DiscoverSection): string[] {
