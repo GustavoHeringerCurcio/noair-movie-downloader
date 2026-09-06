@@ -1,3 +1,5 @@
+export type SetupOs = 'windows' | 'linux' | 'other';
+
 export interface PlayerChoice {
   id: string;
   label: string;
@@ -15,6 +17,26 @@ export const DEFAULT_PLAYER_ORDER: string[] = PLAYER_CHOICES.map((p) => p.id);
 
 export const PLAYER_PREF_KEY = 'movie-downloader.player';
 
+/** Which OSes each player id makes sense on. MPC-HC/PotPlayer are Windows-only. */
+const PLAYER_OS: Record<string, SetupOs[]> = {
+  vlc: ['windows', 'linux'],
+  mpv: ['windows', 'linux'],
+  'mpc-hc': ['windows'],
+  potplayer: ['windows'],
+};
+
+/** Ordering Linux auto-detection tries players in (fallback when no preference). */
+const LINUX_ORDER: string[] = PLAYER_CHOICES.filter((p) => (PLAYER_OS[p.id] ?? []).includes('linux')).map(
+  (p) => p.id,
+);
+
+/** Per-player info the generated Linux installer needs to locate + name the app. */
+const LINUX_PLAYERS: Record<string, { name: string; cmd: string; flatpak: string }> = {
+  vlc: { name: 'VLC', cmd: 'vlc', flatpak: 'org.videolan.VLC' },
+  mpv: { name: 'MPV', cmd: 'mpv', flatpak: 'io.mpv.Mpv' },
+};
+
+/** Windows install paths probed by the PowerShell installer, per player id. */
 const CANDIDATE_PATHS: Record<string, string[]> = {
   vlc: [
     '$env:ProgramFiles\\VideoLAN\\VLC\\vlc.exe',
@@ -40,14 +62,36 @@ const CANDIDATE_PATHS: Record<string, string[]> = {
   ],
 };
 
-const FALLBACK_ORDER: string[] = ['vlc', 'mpv', 'mpc-hc', 'potplayer'];
+/** Pure UA → OS mapping (Windows first; phones/tablets/mac are not setup targets). */
+export function osFromUa(ua: string): SetupOs {
+  const s = ua.toLowerCase();
+  if (s.includes('windows') || s.includes('win64') || s.includes('win32')) return 'windows';
+  if (s.includes('android') || s.includes('iphone') || s.includes('ipad') || s.includes('ipod')) return 'other';
+  if (s.includes('linux') || s.includes('x11')) return 'linux';
+  return 'other';
+}
 
-/** Ordered player ids: the user's preference first, then any other supported player. */
-export function orderedPlayerIds(preferred: string | null): string[] {
-  if (preferred && CANDIDATE_PATHS[preferred]) {
-    return [preferred, ...FALLBACK_ORDER.filter((p) => p !== preferred)];
+/** The OS this browser is running on (fallback: 'other'). */
+export function detectOs(): SetupOs {
+  if (typeof navigator === 'undefined') return 'other';
+  return osFromUa(navigator.userAgent);
+}
+
+/** Player choices a setup flow can offer on a given OS (Windows-only players hidden elsewhere). */
+export function playerChoicesFor(os: SetupOs): PlayerChoice[] {
+  if (os === 'linux') {
+    const linux = LINUX_ORDER;
+    return PLAYER_CHOICES.filter((p) => linux.includes(p.id));
   }
-  return [...FALLBACK_ORDER];
+  return [...PLAYER_CHOICES];
+}
+
+/** Ordered player ids: the user's preference first, then the rest of `supported`. */
+export function orderedPlayerIds(preferred: string | null, supported: string[] = DEFAULT_PLAYER_ORDER): string[] {
+  if (preferred && supported.includes(preferred)) {
+    return [preferred, ...supported.filter((p) => p !== preferred)];
+  }
+  return [...supported];
 }
 
 /**
@@ -119,11 +163,113 @@ export function buildUninstallerCmd(): string {
   return `@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}\r\n`;
 }
 
+/**
+ * A .sh the user runs on their Linux machine to register the `movie://` scheme.
+ * Locates the chosen player first (falls back to the other Linux-supported one),
+ * auto-detecting what is already installed (`command -v`, snap-on-PATH, flatpak).
+ * Then writes a `movie-open.sh` wrapper + a `movie-downloader.desktop` entry and
+ * registers it as the default `x-scheme-handler/movie` via `xdg-mime`.
+ */
+export function buildLinuxInstallerSh(preferred: string | null): string {
+  const ordered = orderedPlayerIds(preferred, LINUX_ORDER);
+  const lines: string[] = [];
+  lines.push('#!/bin/sh');
+  lines.push('# Movie Downloader - one-time local-player setup (Linux).');
+  lines.push('# Registers the movie:// scheme so the "Player" buttons open files');
+  lines.push('# in your installed media player. Requires xdg-utils (Ubuntu ships it).');
+  lines.push('set -u');
+  lines.push('');
+  lines.push('launcher=');
+  lines.push('player_name=');
+  lines.push('');
+  lines.push('probe() {');
+  lines.push('  [ -n "$launcher" ] && return 0');
+  lines.push('  bin=$(command -v "$1" 2>/dev/null || true)');
+  lines.push('  if [ -n "$bin" ]; then');
+  lines.push('    launcher="$bin"');
+  lines.push('    player_name="$2"');
+  lines.push('    return 0');
+  lines.push('  fi');
+  lines.push('  if [ "$#" -ge 3 ] && command -v flatpak >/dev/null 2>&1 && flatpak info "$3" >/dev/null 2>&1; then');
+  lines.push('    launcher="flatpak run $3"');
+  lines.push('    player_name="$2"');
+  lines.push('  fi');
+  lines.push('}');
+  lines.push('');
+  for (const id of ordered) {
+    const p = LINUX_PLAYERS[id];
+    if (p) lines.push(`probe "${p.cmd}" "${p.name}" "${p.flatpak}"`);
+  }
+  lines.push('');
+  lines.push('if [ -z "$launcher" ]; then');
+  lines.push('  echo "No supported player found. Install VLC or MPV, then run this again." >&2');
+  lines.push('  exit 1');
+  lines.push('fi');
+  lines.push('');
+  lines.push('echo "Using $player_name ($launcher)"');
+  lines.push('');
+  lines.push('dir="$HOME/.local/share/movie-downloader"');
+  lines.push('appdir="$HOME/.local/share/applications"');
+  lines.push('mkdir -p "$dir"');
+  lines.push('mkdir -p "$appdir"');
+  lines.push('');
+  lines.push('cat > "$dir/movie-open.sh" <<\'EOF\'');
+  lines.push('#!/bin/sh');
+  lines.push('url=${1#movie://}');
+  lines.push('[ -n "$url" ] || exit 1');
+  lines.push('nohup __LAUNCHER__ "$url" >/dev/null 2>&1 &');
+  lines.push('EOF');
+  lines.push('sed -i "s|__LAUNCHER__|$launcher|" "$dir/movie-open.sh"');
+  lines.push('chmod +x "$dir/movie-open.sh"');
+  lines.push('');
+  lines.push('desktop="$appdir/movie-downloader.desktop"');
+  lines.push('cat > "$desktop" <<EOF');
+  lines.push('[Desktop Entry]');
+  lines.push('Type=Application');
+  lines.push('Version=1.0');
+  lines.push('Name=Movie Downloader player');
+  lines.push('Comment=Open movie:// links from Movie Downloader');
+  lines.push('Exec=$dir/movie-open.sh %u');
+  lines.push('Terminal=false');
+  lines.push('NoDisplay=true');
+  lines.push('MimeType=x-scheme-handler/movie;');
+  lines.push('EOF');
+  lines.push('');
+  lines.push('xdg-mime default movie-downloader.desktop x-scheme-handler/movie >/dev/null 2>&1 || echo "Could not set the default handler; pick Movie Downloader player for movie:// in your desktop settings." >&2');
+  lines.push('if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$appdir" >/dev/null 2>&1 || true; fi');
+  lines.push('');
+  lines.push('echo "Registered movie:// -> $player_name ($launcher)"');
+  lines.push('echo "Done. The Player buttons in the app now open files in your local player."');
+  lines.push('');
+  return lines.join('\n');
+}
+
+/** A .sh that removes the registered handler again (wrapper + desktop entry + mimeapps default). */
+export function buildLinuxUninstallerSh(): string {
+  const lines: string[] = [];
+  lines.push('#!/bin/sh');
+  lines.push('# Movie Downloader - remove the movie:// handler (Linux).');
+  lines.push('set -u');
+  lines.push('');
+  lines.push('appdir="$HOME/.local/share/applications"');
+  lines.push('dir="$HOME/.local/share/movie-downloader"');
+  lines.push('mimeapps="$HOME/.config/mimeapps.list"');
+  lines.push('');
+  lines.push('rm -f "$appdir/movie-downloader.desktop"');
+  lines.push('rm -rf "$dir"');
+  lines.push("if [ -f \"$mimeapps\" ]; then sed -i '/x-scheme-handler\\/movie=/d' \"$mimeapps\"; fi");
+  lines.push('if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$appdir" >/dev/null 2>&1 || true; fi');
+  lines.push('');
+  lines.push("echo 'Removed the movie:// handler.'");
+  lines.push('');
+  return lines.join('\n');
+}
+
 export function readPlayerPreference(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(PLAYER_PREF_KEY);
-    return raw && CANDIDATE_PATHS[raw] ? raw : null;
+    return raw && PLAYER_CHOICES.some((p) => p.id === raw) ? raw : null;
   } catch {
     return null;
   }

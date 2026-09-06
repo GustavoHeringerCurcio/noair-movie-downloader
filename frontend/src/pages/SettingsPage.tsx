@@ -19,9 +19,12 @@ import {
   type ArtworkPreview,
 } from '@/api';
 import {
-  PLAYER_CHOICES,
+  buildLinuxInstallerSh,
+  buildLinuxUninstallerSh,
   buildOpenerCmd,
   buildUninstallerCmd,
+  detectOs,
+  playerChoicesFor,
   readPlayerPreference,
   savePlayerPreference,
 } from '@/lib/openerInstaller';
@@ -57,7 +60,13 @@ export function SettingsPage() {
   const saveStyle = useSettingsStore((s) => s.saveStyle);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
   const toast = useToastStore((s) => s.toast);
-  const [player, setPlayer] = useState<string>(() => readPlayerPreference() ?? 'vlc');
+  const setupOs = detectOs();
+  const setupChoices = playerChoicesFor(setupOs);
+  const isLinuxSetup = setupOs === 'linux';
+  const [player, setPlayer] = useState<string>(() => {
+    const pref = readPlayerPreference();
+    return pref && setupChoices.some((c) => c.id === pref) ? pref : (setupChoices[0]?.id ?? 'vlc');
+  });
 
   // Manual artwork tester state.
   const [previewType, setPreviewType] = useState<MediaType>('movie');
@@ -122,7 +131,7 @@ export function SettingsPage() {
     if (id === player) return;
     setPlayer(id);
     savePlayerPreference(id);
-    toast(`Local player: ${PLAYER_CHOICES.find((p) => p.id === id)?.label ?? id}`, 'info');
+    toast(`Local player: ${setupChoices.find((p) => p.id === id)?.label ?? id}`, 'info');
   }
 
   async function changeProvider(next: ImageProvider): Promise<void> {
@@ -432,12 +441,12 @@ export function SettingsPage() {
         <h2>Local player</h2>
         <p className="settings-note">
           Browsers can’t launch desktop apps by themselves. The “Player” buttons on the Watch and
-          Downloads pages use a <code>movie://</code> link that your machine needs to know how to
-          open. Pick the player you want, download the one-time installer, and run it on this
-          computer (the machine where the player is installed).
+          Downloads pages use a <code>movie://</code> link your machine has to know how to open — a
+          one-time setup. Pick which of your installed players to use (what you already have is
+          auto-detected), then download and run the installer once on this computer.
         </p>
         <div className="artwork-options" role="group" aria-label="Local player">
-          {PLAYER_CHOICES.map((choice) => {
+          {setupChoices.map((choice) => {
             const active = player === choice.id;
             return (
               <button
@@ -457,18 +466,41 @@ export function SettingsPage() {
           <button
             type="button"
             className="btn btn-white btn-sm"
-            onClick={() => downloadScript('install-movie-player.cmd', buildOpenerCmd(player))}
+            onClick={() =>
+              downloadScript(
+                isLinuxSetup ? 'install-movie-player.sh' : 'install-movie-player.cmd',
+                isLinuxSetup ? buildLinuxInstallerSh(player) : buildOpenerCmd(player),
+              )
+            }
           >
-            Download installer (.cmd)
+            {isLinuxSetup ? 'Download installer (.sh)' : 'Download installer (.cmd)'}
           </button>
           <button
             type="button"
             className="btn btn-outline btn-sm"
-            onClick={() => downloadScript('uninstall-movie-player.cmd', buildUninstallerCmd())}
+            onClick={() =>
+              downloadScript(
+                isLinuxSetup ? 'uninstall-movie-player.sh' : 'uninstall-movie-player.cmd',
+                isLinuxSetup ? buildLinuxUninstallerSh() : buildUninstallerCmd(),
+              )
+            }
           >
             Download uninstaller
           </button>
         </div>
+        <p className="settings-note">
+          {isLinuxSetup ? (
+            <>
+              Then run it once in a terminal: <code>bash ~/Downloads/install-movie-player.sh</code> — it
+              finds your installed player (MPV, VLC) and registers the <code>movie://</code> handler.
+            </>
+          ) : (
+            <>
+              Then run the downloaded <code>.cmd</code> once on this computer (Windows) — it finds your
+              installed player and registers the <code>movie://</code> handler.
+            </>
+          )}
+        </p>
       </section>
 
       <section className="settings-card">

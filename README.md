@@ -78,13 +78,15 @@ auth** — keep it on a trusted network.
 Downloads play in the browser as soon as the file is fully downloaded. Codecs the browser can't
 decode (4K/HEVC, exotic audio) show an **"Open in your player"** button instead. Browsers can't
 launch desktop apps on their own, so the app uses a `movie://` link your machine must be told how to
-open.
+open. The setup is **platform-aware** — you get the right installer for the OS you're on.
 
-- Open **Settings → Local player**, pick your player (VLC / MPV / MPC-HC / PotPlayer), and click
-  **Download installer (.cmd)**.
-- Run the downloaded `.cmd` once **on the machine where that player is installed** (Windows). It
-  auto-locates the player, writes a small wrapper, and registers the `movie://` handler for your
-  user.
+- Open **Settings → Local player**, pick your player (VLC / MPV; MPC-HC / PotPlayer on Windows), and
+  click **Download installer**.
+- **Windows** — run the downloaded `.cmd` once on this computer. It auto-locates the player
+  (preference first) and registers the `movie://` handler for your user.
+- **Linux** — run the downloaded `.sh` once in a terminal: `bash ~/Downloads/install-movie-player.sh`.
+  It auto-detects your installed player (`mpv`/`vlc`, including snap/flatpak), writes a small
+  wrapper + desktop entry, and registers the handler via `xdg-mime`.
 - The **Player** buttons on the Watch and Downloads pages then open the file directly in your local
   player. Use the **Download uninstaller** button anytime to remove the handler.
 
