@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { WatchPage } from './WatchPage';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
+import { shakaDouble } from '../components/ShakaPlayer.double';
 import type { DownloadRecord } from '../types';
+
+vi.mock('../components/ShakaPlayer', async () => {
+  const { ShakaPlayerDouble } = await import('../components/ShakaPlayer.double');
+  return { ShakaPlayer: ShakaPlayerDouble };
+});
 
 const HASH = 'ef'.repeat(20);
 
@@ -88,6 +94,7 @@ function renderWatch(): void {
 
 beforeEach(() => {
   window.localStorage.clear();
+  shakaDouble.reset();
   useDownloadsStore.setState({ downloads: [makeDownload()], connected: true });
   useRecentsStore.setState({ recents: [] });
 });
@@ -95,6 +102,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('WatchPage', () => {
@@ -115,5 +123,213 @@ describe('WatchPage', () => {
       expect(document.querySelector('video')).not.toBeNull();
     });
     expect(screen.queryByText(/choose what to play/i)).not.toBeInTheDocument();
+  });
+});
+
+const MANIFEST = `/api/playback/${HASH}/hls/master.m3u8`;
+
+interface HlsStatus {
+  phase: 'packaging' | 'ready' | 'failed';
+  progress: number;
+  error: string | null;
+}
+
+function hlsPlayInfo(): Record<string, unknown> {
+  return {
+    mode: 'hls',
+    videoCodec: 'h264',
+    audioCodec: 'ac3',
+    height: 1080,
+    container: 'mkv',
+    durationSeconds: 600,
+    video: { index: 0, codec: 'h264', width: 1920, height: 1080, hdr: false },
+    audioTracks: [
+      { index: 1, codec: 'ac3', language: 'en', title: null, channels: 6, default: true },
+      { index: 2, codec: 'aac', language: 'pt', title: null, channels: 2, default: false },
+    ],
+    subtitleTracks: [],
+    sidecarSubtitles: [],
+    streamUrl: `/api/stream/${HASH}`,
+    playUrl: `/api/stream/${HASH}`,
+    fileUrl: `/api/downloads/${HASH}/file`,
+    manifestUrl: MANIFEST,
+  };
+}
+
+function singleCompleteFile(): Record<string, unknown> {
+  return {
+    relative: 'movie.mkv',
+    mime: 'video/x-matroska',
+    size: 1024,
+    complete: true,
+    seasonNumber: null,
+    episodeNumber: null,
+  };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  } as unknown as Response;
+}
+
+const DEFAULT_HLS_STATUS: HlsStatus = { phase: 'ready', progress: 1, error: null };
+
+/**
+ * Fetch stub for the HLS flow. The status queue is consumed in order and falls
+ * back to `ready` once empty, so tests can push more statuses later (e.g. after
+ * a retry) to drive the transition packaging → ready.
+ */
+function stubHls(statuses: HlsStatus[]): {
+  calls: { playinfo: number; status: number; deleted: number };
+  push: (status: HlsStatus) => void;
+} {
+  const queue = [...statuses];
+  const calls = { playinfo: 0, status: 0, deleted: 0 };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/hls/status')) {
+        calls.status += 1;
+        const next = queue.shift() ?? DEFAULT_HLS_STATUS;
+        return jsonResponse(next);
+      }
+      if (url.includes('/playinfo')) {
+        calls.playinfo += 1;
+        return jsonResponse(hlsPlayInfo());
+      }
+      if (url.includes('/files')) {
+        return jsonResponse({ files: [singleCompleteFile()] });
+      }
+      if (init?.method === 'DELETE') {
+        calls.deleted += 1;
+        return jsonResponse(undefined, 204);
+      }
+      return jsonResponse({});
+    }),
+  );
+  return { calls, push: (status: HlsStatus) => queue.push(status) };
+}
+
+function shakaVideo(): HTMLVideoElement {
+  return document.querySelector('[data-testid="shaka"]') as HTMLVideoElement;
+}
+
+describe('WatchPage HLS playback', () => {
+  it('mounts the Shaka player once the package is ready', async () => {
+    stubHls([{ phase: 'ready', progress: 1, error: null }]);
+    renderWatch();
+
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
+    expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+    expect(shakaVideo()).toBeInTheDocument();
+    expect(screen.queryByText(/preparing a browser-friendly copy/i)).not.toBeInTheDocument();
+  });
+
+  it('shows packaging progress before the player mounts once ready', async () => {
+    stubHls([{ phase: 'packaging', progress: 0.4, error: null }]);
+    renderWatch();
+
+    expect(await screen.findByText(/preparing a browser-friendly copy/i)).toBeInTheDocument();
+    expect(await screen.findByText(/40%/)).toBeInTheDocument();
+    expect(shakaDouble.mounts).toBe(0);
+
+    // the status poll ticks every 2s; once it reports ready the player mounts
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1), { timeout: 6000 });
+    expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+  });
+
+  it('gates mounting behind the resume prompt and starts at the saved position', async () => {
+    window.localStorage.setItem(`movie-downloader.playback.${HASH}`, '600');
+    stubHls([{ phase: 'ready', progress: 1, error: null }]);
+    renderWatch();
+
+    expect(await screen.findByText(/resume from 10:00/i)).toBeInTheDocument();
+    expect(shakaDouble.mounts).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /^resume$/i }));
+
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
+    expect(shakaDouble.latest?.resumeAt).toBe(600);
+  });
+
+  it('mounts from the start when the user chooses Restart', async () => {
+    window.localStorage.setItem(`movie-downloader.playback.${HASH}`, '600');
+    stubHls([{ phase: 'ready', progress: 1, error: null }]);
+    renderWatch();
+
+    await screen.findByText(/resume from 10:00/i);
+    fireEvent.click(screen.getByRole('button', { name: /restart/i }));
+
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
+    expect(shakaDouble.latest?.resumeAt).toBe(0);
+  });
+
+  it('shows a failure overlay with fallbacks when packaging fails, and recovers on Retry', async () => {
+    const { calls } = stubHls([{ phase: 'failed', progress: 0, error: 'disk full' }]);
+    renderWatch();
+
+    expect(await screen.findByText(/couldn’t prepare a browser-playable copy/i)).toBeInTheDocument();
+    expect(screen.getByText('disk full')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /open in your player/i })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^movie:\/\//),
+    );
+    expect(screen.getByRole('link', { name: /download file/i })).toHaveAttribute(
+      'href',
+      `/api/downloads/${HASH}/file`,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+    // Retry clears the failed package (DELETE) and repolls → ready → player mounts
+    await waitFor(() => expect(calls.deleted).toBe(1));
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1), { timeout: 6000 });
+    expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+  });
+
+  it('surfaces a Shaka startup failure into the failure overlay', async () => {
+    stubHls([{ phase: 'ready', progress: 1, error: null }]);
+    renderWatch();
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
+
+    act(() => shakaDouble.latest?.onError?.('Shaka cannot play this manifest'));
+
+    expect(screen.getByText(/couldn’t prepare a browser-playable copy/i)).toBeInTheDocument();
+    expect(screen.getByText('Shaka cannot play this manifest')).toBeInTheDocument();
+  });
+
+  it('re-mounts the player when “Retry stream” is clicked after a stall', async () => {
+    stubHls([{ phase: 'ready', progress: 1, error: null }]);
+    renderWatch();
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
+
+    // Arm the stall watchdog: onTick fires on every timeupdate and schedules a
+    // 20s stall check. Fake only the timeout APIs so Date.now() stays real and
+    // saveProgress' 5s throttle guard doesn't swallow the first tick. jsdom
+    // media never plays, so report a "playing" video to satisfy the stall probe.
+    const playingVideo = shakaVideo();
+    Object.defineProperty(playingVideo, 'paused', { configurable: true, get: () => false });
+    Object.defineProperty(playingVideo, 'readyState', { configurable: true, get: () => 3 });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    try {
+      fireEvent.timeUpdate(playingVideo);
+      act(() => {
+        vi.advanceTimersByTime(20_000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(await screen.findByText(/stream stalled/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry stream/i }));
+
+    // the reload nonce keys the player, so retry unmounts and re-mounts it fresh
+    await waitFor(() => expect(shakaDouble.mounts).toBe(2));
+    expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
   });
 });

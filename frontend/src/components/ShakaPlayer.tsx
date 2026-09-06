@@ -24,7 +24,7 @@ interface OverlayHandle {
 type ShakaModule = {
   polyfill: { installAll(): void };
   Player: new () => { attach(el: HTMLVideoElement): Promise<void>; load(url: string): Promise<void>; configure(o: Record<string, unknown>): void; destroy(): Promise<void> };
-  ui?: { Overlay: new (container: HTMLDivElement, video: HTMLVideoElement, player: unknown) => OverlayHandle };
+  ui?: { Overlay: new (player: unknown, container: HTMLDivElement, video: HTMLVideoElement) => OverlayHandle };
   default?: ShakaModule;
 };
 
@@ -95,11 +95,13 @@ export function ShakaPlayer({ manifestUrl, resumeAt, onTick, onPlayback, onError
         });
 
         if (module.ui && module.ui.Overlay) {
-          const overlay = new module.ui.Overlay(container, video, player);
+          // Overlay(player, videoContainer, video) — the player must come first,
+          // otherwise Controls casts around the container and dies on getAdManager.
+          const overlay = new module.ui.Overlay(player, container, video);
           handleRef.current.overlay = overlay;
           overlay.configure({
-            controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'cast_button', 'audio_language', 'language', 'overflow_menu'],
-            overflowMenuButtons: ['captions', 'quality', 'audio_language', 'language'],
+            controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'language', 'overflow_menu'],
+            overflowMenuButtons: ['captions', 'quality', 'language'],
           });
         }
 

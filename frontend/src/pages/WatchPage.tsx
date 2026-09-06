@@ -47,6 +47,7 @@ export function WatchPage() {
   const [pkgFailed, setPkgFailed] = useState(false);
   const [pkgError, setPkgError] = useState<string | null>(null);
   const [pkgTick, setPkgTick] = useState(0);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const lastSave = useRef(0);
   const stallTimer = useRef<number | undefined>(undefined);
 
@@ -391,7 +392,7 @@ export function WatchPage() {
         (isHls ? (
           pkgPhase === 'ready' && !pkgFailed ? (
             <ShakaPlayer
-              key={play.manifestUrl ?? 'hls'}
+              key={`${play.manifestUrl ?? 'hls'}::${reloadNonce}`}
               manifestUrl={play.manifestUrl ?? ''}
               resumeAt={startAt}
               onTick={(video) => saveProgress(video)}
@@ -433,6 +434,7 @@ export function WatchPage() {
           )
         ) : (
           <video
+            key={reloadNonce}
             className="watch-video"
             src={play.streamUrl}
             controls
@@ -458,6 +460,7 @@ export function WatchPage() {
             className="btn btn-white btn-sm"
             onClick={() => {
               setStall(false);
+              setReloadNonce((n) => n + 1);
               if (play) {
                 void playInfo(infoHash, selectedFile ?? undefined)
                   .then((p) => setPlay(p))

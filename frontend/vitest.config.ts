@@ -14,5 +14,12 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     globals: true,
+    server: {
+      deps: {
+        // shaka-player ships a UMD/CJS bundle; without inlining it is externalized
+        // at runtime and vi.mock(...) never intercepts the import.
+        inline: ['shaka-player'],
+      },
+    },
   },
 });
