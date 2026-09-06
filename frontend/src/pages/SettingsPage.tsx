@@ -41,7 +41,7 @@ const CONFIG_KEYS: Array<{ key: string; description: string }> = [
 
 function diagnostics(): string {
   const connected = useDownloadsStore.getState().connected;
-  return `Movie Downloader · backend ${connected ? 'connected' : 'offline'} · browser ${typeof navigator !== 'undefined' ? navigator.userAgent : '?'}`;
+  return `noAir · backend ${connected ? 'connected' : 'offline'} · browser ${typeof navigator !== 'undefined' ? navigator.userAgent : '?'}`;
 }
 
 export function SettingsPage() {
@@ -569,8 +569,8 @@ export function SettingsPage() {
       <section className="settings-card">
         <h2>About</h2>
         <dl className="settings-row">
-          <dt>Movie Downloader</dt>
-          <dd>Self-hosted search · download · stream</dd>
+          <dt>noAir</dt>
+          <dd>Self-hosted search · download · local watch</dd>
         </dl>
         <dl className="settings-row">
           <dt>Services</dt>

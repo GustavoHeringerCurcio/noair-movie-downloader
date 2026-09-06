@@ -1,8 +1,8 @@
 {
-  "name": "movie-downloader-frontend",
+  "name": "noair-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Frontend for movie-downloader-qbitorrent: search, detail, player, live downloads panel",
+  "description": "noAir frontend: search, detail, player, live downloads panel",
   "type": "module",
   "scripts": {
     "dev": "vite",

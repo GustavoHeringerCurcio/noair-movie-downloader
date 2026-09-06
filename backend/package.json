@@ -1,8 +1,8 @@
 {
-  "name": "movie-downloader-backend",
+  "name": "noair-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Backend for movie-downloader-qbitorrent: TMDB/Prowlarr/qBittorrent integration, streaming, Socket.IO hub",
+  "description": "noAir backend: TMDB/Prowlarr/qBittorrent integration, streaming, Socket.IO hub",
   "type": "module",
   "engines": {
     "node": ">=20"

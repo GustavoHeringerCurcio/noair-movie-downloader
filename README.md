@@ -1,19 +1,52 @@
-# Movie Downloader
+<div align="center">
 
-Self-hosted web app that searches movies/TV via **TMDB**, finds torrent/magnet sources via **Prowlarr**, downloads them with **qBittorrent**, shows live progress, and plays the finished video in the browser (or in your own desktop player).
+# noAir
 
-The full plan lives in `docs/plan/`. Agent rules: `AGENTS.md`.
+**Your library. No airtime.**
+
+A self-hosted, open-source movie downloader. Search movies & TV through **TMDB**,
+find torrent and magnet sources with **Prowlarr**, download them via **qBittorrent**,
+watch live progress, and play the finished video in your browser — or in your own
+desktop player. Nothing is streamed. Everything stays on your hardware.
+
+</div>
+
+---
+
+## Why noAir
+
+Most services push movies to you over the air — noAir does the opposite. The
+name reads both ways:
+
+- **no air** — nothing is streamed or broadcast. Downloads live on your machine, on your network.
+- **noir** — a black & white interface over full-color artwork, with a cinematic feel to match.
+
+Discover with rich metadata, grab the best available source, download at full
+speed, and watch from your own library whenever you want.
+
+## Features
+
+| | |
+|---|---|
+| **Discover** | Browse and search movies & TV via the TMDB catalog — titles, posters, backdrops, trailers, seasons and episodes. |
+| **Find** | Tracker-agnostic torrent search through Prowlarr. Public trackers like 1337x, The Pirate Bay and YTS are configured by you, never hard-coded. |
+| **Download** | Pull the best-matching, most-seeded source with qBittorrent. Sequential download starts playback-ready pieces early. |
+| **Track** | Live download progress pushed over Socket.IO — state, speed, ETA, pause, resume, remove. |
+| **Watch** | In-browser playback for fully downloaded files, with automatic codec handling — audio remux, H.264 transcode and HLS packaging when the browser needs it. |
+| **Open in your player** | 4K/HEVC or exotic audio? One click hands the file to VLC, MPV, MPC-HC or PotPlayer via a one-time `movie://` registration. |
+| **Black & white chrome** | A monochrome UI over full-color artwork — Netflix-style cards, hover-trailer previews, and a clean cinematic aesthetic. |
 
 ## Stack
 
-| Service | Image | Host port |
-|---------|-------|-----------|
-| frontend (React + nginx proxy) | built | `5173` |
-| backend (Node + Express + Socket.IO) | built | internal only |
-| postgres | `postgres:16-alpine` | internal only |
-| qbittorrent | `linuxserver/qbittorrent` | `8080` |
-| prowlarr | `linuxserver/prowlarr` | `9696` |
-| flaresolverr (Cloudflare bypass, optional) | `ghcr.io/flaresolverr/flaresolverr` | `8191` |
+| Layer | Technology |
+|---|---|
+| Frontend | React + Vite + TypeScript (nginx proxy) |
+| Backend | Node.js + Express + Socket.IO + TypeScript |
+| Database | PostgreSQL 16 |
+| Indexer | Prowlarr |
+| Downloader | qBittorrent |
+| Metadata & art | TMDB (optional Fanart.tv key) |
+| Cloudflare bypass (optional) | FlareSolverr |
 
 ## Quickstart
 
@@ -125,3 +158,16 @@ Until it's registered, the **Download file** button is the fallback.
 - Secrets live only in `.env` (gitignored) — never commit them.
 - The TMDB key never reaches the browser; images are proxied through `/api/images/tmdb/*`.
 - See `docs/credentials.md` for where each credential comes from and rotation steps.
+
+## Documentation & notes
+
+- Full design and build plan: `docs/plan/`.
+- Agent working rules: `AGENTS.md`.
+- Branding & metadata (TMDB, Fanart.tv): the API terms of each service apply. Download content you
+  have the right to.
+
+<div align="center">
+
+**noAir** — a self-hosted, open-source movie downloader. Built with React, Node, PostgreSQL, Prowlarr & qBittorrent.
+
+</div>

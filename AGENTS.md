@@ -3,7 +3,7 @@
 Entry point for any agent working in this repo. Read this file first.
 
 ## Project
-- Name: `movie-downloader-qbitorrent`
+- Product name: `noAir` (GitHub repo: `noair-movie-downloader`)
 - One-line purpose: Self-hosted web app that searches movies/TV via TMDB, finds torrent/magnet sources via Prowlarr, downloads them with qBittorrent (Docker), shows live download progress, and streams the video in-browser.
 - Full plan lives in `docs/plan/00-index.md`.
 

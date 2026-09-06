@@ -9,7 +9,7 @@ export function HeroBillboard() {
   const openSearch = useSearchStore((s) => s.openSet);
 
   return (
-    <section className="hero-billboard" aria-label="Movie Downloader">
+    <section className="hero-billboard" aria-label="noAir">
       {!mediaFailed && (
         <img
           className="hero-media"
