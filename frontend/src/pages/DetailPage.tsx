@@ -545,8 +545,16 @@ export function DetailPage() {
   }
 
   const provider = useImageProvider();
+  // STRICT hero art: FanArt provider shows only FanArt.tv art (HD background →
+  // key-art thumb → poster), never TMDB; TMDB provider shows only TMDB backdrops,
+  // never FanArt.
   const backdrop =
-    provider === 'fanart' ? detail?.art?.thumbUrl ?? null : backdropUrl(detail?.backdropPath ?? null);
+    provider === 'fanart'
+      ? (detail?.art?.backgroundUrl ??
+        detail?.art?.thumbUrl ??
+        detail?.art?.posterUrl ??
+        null)
+      : backdropUrl(detail?.backdropPath ?? null);
 
   const [heroArtFailed, setHeroArtFailed] = useState({ media: false, logo: false });
   useEffect(() => {

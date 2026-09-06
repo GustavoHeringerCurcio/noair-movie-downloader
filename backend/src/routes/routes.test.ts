@@ -237,6 +237,8 @@ describe('routes', () => {
     expect(fanartRes.status).toBe(200);
     expect(fanartRes.body.downloads[0].art).toEqual({
       thumbUrl: 'https://fanart.tv/t.jpg',
+      backgroundUrl: null,
+      posterUrl: null,
       logoUrl: 'https://fanart.tv/l.png',
     });
 
@@ -459,6 +461,11 @@ describe('Fanart enrichment on detail', () => {
     const app = createApp(deps);
     const res = await request(app).get('/api/media/27205?type=movie');
     expect(res.status).toBe(200);
-    expect(res.body.art).toEqual({ thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' });
+    expect(res.body.art).toEqual({
+      thumbUrl: 'https://fanart.tv/t.jpg',
+      backgroundUrl: null,
+      posterUrl: null,
+      logoUrl: 'https://fanart.tv/l.png',
+    });
   });
 });

@@ -6,6 +6,8 @@ export interface MediaArtRow {
   tmdbId: number;
   tvdbId: number | null;
   thumbUrl: string | null;
+  backgroundUrl?: string | null;
+  posterUrl?: string | null;
   logoUrl: string | null;
   status: 'ok' | 'empty';
   fetchedAt: string;
@@ -22,6 +24,8 @@ interface MediaArtDbRow {
   tmdb_id: number;
   tvdb_id: number | null;
   thumb_url: string | null;
+  background_url: string | null;
+  poster_url: string | null;
   logo_url: string | null;
   status: 'ok' | 'empty';
   fetched_at: string;
@@ -33,6 +37,8 @@ function rowToModel(row: MediaArtDbRow): MediaArtRow {
     tmdbId: row.tmdb_id,
     tvdbId: row.tvdb_id,
     thumbUrl: row.thumb_url,
+    backgroundUrl: row.background_url,
+    posterUrl: row.poster_url,
     logoUrl: row.logo_url,
     status: row.status,
     fetchedAt: row.fetched_at,
@@ -55,7 +61,7 @@ export function createArtRepository(pool: pg.Pool): ArtRepository {
       clauses.push(`(media_type = 'tv' AND tmdb_id = ANY($${params.length}::int[]))`);
     }
     const result = await pool.query<MediaArtDbRow>(
-      `SELECT media_type, tmdb_id, tvdb_id, thumb_url, logo_url, status, fetched_at
+      `SELECT media_type, tmdb_id, tvdb_id, thumb_url, background_url, poster_url, logo_url, status, fetched_at
        FROM media_art WHERE ${clauses.join(' OR ')}`,
       params,
     );
@@ -67,17 +73,28 @@ export function createArtRepository(pool: pg.Pool): ArtRepository {
     const values: unknown[] = [];
     const tuples: string[] = [];
     rows.forEach((row, index) => {
-      const offset = index * 6;
-      tuples.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`);
-      values.push(row.mediaType, row.tmdbId, row.tvdbId, row.thumbUrl, row.logoUrl, row.status);
+      const offset = index * 8;
+      tuples.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`);
+      values.push(
+        row.mediaType,
+        row.tmdbId,
+        row.tvdbId,
+        row.thumbUrl,
+        row.backgroundUrl ?? null,
+        row.posterUrl ?? null,
+        row.logoUrl,
+        row.status,
+      );
     });
     await pool.query(
       `INSERT INTO media_art
-         (media_type, tmdb_id, tvdb_id, thumb_url, logo_url, status)
+         (media_type, tmdb_id, tvdb_id, thumb_url, background_url, poster_url, logo_url, status)
        VALUES ${tuples.join(', ')}
        ON CONFLICT (media_type, tmdb_id) DO UPDATE SET
          tvdb_id = EXCLUDED.tvdb_id,
          thumb_url = EXCLUDED.thumb_url,
+         background_url = EXCLUDED.background_url,
+         poster_url = EXCLUDED.poster_url,
          logo_url = EXCLUDED.logo_url,
          status = EXCLUDED.status,
          fetched_at = now()`,

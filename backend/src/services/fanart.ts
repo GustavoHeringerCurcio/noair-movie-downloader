@@ -2,7 +2,7 @@
  * Fanart.tv webservice client.
  *
  * Every call resolves to a status-aware result — it never throws:
- * - `ok`    → usable artwork found (thumb/logo are the most-liked picks)
+ * - `ok`    → usable artwork found (thumb/poster/logo are the most-liked picks)
  * - `empty` → the title exists on Fanart.tv but has no matching art
  * - `error` → transient failure (network, HTTP 429/5xx) that MUST NOT be cached
  *
@@ -15,6 +15,8 @@ export type FanartStatus = 'ok' | 'empty' | 'error';
 export interface FanartResult {
   status: FanartStatus;
   thumbUrl: string | null;
+  backgroundUrl?: string | null;
+  posterUrl?: string | null;
   logoUrl: string | null;
 }
 
@@ -52,10 +54,12 @@ function pickBest(files: FanartFile[] | undefined): string | null {
 
 interface FanartResponse {
   moviethumb?: FanartFile[];
+  moviebackground?: FanartFile[];
   movieposter?: FanartFile[];
   hdmovielogo?: FanartFile[];
   movielogo?: FanartFile[];
   tvthumb?: FanartFile[];
+  showbackground?: FanartFile[];
   tvposter?: FanartFile[];
   hdtvlogo?: FanartFile[];
   clearlogo?: FanartFile[];
@@ -85,10 +89,10 @@ export function createFanartClient(config: FanartClientConfig): FanartClient {
     try {
       const res = await fetchImpl(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (res.status === 404) {
-        result = { status: 'empty', thumbUrl: null, logoUrl: null };
+        result = { status: 'empty', thumbUrl: null, backgroundUrl: null, posterUrl: null, logoUrl: null };
       } else if (!res.ok) {
         // 429 / 5xx / anything unexpected — transient, never cached.
-        return { status: 'error', thumbUrl: null, logoUrl: null };
+        return { status: 'error', thumbUrl: null, backgroundUrl: null, posterUrl: null, logoUrl: null };
       }
       const data = (await res.json()) as FanartResponse;
       const image: FanartResult =
@@ -96,19 +100,23 @@ export function createFanartClient(config: FanartClientConfig): FanartClient {
           ? {
               status: 'ok',
               thumbUrl: pickBest(data.moviethumb),
+              backgroundUrl: pickBest(data.moviebackground),
+              posterUrl: pickBest(data.movieposter),
               logoUrl: pickBest(firstNonEmpty(data.hdmovielogo, data.movielogo)),
             }
           : {
               status: 'ok',
               thumbUrl: pickBest(data.tvthumb),
+              backgroundUrl: pickBest(data.showbackground),
+              posterUrl: pickBest(data.tvposter),
               logoUrl: pickBest(firstNonEmpty(data.hdtvlogo, data.clearlogo)),
             };
       result =
-        image.thumbUrl != null || image.logoUrl != null
+        image.thumbUrl != null || image.backgroundUrl != null || image.posterUrl != null || image.logoUrl != null
           ? image
-          : { status: 'empty', thumbUrl: null, logoUrl: null };
+          : { status: 'empty', thumbUrl: null, backgroundUrl: null, posterUrl: null, logoUrl: null };
     } catch {
-      return { status: 'error', thumbUrl: null, logoUrl: null };
+      return { status: 'error', thumbUrl: null, backgroundUrl: null, posterUrl: null, logoUrl: null };
     }
 
     cache.set(cacheKey, { value: result, expires: Date.now() + (result.status === 'ok' ? CACHE_TTL_MS : EMPTY_TTL_MS) });

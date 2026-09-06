@@ -15,6 +15,9 @@ export type AudioMode = 'dub' | 'dual' | 'multi';
 
 export interface MediaArt {
   thumbUrl: string | null;
+  /** Fanart.tv HD wide art (`moviebackground` for movies, `showbackground` for TV). */
+  backgroundUrl?: string | null;
+  posterUrl?: string | null;
   logoUrl: string | null;
 }
 

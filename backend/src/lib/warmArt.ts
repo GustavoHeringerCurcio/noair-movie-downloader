@@ -70,5 +70,10 @@ async function warmOnce(deps: AppDeps, emptyRetryMs: number): Promise<void> {
 
   const refreshed = await deps.art.refreshExpired(subjects, emptyRetryMs);
   if (refreshed > 0) await deps.art.drain();
-  console.log(`[art-warm] cached ${subjects.length} rail/download titles`);
+  // One-time-ish backfill: rows cached before the poster_url column existed (or
+  // any thumbless row fetched > 1 day ago) get refetched so portrait posters
+  // appear. Fresh truly-empty rows are untouched until emptyRetryMs elapses.
+  const thumbless = await deps.art.refreshThumbless(subjects, 24 * 60 * 60 * 1000);
+  if (thumbless > 0) await deps.art.drain();
+  console.log(`[art-warm] cached ${subjects.length} rail/download titles (refreshed ${refreshed} empty, ${thumbless} thumbless)`);
 }

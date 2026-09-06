@@ -48,3 +48,6 @@ CREATE TABLE IF NOT EXISTS media_art (
   fetched_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (media_type, tmdb_id)
 );
+
+ALTER TABLE media_art ADD COLUMN IF NOT EXISTS poster_url text;
+ALTER TABLE media_art ADD COLUMN IF NOT EXISTS background_url text;

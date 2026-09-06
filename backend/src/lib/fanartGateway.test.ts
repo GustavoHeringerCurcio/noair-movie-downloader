@@ -7,7 +7,7 @@ const MOVIE: ArtSubject = { mediaType: 'movie', tmdbId: 550 };
 const TV: ArtSubject = { mediaType: 'tv', tmdbId: 100 };
 
 function result(status: FanartResult['status']): FanartResult {
-  return { status, thumbUrl: null, logoUrl: null };
+  return { status, thumbUrl: null, backgroundUrl: null, logoUrl: null };
 }
 
 function clientWith(getMovieArt?: FanartClient['getMovieArt'], getTvArt?: FanartClient['getTvArt']): FanartClient {
@@ -66,16 +66,46 @@ describe('createFanartGateway', () => {
 
   it('maps movie ok results', async () => {
     const gateway = createFanartGateway({
-      fanart: clientWith(async () => ({ status: 'ok' as const, thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' })),
+      fanart: clientWith(async () => ({
+        status: 'ok' as const,
+        thumbUrl: 'https://fanart.tv/t.jpg',
+        posterUrl: 'https://fanart.tv/p.jpg',
+        logoUrl: 'https://fanart.tv/l.png',
+      })),
       minGapMs: 0,
     });
     const outcome = await gateway.fetch(MOVIE, 'high');
-    expect(outcome).toEqual({ kind: 'ok', thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png', tvdbId: null });
+    expect(outcome).toEqual({
+      kind: 'ok',
+      thumbUrl: 'https://fanart.tv/t.jpg',
+      posterUrl: 'https://fanart.tv/p.jpg',
+      logoUrl: 'https://fanart.tv/l.png',
+      tvdbId: null,
+    });
+  });
+
+  it('propagates poster-only ok results', async () => {
+    const gateway = createFanartGateway({
+      fanart: clientWith(async () => ({
+        status: 'ok' as const,
+        thumbUrl: null,
+        posterUrl: 'https://fanart.tv/p.jpg',
+        logoUrl: null,
+      })),
+      minGapMs: 0,
+    });
+    const outcome = await gateway.fetch(MOVIE, 'high');
+    expect(outcome).toEqual({ kind: 'ok', thumbUrl: null, posterUrl: 'https://fanart.tv/p.jpg', logoUrl: null, tvdbId: null });
   });
 
   it('resolves TVDB ids once and uses them for TV art', async () => {
     const resolveTvdbId = vi.fn(async () => 789);
-    const getTvArt = vi.fn(async () => ({ status: 'ok' as const, thumbUrl: 'https://fanart.tv/tv.jpg', logoUrl: null }));
+    const getTvArt = vi.fn(async () => ({
+      status: 'ok' as const,
+      thumbUrl: 'https://fanart.tv/tv.jpg',
+      posterUrl: 'https://fanart.tv/tvp.jpg',
+      logoUrl: null,
+    }));
     const gateway = createFanartGateway({
       fanart: clientWith(undefined, getTvArt),
       resolveTvdbId,
@@ -84,7 +114,13 @@ describe('createFanartGateway', () => {
     const outcome = await gateway.fetch(TV, 'high');
     expect(resolveTvdbId).toHaveBeenCalledWith(100);
     expect(getTvArt).toHaveBeenCalledWith(789);
-    expect(outcome).toEqual({ kind: 'ok', thumbUrl: 'https://fanart.tv/tv.jpg', logoUrl: null, tvdbId: 789 });
+    expect(outcome).toEqual({
+      kind: 'ok',
+      thumbUrl: 'https://fanart.tv/tv.jpg',
+      posterUrl: 'https://fanart.tv/tvp.jpg',
+      logoUrl: null,
+      tvdbId: 789,
+    });
   });
 
   it('treats an unknown TVDB id as empty without calling Fanart', async () => {

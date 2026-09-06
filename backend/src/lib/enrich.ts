@@ -5,6 +5,62 @@ import { artKey } from './artService.js';
 export type ImageProvider = 'tmdb' | 'fanart';
 
 export const IMAGE_PROVIDER_KEY = 'imageProvider';
+/** Per-provider preferred art kind. FanArt kinds are its own sizes only; never TMDB. */
+export const ART_PREFERENCE_KEY = 'artworkPreference';
+
+/** TMDB-native card image kinds (its posters/backdrops are never FanArt). */
+export type TmdbArtKind = 'backdrop' | 'poster';
+/** FanArt.tv-native sizes; FanArt never falls back to TMDB artwork. */
+export type FanartArtKind = 'thumb' | 'background' | 'poster';
+
+export interface ArtPreference {
+  tmdb: TmdbArtKind;
+  fanart: FanartArtKind;
+}
+
+export const DEFAULT_ART_PREFERENCE: ArtPreference = { tmdb: 'backdrop', fanart: 'thumb' };
+
+export function isTmdbArtKind(value: unknown): value is TmdbArtKind {
+  return value === 'backdrop' || value === 'poster';
+}
+
+export function isFanartArtKind(value: unknown): value is FanartArtKind {
+  return value === 'thumb' || value === 'background' || value === 'poster';
+}
+
+interface PreferenceSetting {
+  tmdb?: unknown;
+  fanart?: unknown;
+}
+
+function sanitizePreference(raw: PreferenceSetting | null | undefined): ArtPreference {
+  const out: ArtPreference = { ...DEFAULT_ART_PREFERENCE };
+  if (!raw) return out;
+  if (isTmdbArtKind(raw.tmdb)) out.tmdb = raw.tmdb;
+  if (isFanartArtKind(raw.fanart)) out.fanart = raw.fanart;
+  return out;
+}
+
+export async function resolveArtPreference(deps: AppDeps): Promise<ArtPreference> {
+  const stored = await deps.settings.get<PreferenceSetting>(ART_PREFERENCE_KEY);
+  return sanitizePreference(stored);
+}
+
+/** Persist a per-provider art kind (partial update; provider choice is separate). */
+export async function saveArtPreference(deps: AppDeps, patch: { tmdb?: unknown; fanart?: unknown }): Promise<void> {
+  const current = await resolveArtPreference(deps);
+  if (patch.tmdb !== undefined) {
+    if (!isTmdbArtKind(patch.tmdb)) throw new Error('artwork.preference.tmdb must be "backdrop" or "poster"');
+    current.tmdb = patch.tmdb;
+  }
+  if (patch.fanart !== undefined) {
+    if (!isFanartArtKind(patch.fanart)) {
+      throw new Error('artwork.preference.fanart must be "thumb", "background" or "poster"');
+    }
+    current.fanart = patch.fanart;
+  }
+  await deps.settings.set(ART_PREFERENCE_KEY, current);
+}
 
 interface ProviderSetting {
   provider?: unknown;

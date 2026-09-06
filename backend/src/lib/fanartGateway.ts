@@ -3,7 +3,14 @@ import type { FanartClient, FanartResult } from '../services/fanart.js';
 import { sleep } from './http.js';
 
 export type FanartOutcome =
-  | { kind: 'ok'; thumbUrl: string | null; logoUrl: string | null; tvdbId: number | null }
+  | {
+      kind: 'ok';
+      thumbUrl: string | null;
+      backgroundUrl?: string | null;
+      posterUrl?: string | null;
+      logoUrl: string | null;
+      tvdbId: number | null;
+    }
   | { kind: 'empty'; tvdbId: number | null }
   | { kind: 'error' };
 
@@ -64,14 +71,28 @@ export function createFanartGateway(config: FanartGatewayConfig): FanartGateway 
 
   function mapMovieResult(result: FanartResult): FanartOutcome {
     if (result.status === 'ok') {
-      return { kind: 'ok', thumbUrl: result.thumbUrl, logoUrl: result.logoUrl, tvdbId: null };
+      return {
+        kind: 'ok',
+        thumbUrl: result.thumbUrl,
+        backgroundUrl: result.backgroundUrl,
+        posterUrl: result.posterUrl,
+        logoUrl: result.logoUrl,
+        tvdbId: null,
+      };
     }
     return result.status === 'error' ? { kind: 'error' } : { kind: 'empty', tvdbId: null };
   }
 
   function mapTvResult(result: FanartResult, tvdbId: number): FanartOutcome {
     if (result.status === 'ok') {
-      return { kind: 'ok', thumbUrl: result.thumbUrl, logoUrl: result.logoUrl, tvdbId };
+      return {
+        kind: 'ok',
+        thumbUrl: result.thumbUrl,
+        backgroundUrl: result.backgroundUrl,
+        posterUrl: result.posterUrl,
+        logoUrl: result.logoUrl,
+        tvdbId,
+      };
     }
     return result.status === 'error' ? { kind: 'error' } : { kind: 'empty', tvdbId };
   }

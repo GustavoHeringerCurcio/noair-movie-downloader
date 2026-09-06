@@ -31,6 +31,7 @@ export function makeEmptyArtService(): ArtService {
     resolveOne: async () => null,
     refresh: () => {},
     refreshExpired: async () => 0,
+    refreshThumbless: async () => 0,
     drain: async () => {},
     clear: () => {},
   };

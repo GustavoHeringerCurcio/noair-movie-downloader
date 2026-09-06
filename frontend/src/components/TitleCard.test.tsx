@@ -22,6 +22,13 @@ const FANART_ART: MediaItem = {
   art: { thumbUrl: 'https://fanart.tv/keyart.jpg', logoUrl: null },
 };
 
+const FANART_POSTER_ONLY: MediaItem = {
+  ...FULL,
+  posterPath: null,
+  backdropPath: null,
+  art: { thumbUrl: null, posterUrl: 'https://fanart.tv/poster.jpg', logoUrl: null },
+};
+
 const NO_ART: MediaItem = { ...FULL, posterPath: null, backdropPath: null };
 
 function renderCard(item: MediaItem): void {
@@ -72,21 +79,27 @@ describe('TitleCard', () => {
     expect(screen.getByRole('button', { name: /inception/i })).toBeInTheDocument();
   });
 
-  it('never falls back to a TMDB backdrop in FanArt mode when key art is missing', () => {
+  it('uses the Fanart portrait poster in FanArt mode when no 16:9 thumb exists', () => {
     setProvider('fanart');
-    renderCard(FULL);
-    expect(cardMedia()).toBeNull();
-    expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
+    renderCard(FANART_POSTER_ONLY);
+    const img = cardMedia();
+    expect(img?.src).toBe('https://fanart.tv/poster.jpg');
+    expect(document.querySelector('.title-card-fallback')).toBeNull();
   });
 
-  it('falls back to the monogram when a FanArt image errors instead of swapping to TMDB', () => {
+  it('shows a monogram in FanArt mode when Fanart has no art (no TMDB rescue)', () => {
+    setProvider('fanart');
+    renderCard(FULL);
+    expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
+    expect(document.querySelector('.title-card-media')).toBeNull();
+  });
+
+  it('falls back to a monogram when the last Fanart image fails to load', () => {
     setProvider('fanart');
     renderCard(FANART_ART);
     fireEvent.error(cardMedia()!);
-    expect(cardMedia()).toBeNull();
-    expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
-    const all = Array.from(document.querySelectorAll<HTMLImageElement>('img'));
-    expect(all.every((i) => i.src.includes('fanart.tv'))).toBe(true);
+    expect(document.querySelector('.title-card-media')).toBeNull();
+    expect(document.querySelector('.title-card-fallback')).not.toBeNull();
   });
 
   it('renders an optional primary quick action without any info button', () => {

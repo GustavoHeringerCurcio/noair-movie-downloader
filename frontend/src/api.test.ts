@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { cardImages, humanEta, humanSize, humanSpeed } from './api';
+import type { ArtPreference, MediaArt } from './types';
+
+const PREF: ArtPreference = { tmdb: 'backdrop', fanart: 'thumb' };
+
+function art(overrides: Partial<MediaArt> = {}): MediaArt {
+  return { thumbUrl: null, posterUrl: null, logoUrl: null, ...overrides };
+}
 
 describe('humanSize', () => {
   it('formats byte sizes', () => {
@@ -28,33 +35,83 @@ describe('humanEta', () => {
   });
 });
 
-describe('cardImages', () => {
-  it('returns TMDB backdrop then poster in TMDB mode', () => {
-    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: '/p.jpg' }, 'tmdb');
-    expect(srcs).toHaveLength(2);
-    expect(srcs[0]).toContain('/api/images/tmdb/w1280/b.jpg');
-    expect(srcs[1]).toContain('/api/images/tmdb/w500/p.jpg');
-  });
-
-  it('keeps a single TMDB source when the poster is missing', () => {
-    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: null }, 'tmdb');
-    expect(srcs).toEqual([expect.stringContaining('/api/images/tmdb/w1280/b.jpg')]);
-  });
-
-  it('returns only the Fanart thumb in FanArt mode even when TMDB art exists', () => {
+describe('cardImages (STRICT provider isolation)', () => {
+  it('returns only TMDB sources in TMDB mode, never FanArt', () => {
     const srcs = cardImages(
       {
         backdropPath: '/b.jpg',
         posterPath: '/p.jpg',
-        art: { thumbUrl: 'https://fanart.tv/key.jpg', logoUrl: null },
+        art: art({ thumbUrl: 'https://fanart.tv/key.jpg', posterUrl: 'https://fanart.tv/poster.jpg' }),
       },
-      'fanart',
+      'tmdb',
+      PREF,
     );
-    expect(srcs).toEqual(['https://fanart.tv/key.jpg']);
+    expect(srcs).toHaveLength(2);
+    expect(srcs[0]).toContain('/api/images/tmdb/w1280/b.jpg');
+    expect(srcs[1]).toContain('/api/images/tmdb/w500/p.jpg');
+    expect(srcs.join(' ')).not.toContain('fanart.tv');
   });
 
-  it('returns no sources when FanArt has no thumb — TMDB is never a fallback', () => {
-    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: '/p.jpg', art: null }, 'fanart');
+  it('honors a TMDB poster-first preference', () => {
+    const srcs = cardImages(
+      { backdropPath: '/b.jpg', posterPath: '/p.jpg', art: null },
+      'tmdb',
+      { tmdb: 'poster', fanart: 'thumb' },
+    );
+    expect(srcs).toEqual([
+      expect.stringContaining('/api/images/tmdb/w500/p.jpg'),
+      expect.stringContaining('/api/images/tmdb/w1280/b.jpg'),
+    ]);
+  });
+
+  it('returns only FanArt sources in FanArt mode, never TMDB', () => {
+    const srcs = cardImages(
+      {
+        backdropPath: '/b.jpg',
+        posterPath: '/p.jpg',
+        art: art({ thumbUrl: 'https://fanart.tv/key.jpg', posterUrl: 'https://fanart.tv/poster.jpg' }),
+      },
+      'fanart',
+      PREF,
+    );
+    expect(srcs).toEqual(['https://fanart.tv/key.jpg', 'https://fanart.tv/poster.jpg']);
+    expect(srcs.join(' ')).not.toContain('/api/images/tmdb/');
+  });
+
+  it('tries the preferred FanArt size first, then other FanArt sizes', () => {
+    const srcs = cardImages(
+      {
+        backdropPath: null,
+        posterPath: null,
+        art: art({ thumbUrl: 'https://fanart.tv/key.jpg', backgroundUrl: 'https://fanart.tv/hd.jpg' }),
+      },
+      'fanart',
+      { tmdb: 'backdrop', fanart: 'background' },
+    );
+    expect(srcs).toEqual(['https://fanart.tv/hd.jpg', 'https://fanart.tv/key.jpg']);
+  });
+
+  it('uses the FanArt portrait poster only when it is the sole FanArt size', () => {
+    const srcs = cardImages(
+      {
+        backdropPath: '/b.jpg',
+        posterPath: '/p.jpg',
+        art: art({ thumbUrl: null, backgroundUrl: null, posterUrl: 'https://fanart.tv/poster.jpg' }),
+      },
+      'fanart',
+      PREF,
+    );
+    expect(srcs).toEqual(['https://fanart.tv/poster.jpg']);
+    expect(srcs.join(' ')).not.toContain('/api/images/tmdb/');
+  });
+
+  it('returns no sources in FanArt mode when FanArt has no art (no TMDB rescue)', () => {
+    const srcs = cardImages({ backdropPath: '/b.jpg', posterPath: '/p.jpg', art: null }, 'fanart', PREF);
+    expect(srcs).toEqual([]);
+  });
+
+  it('returns no sources when neither provider has any image', () => {
+    const srcs = cardImages({ backdropPath: null, posterPath: null, art: null }, 'fanart', PREF);
     expect(srcs).toEqual([]);
   });
 });

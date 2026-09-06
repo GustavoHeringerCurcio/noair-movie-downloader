@@ -1,9 +1,16 @@
 import { create } from 'zustand';
-import { fetchSettings, saveArtworkProvider, saveAudioLanguage } from '../api';
-import type { AudioLang, ImageProvider } from '../types';
+import {
+  DEFAULT_ART_PREFERENCE,
+  fetchSettings,
+  saveArtworkPreference,
+  saveArtworkProvider,
+  saveAudioLanguage,
+} from '../api';
+import type { ArtPreference, AudioLang, FanartArtKind, ImageProvider, TmdbArtKind } from '../types';
 
 interface SettingsState {
   provider: ImageProvider;
+  preference: ArtPreference;
   fanartConfigured: boolean;
   audio: AudioLang;
   ready: boolean;
@@ -11,13 +18,28 @@ interface SettingsState {
   loadError: string | null;
   load: () => Promise<void>;
   saveProvider: (provider: ImageProvider) => Promise<void>;
+  saveTmdbKind: (kind: TmdbArtKind) => Promise<void>;
+  saveFanartKind: (kind: FanartArtKind) => Promise<void>;
   saveAudio: (audio: AudioLang) => Promise<void>;
 }
 
 export const DEFAULT_AUDIO_LANG: AudioLang = 'en';
 
+function applySettings(res: {
+  artwork: { provider: ImageProvider; fanartConfigured: boolean; preference: ArtPreference };
+  language: { audio: AudioLang };
+}): Partial<SettingsState> {
+  return {
+    provider: res.artwork.provider,
+    fanartConfigured: res.artwork.fanartConfigured,
+    preference: { ...DEFAULT_ART_PREFERENCE, ...res.artwork.preference },
+    audio: res.language.audio,
+  };
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   provider: 'tmdb',
+  preference: DEFAULT_ART_PREFERENCE,
   fanartConfigured: false,
   audio: DEFAULT_AUDIO_LANG,
   ready: false,
@@ -26,13 +48,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   load: async () => {
     try {
       const res = await fetchSettings();
-      set({
-        provider: res.artwork.provider,
-        fanartConfigured: res.artwork.fanartConfigured,
-        audio: res.language.audio,
-        ready: true,
-        loadError: null,
-      });
+      set({ ...applySettings(res), ready: true, loadError: null });
     } catch (error) {
       set({
         ready: true,
@@ -44,12 +60,27 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ saving: true });
     try {
       const res = await saveArtworkProvider(provider);
-      set({
-        provider: res.artwork.provider,
-        fanartConfigured: res.artwork.fanartConfigured,
-        audio: res.language.audio,
-        saving: false,
-      });
+      set({ ...applySettings(res), saving: false });
+    } catch (error) {
+      set({ saving: false });
+      throw error;
+    }
+  },
+  saveTmdbKind: async (kind) => {
+    set({ saving: true });
+    try {
+      const res = await saveArtworkPreference({ tmdb: kind });
+      set({ ...applySettings(res), saving: false });
+    } catch (error) {
+      set({ saving: false });
+      throw error;
+    }
+  },
+  saveFanartKind: async (kind) => {
+    set({ saving: true });
+    try {
+      const res = await saveArtworkPreference({ fanart: kind });
+      set({ ...applySettings(res), saving: false });
     } catch (error) {
       set({ saving: false });
       throw error;
@@ -59,12 +90,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ saving: true });
     try {
       const res = await saveAudioLanguage(audio);
-      set({
-        audio: res.language.audio,
-        provider: res.artwork.provider,
-        fanartConfigured: res.artwork.fanartConfigured,
-        saving: false,
-      });
+      set({ ...applySettings(res), saving: false });
     } catch (error) {
       set({ saving: false });
       throw error;
@@ -75,6 +101,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 /** Active artwork provider; before settings load completes, treat as TMDB. */
 export function useImageProvider(): ImageProvider {
   return useSettingsStore((s) => (s.ready ? s.provider : 'tmdb'));
+}
+
+/** Active artwork preference; before settings load completes, use TMDB defaults. */
+export function useArtPreference(): ArtPreference {
+  return useSettingsStore((s) => s.preference);
 }
 
 /** Active audio language; before settings load completes, treat as English. */

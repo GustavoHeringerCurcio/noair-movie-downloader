@@ -4,7 +4,7 @@ import { ArrowDownToLine, Play, Download } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MediaItem } from '../types';
 import { cardImages } from '../api';
-import { useImageProvider } from '../store/settingsStore';
+import { useArtPreference, useImageProvider } from '../store/settingsStore';
 
 export interface TitleCardPrimary {
   label: string;
@@ -39,17 +39,18 @@ function glyphFor(type?: 'download' | 'play' | 'down'): JSX.Element {
 export function TitleCard({ item, progress, primary }: TitleCardProps) {
   const navigate = useNavigate();
   const provider = useImageProvider();
+  const preference = useArtPreference();
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
 
-  const sources = useMemo(() => cardImages(item, provider), [item, provider]);
+  const sources = useMemo(() => cardImages(item, provider, preference), [item, provider, preference]);
   const [srcIndex, setSrcIndex] = useState(0);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setSrcIndex(0);
     setFailed(false);
-  }, [item.tmdbId, item.mediaType, provider]);
+  }, [item.tmdbId, item.mediaType, provider, preference]);
 
   const src = !failed && srcIndex < sources.length ? sources[srcIndex] : null;
 

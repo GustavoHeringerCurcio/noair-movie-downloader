@@ -45,6 +45,7 @@ export function WatchPage() {
   const [pkgPhase, setPkgPhase] = useState<PackagePhase>('idle');
   const [pkgProgress, setPkgProgress] = useState(0);
   const [pkgFailed, setPkgFailed] = useState(false);
+  const [pkgError, setPkgError] = useState<string | null>(null);
   const [pkgTick, setPkgTick] = useState(0);
   const lastSave = useRef(0);
   const stallTimer = useRef<number | undefined>(undefined);
@@ -106,6 +107,7 @@ export function WatchPage() {
     setStartAt(null);
     setPkgPhase('idle');
     setPkgFailed(false);
+    setPkgError(null);
     setPkgProgress(0);
 
     async function load(): Promise<void> {
@@ -148,6 +150,7 @@ export function WatchPage() {
       setStartAt(null);
       setPkgPhase('idle');
       setPkgFailed(false);
+      setPkgError(null);
       setPkgProgress(0);
       playInfo(infoHash, file ?? undefined)
         .then((info) => {
@@ -200,15 +203,18 @@ export function WatchPage() {
     let cancelled = false;
     let timer: number | undefined;
     setPkgFailed(false);
+    setPkgError(null);
     const poll = async (): Promise<void> => {
       try {
         const status = await packageStatus(infoHash, selectedFile ?? undefined);
         if (cancelled) return;
         if (status.phase === 'ready') {
           setPkgPhase('ready');
+          setPkgProgress(1);
         } else if (status.phase === 'failed') {
           setPkgPhase('failed');
           setPkgFailed(true);
+          setPkgError(status.error);
         } else {
           setPkgPhase('packaging');
           setPkgProgress(status.progress);
@@ -218,6 +224,7 @@ export function WatchPage() {
         if (!cancelled) {
           setPkgPhase('failed');
           setPkgFailed(true);
+          setPkgError('Couldn’t check the packaging status. Is the backend still running?');
         }
       }
     };
@@ -390,20 +397,30 @@ export function WatchPage() {
               onTick={(video) => saveProgress(video)}
               onPlayback={onPlaying}
               onStarted={() => setStartAt(null)}
-              onError={() => setPkgFailed(true)}
+              onError={(message) => {
+                setPkgFailed(true);
+                setPkgError(message);
+              }}
             />
           ) : pkgPhase === 'failed' || pkgFailed ? (
-            <div className="watch-overlay">
-              <span>Couldn’t prepare a browser-playable copy.</span>
-              <button type="button" className="btn btn-white btn-sm" onClick={retryHls}>
-                <RotateCw size={14} /> Retry
-              </button>
-              <a className="btn btn-outline btn-sm" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
-                <MonitorPlay size={15} /> Open in your player
-              </a>
-              <a className="btn btn-outline btn-sm" href={fileUrl(infoHash, selectedFile ?? undefined)}>
-                <FileDown size={15} /> Download file
-              </a>
+            <div className="watch-overlay watch-overlay-fail">
+              <p className="watch-overlay-msg">Couldn’t prepare a browser-playable copy.</p>
+              {pkgError && (
+                <p className="watch-overlay-detail" title={pkgError}>
+                  {pkgError}
+                </p>
+              )}
+              <div className="watch-overlay-actions">
+                <button type="button" className="btn btn-white btn-sm" onClick={retryHls}>
+                  <RotateCw size={14} /> Retry
+                </button>
+                <a className="btn btn-outline btn-sm" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
+                  <MonitorPlay size={15} /> Open in your player
+                </a>
+                <a className="btn btn-outline btn-sm" href={fileUrl(infoHash, selectedFile ?? undefined)}>
+                  <FileDown size={15} /> Download file
+                </a>
+              </div>
             </div>
           ) : (
             <div className="watch-overlay">

@@ -6,7 +6,12 @@ import type { ArtSubject, MediaArt } from '../types.js';
 
 const MOVIE: ArtSubject = { mediaType: 'movie', tmdbId: 550 };
 const KEY = 'movie:550';
-const ART: MediaArt = { thumbUrl: 'https://fanart.tv/t.jpg', logoUrl: 'https://fanart.tv/l.png' };
+const ART: MediaArt = {
+  thumbUrl: 'https://fanart.tv/t.jpg',
+  backgroundUrl: null,
+  posterUrl: null,
+  logoUrl: 'https://fanart.tv/l.png',
+};
 
 function memoryRepo(): ArtRepository & { rows: MediaArtRow[]; getCalls: number; upserted: MediaArtRow[] } {
   const self: ArtRepository & { rows: MediaArtRow[]; getCalls: number; upserted: MediaArtRow[] } = {
@@ -148,6 +153,76 @@ describe('createArtService', () => {
     const gateway = outcome({ kind: 'empty', tvdbId: null });
     const service = createArtService({ repo, gateway });
     const refreshed = await service.refreshExpired([MOVIE], 7 * 24 * 60 * 60 * 1000);
+    expect(refreshed).toBe(0);
+    expect(gateway.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refreshThumbless refetches stale rows with no 16:9 thumb (backfill posters)', async () => {
+    const repo = memoryRepo();
+    const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+    repo.rows.push(
+      {
+        mediaType: 'movie',
+        tmdbId: 550,
+        tvdbId: null,
+        thumbUrl: null,
+        logoUrl: 'https://fanart.tv/logo.png',
+        status: 'ok',
+        fetchedAt: old,
+      },
+      {
+        mediaType: 'movie',
+        tmdbId: 551,
+        tvdbId: null,
+        thumbUrl: null,
+        logoUrl: null,
+        status: 'empty',
+        fetchedAt: old,
+      },
+    );
+    const gateway = outcome({ kind: 'ok', thumbUrl: null, posterUrl: 'https://fanart.tv/p.jpg', logoUrl: null, tvdbId: null });
+    const service = createArtService({ repo, gateway });
+
+    const subjects = [
+      { mediaType: 'movie' as const, tmdbId: 550 },
+      { mediaType: 'movie' as const, tmdbId: 551 },
+    ];
+    const refreshed = await service.refreshThumbless(subjects, 7 * 24 * 60 * 60 * 1000);
+    expect(refreshed).toBe(2);
+    await service.drain();
+    expect(gateway.fetch).toHaveBeenCalledTimes(2);
+    expect(repo.upserted.every((row) => row.status === 'ok' && row.posterUrl === 'https://fanart.tv/p.jpg')).toBe(true);
+  });
+
+  it('refreshThumbless ignores fresh or thumb-bearing rows', async () => {
+    const repo = memoryRepo();
+    repo.rows.push(
+      {
+        mediaType: 'movie',
+        tmdbId: 550,
+        tvdbId: null,
+        thumbUrl: null,
+        logoUrl: null,
+        status: 'empty',
+        fetchedAt: new Date().toISOString(),
+      },
+      {
+        mediaType: 'movie',
+        tmdbId: 551,
+        tvdbId: null,
+        thumbUrl: 'https://fanart.tv/t.jpg',
+        logoUrl: null,
+        status: 'ok',
+        fetchedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    );
+    const gateway = outcome({ kind: 'empty', tvdbId: null });
+    const service = createArtService({ repo, gateway });
+    const subjects = [
+      { mediaType: 'movie' as const, tmdbId: 550 },
+      { mediaType: 'movie' as const, tmdbId: 551 },
+    ];
+    const refreshed = await service.refreshThumbless(subjects, 7 * 24 * 60 * 60 * 1000);
     expect(refreshed).toBe(0);
     expect(gateway.fetch).not.toHaveBeenCalled();
   });

@@ -81,12 +81,17 @@ describe('ffmpeg argument builders', () => {
     expect(args[args.length - 1]).toBe(path.join('/packages', 'k', 'video', 'main.m3u8'));
   });
 
-  it('audio segment args target one track and encode AAC', () => {
+  it('audio segment args target one track (global stream index) and encode AAC', () => {
     const args = audioSegmentArgs('/x.mkv', 2, path.join('/packages', 'k', 'audio', '2'));
     expect(args).toContain('-map');
-    expect(args[args.indexOf('-map') + 1]).toBe('0:a:2');
+    expect(args[args.indexOf('-map') + 1]).toBe('0:2');
     expect(args[args.indexOf('-c:a') + 1]).toBe('aac');
     expect(args[args.length - 1]).toBe(path.join('/packages', 'k', 'audio', '2', 'main.m3u8'));
+  });
+
+  it('audio segment args map a single audio track at global index 1 to 0:1', () => {
+    const args = audioSegmentArgs('/x.mkv', 1, path.join('/packages', 'k', 'audio', '1'));
+    expect(args[args.indexOf('-map') + 1]).toBe('0:1');
   });
 
   it('embedded subtitle args write a single WebVTT file', () => {

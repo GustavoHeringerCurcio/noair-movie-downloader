@@ -30,6 +30,46 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 describe('createPackageManager', () => {
+  it('maps every packaging step to a real stream of the media file', async () => {
+    const root = makeDir('pkg-map-');
+    const sourceDir = makeDir('src-map-');
+    const source = path.join(sourceDir, 'movie.mkv');
+    fs.writeFileSync(source, Buffer.alloc(1_000_000));
+    const multiMedia: MediaInfo = {
+      container: 'mkv',
+      durationSeconds: 600,
+      video: { index: 0, codec: 'h264', width: 1920, height: 1080, hdr: false },
+      audioTracks: [
+        { index: 1, codec: 'dts', language: 'en', title: null, channels: 6, default: true },
+        { index: 2, codec: 'ac3', language: 'es', title: null, channels: 6, default: false },
+      ],
+      subtitleTracks: [{ index: 3, codec: 'subrip', kind: 'text', language: 'en', title: null, default: true }],
+      videoCodec: 'h264',
+      audioCodec: 'dts',
+      height: 1080,
+    };
+
+    const maps: string[] = [];
+    const manager = createPackageManager({ packageRoot: root }, async (args) => {
+      const map = args[args.indexOf('-map') + 1];
+      if (map) maps.push(map);
+      return 0;
+    });
+
+    const key = packageKey('aa'.repeat(20), 'movie.mkv');
+    await manager.ensurePackage({
+      infoHash: 'aa'.repeat(20),
+      relative: 'movie.mkv',
+      absolutePath: source,
+      media: multiMedia,
+      sidecars: [],
+    });
+    await waitUntil(() => manager.status(key)?.phase === 'ready');
+
+    expect(maps).toEqual(['0:v:0', '0:1', '0:2', '0:3']);
+    expect(maps.some((m) => m.includes('a:') || m.includes('s:'))).toBe(false);
+  });
+
   it('packages a file to ready with the master playlist and DONE marker', async () => {
     const root = makeDir('pkg-');
     const sourceDir = makeDir('src-');

@@ -32,6 +32,12 @@ export interface ArtService {
   refresh(subjects: ArtSubject[]): void;
   /** Refetch subjects whose persisted row is `empty` and older than `olderThanMs`. Returns count. */
   refreshExpired(subjects: ArtSubject[], olderThanMs: number): Promise<number>;
+  /**
+   * Refetch subjects whose row has no wide 16:9 candidate (thumb OR HD
+   * background) and is older than `olderThanMs` (backfill pass so a deploy
+   * adds the HD `backgroundUrl` / `posterUrl` fields to legacy rows). Returns count.
+   */
+  refreshThumbless(subjects: ArtSubject[], olderThanMs: number): Promise<number>;
   /** Wait until every outstanding fetch has finished and been persisted. */
   drain(): Promise<void>;
   clear(): void;
@@ -57,7 +63,12 @@ export function createArtService(config: ArtServiceConfig): ArtService {
   async function persistOutcome(subject: ArtSubject, outcome: FanartOutcome): Promise<void> {
     const key = artKey(subject);
     if (outcome.kind === 'ok') {
-      const art: MediaArt = { thumbUrl: outcome.thumbUrl, logoUrl: outcome.logoUrl };
+      const art: MediaArt = {
+        thumbUrl: outcome.thumbUrl,
+        backgroundUrl: outcome.backgroundUrl ?? null,
+        posterUrl: outcome.posterUrl ?? null,
+        logoUrl: outcome.logoUrl,
+      };
       storeMemo(key, 'art', art, ART_MEMO_TTL_MS);
       await repo.upsertMany([
         {
@@ -65,6 +76,8 @@ export function createArtService(config: ArtServiceConfig): ArtService {
           tmdbId: subject.tmdbId,
           tvdbId: outcome.tvdbId,
           thumbUrl: outcome.thumbUrl,
+          backgroundUrl: outcome.backgroundUrl ?? null,
+          posterUrl: outcome.posterUrl ?? null,
           logoUrl: outcome.logoUrl,
           status: 'ok',
           fetchedAt: new Date().toISOString(),
@@ -78,6 +91,8 @@ export function createArtService(config: ArtServiceConfig): ArtService {
           tmdbId: subject.tmdbId,
           tvdbId: outcome.tvdbId,
           thumbUrl: null,
+          backgroundUrl: null,
+          posterUrl: null,
           logoUrl: null,
           status: 'empty',
           fetchedAt: new Date().toISOString(),
@@ -123,8 +138,13 @@ export function createArtService(config: ArtServiceConfig): ArtService {
       const key = artKey(subject);
       const row = byKey.get(key);
       if (!row) continue;
-      if (row.status === 'ok' && (row.thumbUrl != null || row.logoUrl != null)) {
-        const art: MediaArt = { thumbUrl: row.thumbUrl, logoUrl: row.logoUrl };
+      if (row.status === 'ok' && (row.thumbUrl != null || row.backgroundUrl != null || row.posterUrl != null || row.logoUrl != null)) {
+        const art: MediaArt = {
+          thumbUrl: row.thumbUrl,
+          backgroundUrl: row.backgroundUrl ?? null,
+          posterUrl: row.posterUrl ?? null,
+          logoUrl: row.logoUrl,
+        };
         storeMemo(key, 'art', art, ART_MEMO_TTL_MS);
         out.set(key, art);
       } else {
@@ -174,6 +194,16 @@ export function createArtService(config: ArtServiceConfig): ArtService {
     return stale.length;
   }
 
+  async function refreshThumbless(subjects: ArtSubject[], olderThanMs: number): Promise<number> {
+    const rows = await repo.getMany(subjects);
+    const cutoff = nowMs() - olderThanMs;
+    const stale = rows.filter(
+      (row) => row.thumbUrl == null && row.backgroundUrl == null && Date.parse(row.fetchedAt) < cutoff,
+    );
+    if (stale.length > 0) refresh(stale.map((row) => ({ mediaType: row.mediaType, tmdbId: row.tmdbId })));
+    return stale.length;
+  }
+
   async function drain(): Promise<void> {
     for (;;) {
       const tasks = Array.from(pending.values());
@@ -182,5 +212,5 @@ export function createArtService(config: ArtServiceConfig): ArtService {
     }
   }
 
-  return { resolveManyCached, enqueueMissing, resolveOne, refresh, refreshExpired, drain, clear: () => memo.clear() };
+  return { resolveManyCached, enqueueMissing, resolveOne, refresh, refreshExpired, refreshThumbless, drain, clear: () => memo.clear() };
 }

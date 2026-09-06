@@ -2,7 +2,20 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useToastStore } from '@/store/toastStore';
-import type { ImageProvider } from '@/types';
+import type {
+  FanartArtKind,
+  ImageProvider,
+  MediaType,
+  TmdbArtKind,
+} from '@/types';
+import {
+  artworkPreview,
+  backdropUrl,
+  fanartArtKindLabel,
+  posterUrl,
+  tmdbArtKindLabel,
+  type ArtworkPreview,
+} from '@/api';
 import {
   PLAYER_CHOICES,
   buildOpenerCmd,
@@ -30,19 +43,66 @@ function diagnostics(): string {
 export function SettingsPage() {
   const connected = useDownloadsStore((s) => s.connected);
   const provider = useSettingsStore((s) => s.provider);
+  const preference = useSettingsStore((s) => s.preference);
   const fanartConfigured = useSettingsStore((s) => s.fanartConfigured);
   const audio = useSettingsStore((s) => s.audio);
   const ready = useSettingsStore((s) => s.ready);
   const saving = useSettingsStore((s) => s.saving);
   const loadSettings = useSettingsStore((s) => s.load);
   const saveProvider = useSettingsStore((s) => s.saveProvider);
+  const saveTmdbKind = useSettingsStore((s) => s.saveTmdbKind);
+  const saveFanartKind = useSettingsStore((s) => s.saveFanartKind);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
   const toast = useToastStore((s) => s.toast);
   const [player, setPlayer] = useState<string>(() => readPlayerPreference() ?? 'vlc');
 
+  // Manual artwork tester state.
+  const [previewType, setPreviewType] = useState<MediaType>('movie');
+  const [previewId, setPreviewId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<ArtworkPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewRequested, setPreviewRequested] = useState(false);
+  const [customPreviewId, setCustomPreviewId] = useState('');
+
   useEffect(() => {
     if (!ready) void loadSettings();
   }, [ready, loadSettings]);
+
+  const samplePreviewId = previewId ?? (previewType === 'movie' ? 603 : 1396);
+
+  async function loadArtworkPreview(): Promise<void> {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      setPreview(await artworkPreview(samplePreviewId, previewType));
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : 'Preview unavailable');
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  // Fetch a sample only after the user asks for one (or switches provider while a
+  // sample is already showing). Never fires on a cold settings load.
+  useEffect(() => {
+    if (!previewRequested || !ready) return;
+    void loadArtworkPreview();
+  }, [previewRequested, ready, provider, fanartConfigured, previewType, previewId]);
+
+  function selectPreviewType(type: MediaType): void {
+    setPreviewType(type);
+    setPreviewId(null);
+    setPreviewRequested(true);
+  }
+
+  function loadCustomPreviewId(): void {
+    const parsed = Number(customPreviewId.trim());
+    if (!Number.isInteger(parsed) || parsed <= 0) return;
+    setPreviewId(parsed);
+    setPreviewRequested(true);
+  }
 
   function downloadScript(name: string, text: string): void {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
@@ -67,6 +127,26 @@ export function SettingsPage() {
     try {
       await saveProvider(next);
       toast('Artwork source updated', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  async function changeTmdbKind(kind: TmdbArtKind): Promise<void> {
+    if (preference.tmdb === kind || saving) return;
+    try {
+      await saveTmdbKind(kind);
+      toast(`TMDB artwork: ${tmdbArtKindLabel(kind)}`, 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  async function changeFanartKind(kind: FanartArtKind): Promise<void> {
+    if (preference.fanart === kind || saving) return;
+    try {
+      await saveFanartKind(kind);
+      toast(`FanArt.tv artwork: ${fanartArtKindLabel(kind)}`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Save failed', 'error');
     }
@@ -105,6 +185,64 @@ export function SettingsPage() {
     );
   }
 
+  const previewFanart = preview?.fanart ?? null;
+
+  const fanartSizeOptions: FanartArtKind[] = ['thumb', 'background', 'poster'];
+  const tmdbSizeOptions: TmdbArtKind[] = ['backdrop', 'poster'];
+
+  function fanartPreviewSrc(kind: FanartArtKind): string | null {
+    if (!previewFanart) return null;
+    switch (kind) {
+      case 'thumb':
+        return previewFanart.thumbUrl;
+      case 'background':
+        return previewFanart.backgroundUrl;
+      case 'poster':
+        return previewFanart.posterUrl;
+    }
+  }
+
+  function tmdbPreviewSrc(kind: TmdbArtKind): string | null {
+    if (!preview) return null;
+    return kind === 'backdrop' ? backdropUrl(preview.tmdb.backdropPath) : posterUrl(preview.tmdb.posterPath);
+  }
+
+  function sizeOptionButton<T extends string>({
+    key,
+    label,
+    src,
+    active,
+    disabled,
+    onClick,
+    previewLabel,
+  }: {
+    key: T;
+    label: string;
+    src: string | null;
+    active: boolean;
+    disabled: boolean;
+    onClick: () => void;
+    previewLabel: string;
+  }): ReactNode {
+    return (
+      <button
+        key={key}
+        type="button"
+        className={`artwork-size-option ${active ? 'selected' : ''}`}
+        aria-pressed={active}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        <span className="artwork-size-preview" aria-hidden="true">
+          {src ? <img src={src} alt="" loading="lazy" /> : <span className="artwork-size-empty">{previewLabel}</span>}
+        </span>
+        <span className="artwork-size-label">{label}</span>
+      </button>
+    );
+  }
+
+  const showPreview = true;
+
   return (
     <div className="page">
       <h1 className="page-title">Settings</h1>
@@ -122,18 +260,128 @@ export function SettingsPage() {
           </p>
         )}
         <div className="artwork-options" role="group" aria-label="Artwork source">
-          {artworkButton(
-            'tmdb',
-            'TMDB',
-            'Backdrops and posters from TMDB (requires TMDB_API_KEY)',
-          )}
-          {artworkButton(
-            'fanart',
-            'FanArt.tv',
-            'Key art and logos from FanArt.tv',
-            !fanartConfigured,
-          )}
+          {artworkButton('tmdb', 'TMDB', 'Backdrops and posters from TMDB (requires TMDB_API_KEY)')}
+          {artworkButton('fanart', 'FanArt.tv', 'Key art and logos from FanArt.tv', !fanartConfigured)}
         </div>
+
+        {provider === 'fanart' ? (
+          <div className="artwork-size-group">
+            <h3 className="artwork-size-title">Preferred FanArt.tv size</h3>
+            <p className="settings-note">
+              Pick which FanArt.tv image a card should try first. FanArt only ever falls back to
+              other FanArt.tv sizes — it never borrows TMDB artwork.
+            </p>
+            <div className="artwork-options" role="group" aria-label="Preferred FanArt size">
+              {fanartSizeOptions.map((kind) =>
+                sizeOptionButton({
+                  key: kind,
+                  label: fanartArtKindLabel(kind),
+                  src: fanartPreviewSrc(kind),
+                  active: preference.fanart === kind,
+                  disabled: !fanartConfigured || saving,
+                  onClick: () => void changeFanartKind(kind),
+                  previewLabel: 'FanArt has no\nimage for sample',
+                }),
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="artwork-size-group">
+            <h3 className="artwork-size-title">Preferred TMDB size</h3>
+            <p className="settings-note">
+              Pick which TMDB image a card should try first. TMDB only ever falls back to the other
+              TMDB size — it never borrows FanArt.tv artwork.
+            </p>
+            <div className="artwork-options" role="group" aria-label="Preferred TMDB size">
+              {tmdbSizeOptions.map((kind) =>
+                sizeOptionButton({
+                  key: kind,
+                  label: tmdbArtKindLabel(kind),
+                  src: tmdbPreviewSrc(kind),
+                  active: preference.tmdb === kind,
+                  disabled: saving,
+                  onClick: () => void changeTmdbKind(kind),
+                  previewLabel: 'TMDB has no\nimage for sample',
+                }),
+              )}
+            </div>
+          </div>
+        )}
+
+        {showPreview && (
+          <div className="artwork-tester">
+            <h3 className="artwork-size-title">Test on a title</h3>
+            <p className="settings-note">
+              Preview how each size looks on a real title before choosing. Samples load from the
+              active provider only.
+            </p>
+            <div className="artwork-options" role="group" aria-label="Preview sample">
+              <button
+                type="button"
+                className={`btn ${previewType === 'movie' ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={previewType === 'movie'}
+                disabled={previewLoading}
+                onClick={() => selectPreviewType('movie')}
+              >
+                <span className="artwork-option-label">Movie</span>
+                <span className="artwork-option-hint">The Matrix (603)</span>
+              </button>
+              <button
+                type="button"
+                className={`btn ${previewType === 'tv' ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={previewType === 'tv'}
+                disabled={previewLoading}
+                onClick={() => selectPreviewType('tv')}
+              >
+                <span className="artwork-option-label">TV Show</span>
+                <span className="artwork-option-hint">Breaking Bad (1396)</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline artwork-option"
+                disabled={previewLoading || !previewRequested}
+                onClick={() => void loadArtworkPreview()}
+              >
+                <span className="artwork-option-label">Reload</span>
+                <span className="artwork-option-hint">Re-fetch this sample</span>
+              </button>
+            </div>
+            <div className="settings-row artwork-tester-custom">
+              <label htmlFor="artwork-test-id">TMDB ID</label>
+              <span className="artwork-tester-custom-input">
+                <input
+                  id="artwork-test-id"
+                  className="sort-select"
+                  type="number"
+                  min={1}
+                  placeholder={previewType === 'movie' ? 'e.g. 603 (The Matrix)' : 'e.g. 1396 (Breaking Bad)'}
+                  value={customPreviewId}
+                  onChange={(e) => setCustomPreviewId(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-white btn-sm"
+                  disabled={previewLoading}
+                  onClick={loadCustomPreviewId}
+                >
+                  Test this ID
+                </button>
+              </span>
+            </div>
+            {preview && (
+              <p className="settings-note artwork-tester-sample">
+                Showing: {preview.title} ({preview.year ?? '—'}) · {preview.mediaType}
+              </p>
+            )}
+            {previewLoading && <p className="settings-note">Loading sample art…</p>}
+            {previewError && <p className="settings-note settings-note-warn">{previewError}</p>}
+            {previewFanart == null && provider === 'fanart' && !previewLoading && !previewError && previewRequested && (
+              <p className="settings-note settings-note-warn">
+                No FanArt.tv art returned for this sample — the size previews above will look empty.
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="settings-card">

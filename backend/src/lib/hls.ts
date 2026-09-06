@@ -114,7 +114,7 @@ export function audioSegmentArgs(input: string, streamIndex: number, dir: string
     '-hide_banner',
     '-loglevel', 'error',
     '-i', input,
-    '-map', `0:a:${streamIndex}`,
+    '-map', `0:${streamIndex}`,
     '-c:a', 'aac',
     '-b:a', '192k',
     '-f', 'hls',
