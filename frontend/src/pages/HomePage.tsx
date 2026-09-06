@@ -132,16 +132,13 @@ export function HomePage() {
           ))}
         </SectionRail>
 
-        <SectionRail
-          title="Recently Viewed"
-          subtitle={recents.length > 0 ? `${recents.length} titles` : undefined}
-          count={recents.length}
-          emptyHint="Titles you open from search or browsing will appear here."
-        >
-          {recents.map(({ item }) => (
-            <TitleCard key={`${item.mediaType}-${item.tmdbId}`} item={item} primary={null} />
-          ))}
-        </SectionRail>
+        {recents.length > 0 && (
+          <SectionRail title="Recently Viewed" subtitle={`${recents.length} titles`} count={recents.length}>
+            {recents.map(({ item }) => (
+              <TitleCard key={`${item.mediaType}-${item.tmdbId}`} item={item} primary={null} />
+            ))}
+          </SectionRail>
+        )}
 
         {HOME_SECTIONS.map((s) => {
           const state = sections[s.section];

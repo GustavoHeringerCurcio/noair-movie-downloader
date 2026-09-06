@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { X, Search, History } from 'lucide-react';
 import type { MediaItem } from '../types';
 import { browse, search } from '../api';
@@ -12,6 +13,7 @@ const TYPE_LABELS: Array<{ key: SearchMediaType; label: string }> = [
 ];
 
 export function SearchOverlay() {
+  const location = useLocation();
   const open = useSearchStore((s) => s.open);
   const query = useSearchStore((s) => s.query);
   const type = useSearchStore((s) => s.type);
@@ -60,6 +62,17 @@ export function SearchOverlay() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, openSet, close]);
+
+  // Snapshot the route while the overlay is open so we can detect a navigation
+  // committing beneath it. Selecting a result (or any future in-overlay link)
+  // navigates to a page hidden by this full-screen layer; releasing the overlay
+  // on route change makes the pick feel immediate instead of "nothing happened".
+  const lastLocKey = useRef<string | null>(null);
+  useEffect(() => {
+    const changed = lastLocKey.current !== null && lastLocKey.current !== location.key;
+    lastLocKey.current = location.key;
+    if (open && changed) close();
+  }, [open, location.key, close]);
 
   useEffect(() => {
     if (!open) return;

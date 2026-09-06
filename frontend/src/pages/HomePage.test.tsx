@@ -81,6 +81,16 @@ afterEach(() => {
 describe('HomePage', () => {
   it('renders My Downloads, Recently Viewed and the three browse rails', async () => {
     stubFetch();
+    useRecentsStore.getState().record({
+      tmdbId: 603,
+      mediaType: 'movie',
+      title: 'The Matrix',
+      year: 1999,
+      posterPath: null,
+      backdropPath: null,
+      overview: '',
+      voteAverage: 8.7,
+    });
     render(
       <MemoryRouter>
         <HomePage />
@@ -105,7 +115,7 @@ describe('HomePage', () => {
 
     expect(screen.getByRole('heading', { name: /find it\. download it/i })).toBeInTheDocument();
     expect(await screen.findByText(/your downloads will live here/i)).toBeInTheDocument();
-    expect(screen.getByText(/will appear here/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Recently Viewed/i)).not.toBeInTheDocument();
   });
 
   it('renders completed and in-progress downloads in the My Downloads rail', async () => {
