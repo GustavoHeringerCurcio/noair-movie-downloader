@@ -327,4 +327,61 @@ describe('TitleCard expanded hover card (D20)', () => {
     });
     expect(document.querySelector('.tc-pop')).not.toBeNull();
   });
+
+  it('closes the preview when the window loses focus so the trailer cannot keep playing', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+    expect(document.querySelector('.tc-pop-video')).not.toBeNull();
+
+    fireEvent.blur(window);
+    await act(async () => {});
+    expect(document.querySelector('.tc-pop')).toBeNull();
+    expect(document.querySelector('.tc-pop-video')).toBeNull();
+  });
+
+  it('closes the preview when the tab is hidden so no trailer audio keeps playing', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+    expect(document.querySelector('.tc-pop-video')).not.toBeNull();
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    try {
+      fireEvent(document, new Event('visibilitychange'));
+      await act(async () => {});
+      expect(document.querySelector('.tc-pop')).toBeNull();
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    }
+  });
+
+  it('keeps a single preview open: expanding a second card closes the first', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    const other: MediaItem = { ...FULL, tmdbId: 603, title: 'The Matrix' };
+    render(
+      <MemoryRouter>
+        <div>
+          <TitleCard item={FULL} />
+          <TitleCard item={other} />
+        </div>
+      </MemoryRouter>,
+    );
+    const first = screen.getByRole('button', { name: /inception/i });
+    const second = screen.getByRole('button', { name: /matrix/i });
+    await hoverFor(first, 600);
+    expect(document.querySelector('.tc-pop-title-text')?.textContent).toBe('Inception');
+
+    fireEvent.mouseEnter(second);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    await act(async () => {});
+
+    const pops = document.querySelectorAll('.tc-pop');
+    expect(pops).toHaveLength(1);
+    expect(pops[0]?.querySelector('.tc-pop-title-text')?.textContent).toBe('The Matrix');
+  });
 });

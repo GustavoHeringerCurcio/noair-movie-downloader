@@ -22,6 +22,14 @@ const POP_CLOSE_GRACE_MS = 200;
 const POSTER_RETRIES = 4;
 const POSTER_RETRY_DELAY_MS = 1500;
 
+/**
+ * Global single-player guarantee: at most one expanded preview may stream at a
+ * time. Each expanded card registers its own collapse here; when any other card
+ * expands it evicts the previous one first, so two trailers (and their audio)
+ * can never overlap — even if a stale hover state survives an alt-tab.
+ */
+let activePreviewClose: (() => void) | null = null;
+
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -127,6 +135,8 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
 
   const leavingRef = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
+  const collapseRef = useRef<() => void>(() => {});
+  const releaseRef = useRef<(() => void) | null>(null);
 
   // Full state reset when the subject changes (moving to a different card).
   useEffect(() => {
@@ -292,6 +302,58 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
       closeTimerRef.current = null;
     }
   }
+
+  /** Drop the preview immediately: stop the trailer and clear any pending close. */
+  function collapse(): void {
+    leavingRef.current = false;
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setHovering(false);
+    setExpanded(false);
+  }
+  collapseRef.current = collapse;
+
+  // Alt-tab, background the tab, or otherwise lose the window while a preview is
+  // open (or its hover is pending): collapse it right away so the trailer can't
+  // keep streaming audio into the background. Coming back to the page therefore
+  // never finds a zombie preview still playing under the next hover.
+  useEffect(() => {
+    if (!hovering && !expanded) return;
+    const suspend = (): void => collapseRef.current();
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'hidden') suspend();
+    };
+    window.addEventListener('blur', suspend);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('blur', suspend);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [hovering, expanded, subjectKey]);
+
+  // Enforce the global single-player guarantee above: when this card expands it
+  // evicts any other expanded card first, and unmounting/contracting releases
+  // the slot only if we still own it (so a newer owner is never cleared).
+  useEffect(() => {
+    if (!expanded) {
+      const release = releaseRef.current;
+      if (release) {
+        if (activePreviewClose === release) activePreviewClose = null;
+        releaseRef.current = null;
+      }
+      return;
+    }
+    const release = (): void => collapseRef.current();
+    if (activePreviewClose) activePreviewClose();
+    activePreviewClose = release;
+    releaseRef.current = release;
+    return () => {
+      if (activePreviewClose === release) activePreviewClose = null;
+      if (releaseRef.current === release) releaseRef.current = null;
+    };
+  }, [expanded, subjectKey]);
 
   const metaLabel =
     item.mediaType === 'tv' ? seasonCountLabel(info?.seasons ?? null) : durationLabel(info?.runtime ?? null);
