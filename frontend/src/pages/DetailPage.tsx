@@ -7,6 +7,8 @@ import {
   SlidersHorizontal,
   Search,
   Plus,
+  Pause,
+  MonitorPlay,
 } from 'lucide-react';
 import type {
   AudioLang,
@@ -20,14 +22,19 @@ import type {
 import {
   backdropUrl,
   createDownload,
+  externalPlayerUrl,
+  humanEta,
+  humanSize,
+  humanSpeed,
   mediaDetails,
+  pauseDownload,
   removeDownload,
+  resumeDownload,
   seasonEpisodes,
   sources,
 } from '../api';
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
-import { humanSize } from '../api';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
 import { chooseEpisodePick, chooseSeasonPick } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
@@ -35,6 +42,14 @@ import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { useAudioLanguage, useImageProvider } from '../store/settingsStore';
+import { useVersionStore, versionKey } from '../store/versionStore';
+import {
+  bestPlayable,
+  leadCopy,
+  playable,
+  sortVersions,
+  versionLabel,
+} from '../lib/versions';
 import { audioChipLabel, audioLanguageLabel } from '../lib/audio';
 import type { DownloadRecord } from '../types';
 
@@ -69,6 +84,17 @@ function pickSummary(source: Source): string {
   if (source.indexer) bits.push(source.indexer);
   bits.push(`${source.seeders} seeds`);
   return bits.join(' · ');
+}
+
+/** Small caption under the primary Download button naming the friendly pick. */
+function movieOfferHint(source: Source | null): string | null {
+  if (!source) return null;
+  const bits: string[] = [];
+  const q = pickQuality(source);
+  if (q) bits.push(q);
+  bits.push(humanSize(source.sizeBytes));
+  bits.push(`${source.seeders} seeds`);
+  return bits.length > 0 ? `Best match · ${bits.join(' · ')}` : 'Best match available';
 }
 
 interface AdvancedSheetProps {
@@ -302,6 +328,208 @@ function LanguageBanner({ lang, fallbackActive, onEnglish, onBack, onDismiss }: 
   );
 }
 
+/** Headline shown on the hero status card for a copy that isn't playable yet. */
+function busyHeadline(copy: DownloadRecord, subject: string): string {
+  switch (copy.state) {
+    case 'error':
+      return `${subject} failed to download.`;
+    case 'paused':
+      return `${subject} paused.`;
+    case 'stalled':
+      return `${subject} is stalled — still looking for peers.`;
+    case 'checking':
+      return `Checking ${subject}…`;
+    case 'queued':
+    case 'fetching-metadata':
+      return `Adding ${subject}…`;
+    default:
+      return `Preparing ${subject}…`;
+  }
+}
+
+/**
+ * One source of truth for the movie/season hero when copies exist:
+ *  - something playable → a single Watch button (+ Player / delete) with a
+ *    version-chip row to switch which ready copy is "the" copy; copies still
+ *    arriving are folded into compact mini-rows below.
+ *  - nothing playable yet → a status card (big %, speed · ETA, state) for the
+ *    focused copy, with a chip row to focus another when several are arriving.
+ * Never renders a disabled Watch button.
+ */
+function DownloadsHeroPanel({
+  copies,
+  activeHash,
+  anyPlayable,
+  title,
+  onSelect,
+  onWatch,
+  onPause,
+  onResume,
+  onTrash,
+  onAddVersion,
+}: {
+  copies: DownloadRecord[];
+  activeHash: string | null;
+  anyPlayable: boolean;
+  title: string;
+  onSelect: (infoHash: string) => void;
+  onWatch: (infoHash: string) => void;
+  onPause: (infoHash: string) => void;
+  onResume: (infoHash: string) => void;
+  onTrash: (infoHash: string) => void;
+  onAddVersion?: () => void;
+}) {
+  const activeCopy = copies.find((c) => c.infoHash === activeHash) ?? null;
+
+  function chipFor(c: DownloadRecord, busyLabel: boolean): { id: string; label: string; active: boolean } {
+    const label = busyLabel ? `${versionLabel(c)} · ${Math.round(c.progress * 100)}%` : versionLabel(c);
+    return { id: c.infoHash, label, active: c.infoHash === activeHash };
+  }
+
+  if (anyPlayable) {
+    const ready = copies.filter(playable);
+    const busy = copies.filter((c) => !playable(c));
+    const act = activeCopy && playable(activeCopy) ? activeCopy : bestPlayable(copies) ?? ready[0];
+    if (!act) return null;
+    return (
+      <>
+        {ready.length > 1 && (
+          <div className="version-chip-row" role="group" aria-label="Choose which version to watch">
+            {ready.map((c) => {
+              const chip = chipFor(c, false);
+              return (
+                <button
+                  key={c.infoHash}
+                  type="button"
+                  className={`version-chip ${chip.active ? 'active' : ''}`}
+                  onClick={() => onSelect(c.infoHash)}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="dh-extra">
+          <button type="button" className="btn btn-white btn-lg" onClick={() => onWatch(act.infoHash)}>
+            <Play size={20} fill="currentColor" /> Watch
+          </button>
+          <a
+            className="btn btn-outline btn-lg"
+            href={externalPlayerUrl(act.infoHash)}
+            title="Play in your local player (VLC / MPV) — requires one-time setup in Settings"
+          >
+            <MonitorPlay size={18} /> Player
+          </a>
+          <StateBadge state={act.state} />
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Delete this version"
+            title="Delete this version"
+            onClick={() => onTrash(act.infoHash)}
+          >
+            <Trash2 size={18} />
+          </button>
+          {onAddVersion && (
+            <button type="button" className="btn btn-outline btn-lg" onClick={onAddVersion}>
+              <Plus size={16} /> Add version
+            </button>
+          )}
+        </div>
+        {busy.length > 0 && (
+          <div className="hero-mini-dl" aria-label="Copies still downloading">
+            {busy.map((c) => (
+              <div key={c.infoHash} className="hero-mini-row">
+                <span className="hero-mini-label" title={versionLabel(c)}>
+                  {versionLabel(c)}
+                </span>
+                <span className="hero-mini-pct">{Math.round(c.progress * 100)}%</span>
+                {c.state === 'paused' ? (
+                  <button type="button" className="icon-btn icon-btn-sm" aria-label="Resume" onClick={() => onResume(c.infoHash)}>
+                    <Play size={14} fill="currentColor" />
+                  </button>
+                ) : (
+                  <button type="button" className="icon-btn icon-btn-sm" aria-label="Pause" onClick={() => onPause(c.infoHash)}>
+                    <Pause size={14} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="icon-btn icon-btn-sm"
+                  aria-label="Delete this version"
+                  onClick={() => onTrash(c.infoHash)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  const act = activeCopy ?? leadCopy(copies) ?? copies[0];
+  if (!act) return null;
+  return (
+    <>
+      <div className="hero-status" role="status">
+        <div className="hero-status-head">
+          <span className="hero-status-title">{busyHeadline(act, title)}</span>
+          <StateBadge state={act.state} />
+        </div>
+        <div className="hero-status-bar">
+          <span className="hero-status-pct">{Math.round(act.progress * 100)}%</span>
+          <div className="progress-track hero-progress" aria-label={`${Math.round(act.progress * 100)}% downloaded`}>
+            <div className="progress-fill" style={{ width: `${Math.round(act.progress * 100)}%` }} />
+          </div>
+        </div>
+        <div className="hero-status-meta">
+          <span>{humanSpeed(act.downloadSpeed)}</span>
+          <span>ETA {humanEta(act.etaSeconds)}</span>
+        </div>
+        <div className="hero-status-actions">
+          {act.state === 'paused' ? (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => onResume(act.infoHash)}>
+              <Play size={14} fill="currentColor" /> Resume
+            </button>
+          ) : act.state === 'downloading' || act.state === 'stalled' ? (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => onPause(act.infoHash)}>
+              <Pause size={14} /> Pause
+            </button>
+          ) : null}
+          <button type="button" className="btn btn-danger-outline btn-sm" onClick={() => onTrash(act.infoHash)}>
+            <Trash2 size={14} /> Remove
+          </button>
+          {onAddVersion && (
+            <button type="button" className="btn btn-outline btn-sm" onClick={onAddVersion}>
+              <Plus size={14} /> Add another
+            </button>
+          )}
+        </div>
+      </div>
+      {copies.length > 1 && (
+        <div className="version-chip-row" role="group" aria-label="Focus a download">
+          {copies.map((c) => {
+            const chip = chipFor(c, true);
+            return (
+              <button
+                key={c.infoHash}
+                type="button"
+                className={`version-chip ${chip.active ? 'active' : ''}`}
+                onClick={() => onSelect(c.infoHash)}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function DetailPage() {
   const { id: idParam } = useParams();
   const [searchParams] = useSearchParams();
@@ -346,6 +574,26 @@ export function DetailPage() {
     [downloads, id, mediaType],
   );
   const addedHashes = useMemo(() => new Set(titleDownloads.map((d) => d.infoHash)), [titleDownloads]);
+
+  // Movie version state — which copy is "the" copy (see DownloadsHeroPanel).
+  const sortedCopies = useMemo(
+    () => (mediaType === 'movie' ? sortVersions(titleDownloads) : []),
+    [titleDownloads, mediaType],
+  );
+  const playableCopies = useMemo(() => sortedCopies.filter(playable), [sortedCopies]);
+  const anyPlayable = playableCopies.length > 0;
+  const versionStoreKey = useMemo(() => versionKey('movie', id), [id]);
+  const storedActive = useVersionStore((s) => s.active[versionStoreKey]);
+  const selectVersion = useVersionStore((s) => s.select);
+  const activeHash = useMemo(() => {
+    if (mediaType !== 'movie' || sortedCopies.length === 0) return null;
+    if (anyPlayable) {
+      if (storedActive && playableCopies.some((c) => c.infoHash === storedActive)) return storedActive;
+      return bestPlayable(sortedCopies)?.infoHash ?? null;
+    }
+    if (storedActive && sortedCopies.some((c) => c.infoHash === storedActive)) return storedActive;
+    return leadCopy(sortedCopies)?.infoHash ?? null;
+  }, [mediaType, sortedCopies, playableCopies, anyPlayable, storedActive]);
 
   useEffect(() => {
     if (!Number.isFinite(id) || id <= 0) {
@@ -395,7 +643,14 @@ export function DetailPage() {
             setSeasonLoading(false);
           }
         } else {
-          await loadMovieSources(media);
+          const alreadyOwned = downloads.some((d) => d.tmdbId === id && d.mediaType === 'movie');
+          if (alreadyOwned) {
+            // Already have copies — don't re-ask Prowlarr just to show a Watch
+            // button; sources resolve lazily if the user wants to add a version.
+            setMovieLoading(false);
+          } else {
+            await loadMovieSources(media);
+          }
         }
       } catch (e) {
         if (cancelled) return;
@@ -408,7 +663,7 @@ export function DetailPage() {
     };
   }, [id, mediaType, audio]);
 
-  async function loadMovieSources(media: MediaDetail, override?: AudioLang): Promise<void> {
+  async function loadMovieSources(media: MediaDetail, override?: AudioLang): Promise<Source[]> {
     const reqAudio = override ?? audio;
     setMovieLoading(true);
     setMovieError(null);
@@ -421,9 +676,11 @@ export function DetailPage() {
       if (reqAudio === 'en' && audio !== 'en') setMovieFallback(true);
       if (res.unreachable) setMovieError('Source search unavailable (Prowlarr unreachable).');
       else if (res.authError) setMovieError('Source search unavailable (invalid Prowlarr key).');
+      return res.sources;
     } catch (e) {
       setMovieSources([]);
       setMovieError(e instanceof Error ? e.message : 'Failed to search sources');
+      return [];
     } finally {
       setMovieLoading(false);
     }
@@ -485,6 +742,8 @@ export function DetailPage() {
       codec: source.codec,
       hdr: source.hdr,
       isDolbyVision: source.isDolbyVision,
+      audioLang: source.audioLang ?? null,
+      audioMode: source.audioMode ?? null,
     };
     try {
       await createDownload(payload);
@@ -543,6 +802,76 @@ export function DetailPage() {
       })
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'Remove failed', 'error'));
   }
+
+  async function pauseCopy(infoHash: string): Promise<void> {
+    try {
+      await pauseDownload(infoHash);
+      toast('Paused', 'info');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Pause failed', 'error');
+    }
+  }
+
+  async function resumeCopy(infoHash: string): Promise<void> {
+    try {
+      await resumeDownload(infoHash);
+      toast('Resumed', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Resume failed', 'error');
+    }
+  }
+
+  function trashCopy(infoHash: string): void {
+    const d = titleDownloads.find((x) => x.infoHash === infoHash);
+    if (d) trashDownload(d);
+  }
+
+  function goWatch(infoHash: string): void {
+    navigate(`/watch/${infoHash}`);
+  }
+
+  function selectMovieCopy(infoHash: string): void {
+    selectVersion(versionStoreKey, infoHash);
+  }
+
+  function ensureMovieSources(): Promise<Source[]> {
+    if (!detail) return Promise.resolve(movieSources);
+    if (movieSources.length === 0 && !movieLoading) {
+      return loadMovieSources(detail);
+    }
+    return Promise.resolve(movieSources);
+  }
+
+  async function openAddVersion(): Promise<void> {
+    if (!detail) return;
+    const srcs = await ensureMovieSources();
+    if (srcs.length === 0) {
+      toast(movieNoMatch ? 'No releases match this audio.' : 'No releases found.', 'info');
+      return;
+    }
+    setSheet({ title: detail.title, subtitle: 'Choose another release', scopeSources: srcs, season: null, episode: null });
+  }
+
+  function openSeasonSheet(season: number): void {
+    if (!detail) return;
+    setSheet({
+      title: `${detail.title} · Season ${season}`,
+      subtitle: 'All releases',
+      scopeSources: seasonSources,
+      season,
+      episode: null,
+    });
+  }
+
+  // Lazy best-source search: once a movie has no copies (e.g. the last one was
+  // removed) fetch sources so the hero returns to the offer state. Skipped while
+  // copies exist — owned titles never re-ask Prowlarr on their own.
+  useEffect(() => {
+    if (mediaType !== 'movie' || !detail) return;
+    const owned = downloads.some((d) => d.tmdbId === id && d.mediaType === 'movie');
+    if (owned || movieSources.length > 0 || movieLoading || movieError) return;
+    void loadMovieSources(detail);
+  }, [detail, mediaType, id, downloads, movieSources, movieLoading, movieError, audio]);
 
   const provider = useImageProvider();
   // STRICT hero art: FanArt provider shows only FanArt.tv art (HD background →
@@ -610,50 +939,44 @@ export function DetailPage() {
           {mediaType === 'movie' ? (
             <div className="dh-actions">
               {titleDownloads.length > 0 ? (
-                titleDownloads.map((d) => (
-                  <div key={d.infoHash} className="dh-extra">
-                    <button
-                      type="button"
-                      className="btn btn-white"
-                      disabled={!d.streamable}
-                      onClick={() => navigate(`/watch/${d.infoHash}`)}
-                    >
-                      <Play size={18} fill="currentColor" /> Watch
-                    </button>
-                    <StateBadge state={d.state} />
-                    <span className="dh-active">
-                      {d.progress < 1 && `${Math.round(d.progress * 100)}%`}
-                    </span>
-                    <button type="button" className="icon-btn" aria-label="Delete files" title="Delete files" onClick={() => trashDownload(d)}>
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))
+                <DownloadsHeroPanel
+                  copies={sortedCopies}
+                  activeHash={activeHash}
+                  anyPlayable={anyPlayable}
+                  title={detail.title}
+                  onSelect={selectMovieCopy}
+                  onWatch={goWatch}
+                  onPause={(h) => void pauseCopy(h)}
+                  onResume={(h) => void resumeCopy(h)}
+                  onTrash={trashCopy}
+                  onAddVersion={() => void openAddVersion()}
+                />
+              ) : movieError ? (
+                <div className="dh-extra">
+                  <span className="inline-error">{movieError}</span>
+                  <button type="button" className="btn btn-sm btn-outline" onClick={() => void loadMovieSources(detail)}>
+                    Retry
+                  </button>
+                </div>
               ) : movieLoading ? (
                 <button type="button" className="btn btn-white btn-lg" disabled>
-                  <span className="spinner spinner-sm" aria-hidden="true" /> Looking for best source…
+                  <span className="spinner spinner-sm" aria-hidden="true" /> Finding the best release…
                 </button>
-              ) : movieSources.length === 0 && !movieNoMatch ? (
+              ) : movieSources.length > 0 ? (
                 <>
-                  <button type="button" className="btn btn-white btn-lg" disabled>
-                    No sources found
-                  </button>
-                  <button type="button" className="btn btn-ghost btn-lg" onClick={() => setSheet({ title: detail.title, subtitle: 'All releases', scopeSources: movieSources, season: null, episode: null })}>
-                    <Search size={18} /> Retry search
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="btn btn-white btn-lg"
-                    onClick={() => {
-                      const pick = movieFriendlyPick();
-                      if (pick) openConfirm('Download this movie', pick, null, null);
-                    }}
-                  >
-                    <ArrowDownToLine size={20} /> Download
-                  </button>
+                  <div className="dh-offer-main">
+                    <button
+                      type="button"
+                      className="btn btn-white btn-lg"
+                      onClick={() => {
+                        const pick = movieFriendlyPick();
+                        if (pick) openConfirm('Download this movie', pick, null, null);
+                      }}
+                    >
+                      <ArrowDownToLine size={20} /> Download
+                    </button>
+                    <span className="dh-offer-hint">{movieOfferHint(movieFriendlyPick())}</span>
+                  </div>
                   <button
                     type="button"
                     className="btn btn-ghost btn-lg"
@@ -662,66 +985,89 @@ export function DetailPage() {
                     <SlidersHorizontal size={18} /> Advanced
                   </button>
                 </>
-              )}
-              {movieError && (
-                <div className="dh-extra">
-                  <span className="inline-error">{movieError}</span>
-                  <button type="button" className="btn btn-sm btn-outline" onClick={() => loadMovieSources(detail)}>
-                    Retry
+              ) : (
+                <>
+                  <p className="dh-nosource">
+                    {movieNoMatch
+                      ? `No ${audioLanguageLabel(movieNoMatch)} audio releases found for this title.`
+                      : 'No releases were found for this title.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-lg"
+                    onClick={() => void loadMovieSources(detail)}
+                  >
+                    <Search size={18} /> Search again
                   </button>
-                </div>
+                </>
               )}
             </div>
           ) : (
             <div className="dh-actions">
-              {seasonFullPick() ? (
-                <button
-                  type="button"
-                  className="btn btn-white btn-lg"
-                  onClick={() => {
-                    const pick = seasonFullPick();
-                    if (pick && activeSeason != null) {
-                      openConfirm(`Download ${detail.title} · Season ${activeSeason}`, pick, activeSeason, null);
-                    }
-                  }}
-                >
-                  <ArrowDownToLine size={20} /> Download season
-                </button>
-              ) : seasonLoading ? (
-                <button type="button" className="btn btn-white btn-lg" disabled>
-                  <span className="spinner spinner-sm" aria-hidden="true" /> Looking for best source…
-                </button>
-              ) : (
-                <button type="button" className="btn btn-white btn-lg" disabled>
-                  No season pack found
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-ghost btn-lg"
-                onClick={() => {
-                  if (activeSeason != null) {
-                    setSheet({ title: `${detail.title} · Season ${activeSeason}`, subtitle: 'All releases', scopeSources: seasonSources, season: activeSeason, episode: null });
-                  }
-                }}
-              >
-                <SlidersHorizontal size={18} /> Browse releases
-              </button>
-              {activePackDownload && (
-                <div className="dh-extra">
+              {activeSeason == null ? null : activePackDownload ? (
+                <>
+                  <DownloadsHeroPanel
+                    copies={sortVersions([activePackDownload])}
+                    activeHash={activePackDownload.infoHash}
+                    anyPlayable={playable(activePackDownload)}
+                    title={`${detail.title} · Season ${activeSeason}`}
+                    onSelect={() => undefined}
+                    onWatch={goWatch}
+                    onPause={(h) => void pauseCopy(h)}
+                    onResume={(h) => void resumeCopy(h)}
+                    onTrash={trashCopy}
+                  />
                   <button
                     type="button"
-                    className="btn btn-ghost"
-                    disabled={!activePackDownload.streamable}
-                    onClick={() => navigate(`/watch/${activePackDownload.infoHash}`)}
+                    className="btn btn-ghost btn-lg"
+                    onClick={() => openSeasonSheet(activeSeason)}
                   >
-                    <Play size={18} fill="currentColor" /> Watch season
+                    <SlidersHorizontal size={18} /> Browse releases
                   </button>
-                  <StateBadge state={activePackDownload.state} />
-                  <button type="button" className="icon-btn" aria-label="Delete files" onClick={() => trashDownload(activePackDownload)}>
-                    <Trash2 size={18} />
+                </>
+              ) : seasonLoading ? (
+                <button type="button" className="btn btn-white btn-lg" disabled>
+                  <span className="spinner spinner-sm" aria-hidden="true" /> Finding the best season pack…
+                </button>
+              ) : seasonFullPick() ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-white btn-lg"
+                    onClick={() => {
+                      const pick = seasonFullPick();
+                      if (pick && activeSeason != null) {
+                        openConfirm(`Download ${detail.title} · Season ${activeSeason}`, pick, activeSeason, null);
+                      }
+                    }}
+                  >
+                    <ArrowDownToLine size={20} /> Download season
                   </button>
-                </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-lg"
+                    onClick={() => openSeasonSheet(activeSeason)}
+                  >
+                    <SlidersHorizontal size={18} /> Browse releases
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="dh-nosource">
+                    {activeSeason != null
+                      ? `No season pack found for Season ${activeSeason}. Individual episodes may still be available below.`
+                      : 'Choose a season to see its downloads.'}
+                  </p>
+                  {activeSeason != null && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-lg"
+                      onClick={() => openSeasonSheet(activeSeason)}
+                    >
+                      <SlidersHorizontal size={18} /> Browse releases
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}

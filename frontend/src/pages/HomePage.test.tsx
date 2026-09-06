@@ -130,6 +130,7 @@ describe('HomePage', () => {
           state: 'seeding',
           title: 'The Godfather',
           year: 1972,
+          tmdbId: 238,
           streamable: true,
         }),
       ],
@@ -167,6 +168,45 @@ describe('HomePage', () => {
     );
 
     expect((await screen.findAllByRole('button', { name: /the matrix/i })).length).toBeGreaterThan(0);
+  });
+
+  it('collapses multiple copies of one movie into a single card with version chips', async () => {
+    stubFetch();
+    useDownloadsStore.setState({
+      downloads: [
+        makeDownload({
+          infoHash: 'd'.repeat(40),
+          state: 'seeding',
+          progress: 1,
+          streamable: true,
+          resolution: '1080p',
+          source: 'WEB-DL',
+          codec: 'x264',
+        }),
+        makeDownload({
+          id: 2,
+          infoHash: 'e'.repeat(40),
+          state: 'seeding',
+          progress: 1,
+          streamable: true,
+          resolution: '2160p',
+          source: 'REMUX',
+          codec: 'x265',
+        }),
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    expect(
+      (await screen.findAllByRole('button', { name: /shawshank redemption \(1994\) — open details/i })).length,
+    ).toBe(1);
+    expect((await screen.findAllByRole('button', { name: '1080p WEB-DL x264' })).length).toBe(1);
+    expect((await screen.findAllByRole('button', { name: '2160p REMUX x265' })).length).toBe(1);
   });
 
   it('shows an error message when browse sections fail to load', async () => {

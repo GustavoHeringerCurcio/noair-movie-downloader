@@ -24,10 +24,19 @@ export interface TitleCardPrimary {
   disabled?: boolean;
 }
 
+export interface TitleCardVariant {
+  id: string;
+  label: string;
+  active: boolean;
+}
+
 interface TitleCardProps {
   item: MediaItem;
   progress?: number | null;
   primary?: TitleCardPrimary | null;
+  /** Optional version chips shown on hover (multi-release titles in My Downloads). */
+  variants?: TitleCardVariant[] | null;
+  onVariantSelect?: (id: string) => void;
 }
 
 function openDetail(item: MediaItem): string {
@@ -68,7 +77,7 @@ function useImageChain(sources: string[], resetKey: string): { src: string | nul
   return { src, onError };
 }
 
-export function TitleCard({ item, progress, primary }: TitleCardProps) {
+export function TitleCard({ item, progress, primary, variants, onVariantSelect }: TitleCardProps) {
   const navigate = useNavigate();
   const provider = useImageProvider();
   const preference = useArtPreference();
@@ -178,6 +187,24 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
           >
             {glyphFor(primary.icon)}
           </button>
+          {variants && variants.length > 0 && (
+            <div className="tc-variants">
+              {variants.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  className={`tc-version-chip ${v.active ? 'active' : ''}`}
+                  title={v.label}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onVariantSelect?.(v.id);
+                  }}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

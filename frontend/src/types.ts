@@ -198,6 +198,10 @@ export interface DownloadRecord {
   codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
   hdr: boolean;
   isDolbyVision: boolean;
+  /** Language named in the release title (persisted from the chosen Source). */
+  audioLang?: AudioLang | null;
+  /** Audio descriptor from the release title (`dub`/`dual`/`multi`). */
+  audioMode?: AudioMode | null;
   art?: MediaArt | null;
 }
 
@@ -218,6 +222,12 @@ export interface VideoTrackInfo {
   width: number | null;
   height: number | null;
   hdr: boolean;
+  /** Codec profile label (e.g. "High", "Main", "Main 10") — used for decode-support checks. */
+  profile?: string | null;
+  /** Pixel format (e.g. "yuv420p", "yuv420p10le") — bit-depth gate for HEVC. */
+  pixFmt?: string | null;
+  /** ffprobe level value. */
+  level?: number | null;
 }
 
 export interface AudioTrackInfo {
@@ -227,6 +237,8 @@ export interface AudioTrackInfo {
   title: string | null;
   channels: number | null;
   default: boolean;
+  profile?: string | null;
+  sampleRate?: number | null;
 }
 
 export interface SubtitleTrackInfo {
@@ -259,6 +271,12 @@ export interface PlayInfo {
   fileUrl: string;
   /** Present when mode === 'hls': HLS master playlist for the Shaka player. */
   manifestUrl: string | null;
+  /**
+   * Present when mode === 'hls': `MediaSource.isTypeSupported` type strings for
+   * the packaged rendition. Empty array = definitely not decodable in this
+   * browser (skip packaging, use the external player); null = no gate.
+   */
+  mseProbe: string[] | null;
 }
 
 export interface CreateDownloadPayload {
@@ -279,6 +297,8 @@ export interface CreateDownloadPayload {
   codec: Source['codec'];
   hdr: boolean;
   isDolbyVision: boolean;
+  audioLang?: AudioLang | null;
+  audioMode?: AudioMode | null;
 }
 
 export const STATE_COLORS: Record<TorrentState, string> = {

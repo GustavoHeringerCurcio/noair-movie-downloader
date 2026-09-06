@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cardImages,
+  clearSourcesCache,
   clearTrailerCache,
   humanEta,
   humanSize,
   humanSpeed,
   localArtUrl,
   posterStyleLayers,
+  sources,
   trailerEmbedUrl,
   trailerFor,
 } from './api';
@@ -245,5 +247,47 @@ describe('trailerFor (S15)', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ error: 'boom' }, 500));
     vi.stubGlobal('fetch', fetchMock);
     expect(await trailerFor({ tmdbId: 550, mediaType: 'movie' })).toBeNull();
+  });
+});
+
+describe('sources (S3 cached best-source search)', () => {
+  beforeEach(() => {
+    clearSourcesCache();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('dedupes in-flight calls and serves later calls from the cache', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sources: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const ctx = { audio: 'en' as const };
+    const [a, b] = await Promise.all([sources(550, 'movie', ctx), sources(550, 'movie', ctx)]);
+    expect(a.sources).toEqual([]);
+    expect(b.sources).toEqual([]);
+    await sources(550, 'movie', ctx);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps distinct cache entries per context (audio/language)', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sources: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sources(550, 'movie', { audio: 'en' });
+    await sources(550, 'movie', { audio: 'pt' });
+    await sources(550, 'movie', { audio: 'en' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache failures, so Retry really re-queries', async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      return calls === 1 ? jsonResponse({ error: 'boom' }, 500) : jsonResponse({ sources: [] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(sources(550, 'movie', { audio: 'en' })).rejects.toThrow();
+    const res = await sources(550, 'movie', { audio: 'en' });
+    expect(res.sources).toEqual([]);
+    expect(calls).toBe(2);
   });
 });

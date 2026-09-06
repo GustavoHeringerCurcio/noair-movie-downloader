@@ -32,6 +32,8 @@ ALTER TABLE downloads ADD COLUMN IF NOT EXISTS is_dolby_vision boolean NOT NULL 
 ALTER TABLE downloads ADD COLUMN IF NOT EXISTS backdrop_path text;
 ALTER TABLE downloads ADD COLUMN IF NOT EXISTS season_number integer;
 ALTER TABLE downloads ADD COLUMN IF NOT EXISTS episode_number integer;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS audio_lang text;
+ALTER TABLE downloads ADD COLUMN IF NOT EXISTS audio_mode text;
 
 CREATE TABLE IF NOT EXISTS settings (
   key text PRIMARY KEY,

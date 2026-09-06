@@ -150,6 +150,10 @@ export interface DownloadRecord {
   codec: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
   hdr: boolean;
   isDolbyVision: boolean;
+  /** Language explicitly named in the release title (e.g. `pt` for `DUBLADO`). */
+  audioLang?: AudioLang | null;
+  /** Audio descriptor from the release title (`dub`/`dual`/`multi`). */
+  audioMode?: AudioMode | null;
   art?: MediaArt | null;
 }
 
@@ -171,6 +175,8 @@ export interface CreateDownloadInput {
   codec?: 'x264' | 'x265' | 'AV1' | 'XviD' | 'DivX' | null;
   hdr?: boolean;
   isDolbyVision?: boolean;
+  audioLang?: AudioLang | null;
+  audioMode?: AudioMode | null;
 }
 
 export class UpstreamError extends Error {

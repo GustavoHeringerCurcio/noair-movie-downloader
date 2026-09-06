@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { Router, type Response } from 'express';
-import type { MediaType } from '../types.js';
+import type { AudioLang, AudioMode, MediaType } from '../types.js';
 import { UpstreamError } from '../types.js';
 import type { AppDeps } from '../deps.js';
 import {
@@ -13,7 +13,7 @@ import { probeMedia } from '../lib/probe.js';
 import { probeMediaInfo, listSidecarSubtitles } from '../lib/mediaInfo.js';
 import { decidePlaybackMode, decideStreamMode } from '../lib/streamPlan.js';
 import { cleanupTorrentPackages } from '../lib/packages.js';
-import { packageKey } from '../lib/hls.js';
+import { packageKey, mseProbeTypes } from '../lib/hls.js';
 import { episodeKeyFromFilename } from '../lib/releaseParser.js';
 import { enrichDownloads } from '../lib/enrich.js';
 
@@ -35,6 +35,8 @@ function toQueryString(params: Record<string, string>): string {
 const RESOLUTIONS = ['2160p', '1080p', '720p', '480p'] as const;
 const SOURCES = ['REMUX', 'BluRay', 'WEB-DL', 'WEBRip', 'BDRip', 'BRRip', 'HDTV', 'DVDRip'] as const;
 const CODECS = ['x264', 'x265', 'AV1', 'XviD', 'DivX'] as const;
+const AUDIO_LANGS: readonly AudioLang[] = ['en', 'pt', 'es', 'fr', 'de', 'it'];
+const AUDIO_MODES: readonly AudioMode[] = ['dub', 'dual', 'multi'];
 
 function qualityField<T extends string>(value: unknown, allowed: readonly T[]): T | null {
   const v = toText(value);
@@ -127,6 +129,8 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       codec: qualityField(body.codec, CODECS),
       hdr: toBool(body.hdr),
       isDolbyVision: toBool(body.isDolbyVision),
+      audioLang: qualityField(body.audioLang, AUDIO_LANGS),
+      audioMode: qualityField(body.audioMode, AUDIO_MODES),
     });
     res.status(201).json(record);
   });
@@ -214,6 +218,10 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       playUrl: `/api/stream/${infoHash}${qs}`,
       fileUrl: `/api/downloads/${infoHash}/file${qs}`,
       manifestUrl: mode === 'hls' ? `/api/playback/pkg/${packageKey(infoHash, resolved.relative)}/master.m3u8` : null,
+      // Codec type strings the browser can probe before starting any packaging:
+      // when none are supported the UI shows the external-player screen instead
+      // of waiting on a package the browser could never decode (e.g. HEVC Main10).
+      mseProbe: mode === 'hls' ? mseProbeTypes(media?.video ?? null) : null,
     });
   });
 

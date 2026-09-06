@@ -297,6 +297,15 @@ export function seasonEpisodes(id: number, season: number): Promise<SeasonEpisod
   return request<SeasonEpisodesResponse>(`/api/media/${id}/season/${season}?type=tv`);
 }
 
+const SOURCES_TTL_MS = 10 * 60 * 1000;
+const sourcesCache = new Map<string, { promise: Promise<SourcesResponse>; expires: number }>();
+
+/**
+ * Best-source search (S3). In-flight requests are deduped and successful
+ * results cached ~10 min per context (`type:id:season:episode:audio`) so the
+ * confirm sheet stays instant and re-visiting a title never re-asks Prowlarr.
+ * HTTP failures are never cached, so Retry always hits the network again.
+ */
 export function sources(
   id: number,
   type: MediaType,
@@ -310,7 +319,21 @@ export function sources(
     params.set('season', String(context.season));
     if (context.episode != null) params.set('episode', String(context.episode));
   }
-  return request<SourcesResponse>(`/api/media/${id}/sources?${params.toString()}`);
+  const cacheKey = `${type}:${id}:${context?.season ?? ''}:${context?.episode ?? ''}:${context?.audio ?? ''}`;
+  const hit = sourcesCache.get(cacheKey);
+  if (hit && hit.expires > Date.now()) return hit.promise;
+  const promise = request<SourcesResponse>(`/api/media/${id}/sources?${params.toString()}`);
+  sourcesCache.set(cacheKey, { promise, expires: Date.now() + SOURCES_TTL_MS });
+  // Failures are dropped once they settle so a later Retry really re-queries.
+  promise.catch(() => {
+    if (sourcesCache.get(cacheKey)?.promise === promise) sourcesCache.delete(cacheKey);
+  });
+  return promise;
+}
+
+/** Test hook — clears the module-level sources cache. */
+export function clearSourcesCache(): void {
+  sourcesCache.clear();
 }
 
 export function listDownloads(): Promise<{ downloads: DownloadRecord[] }> {

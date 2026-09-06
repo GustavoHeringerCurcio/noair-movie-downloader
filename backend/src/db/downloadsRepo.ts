@@ -30,6 +30,8 @@ interface DownloadRow {
   codec: string | null;
   hdr: boolean;
   is_dolby_vision: boolean;
+  audio_lang: string | null;
+  audio_mode: string | null;
 }
 
 function rowToRecord(row: DownloadRow): DownloadRecord {
@@ -63,6 +65,8 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
     codec: (row.codec as DownloadRecord['codec']) ?? null,
     hdr: row.hdr,
     isDolbyVision: row.is_dolby_vision,
+    audioLang: (row.audio_lang as DownloadRecord['audioLang']) ?? null,
+    audioMode: (row.audio_mode as DownloadRecord['audioMode']) ?? null,
   };
 }
 
@@ -114,8 +118,8 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
       `INSERT INTO downloads
         (tmdb_id, media_type, title, year, poster_path, backdrop_path, season_number,
          episode_number, info_hash, torrent_name, indexer,
-         resolution, source, codec, hdr, is_dolby_vision)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         resolution, source, codec, hdr, is_dolby_vision, audio_lang, audio_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [
         input.tmdbId,
@@ -134,6 +138,8 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
         input.codec ?? null,
         input.hdr === true,
         input.isDolbyVision === true,
+        input.audioLang ?? null,
+        input.audioMode ?? null,
       ],
     );
     return rowToRecord(result.rows[0]!);

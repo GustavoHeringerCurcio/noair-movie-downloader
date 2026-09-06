@@ -16,6 +16,7 @@ import { StateBadge } from '../components/StateBadge';
 import { DownloadQualityChips } from '../components/DownloadQualityChips';
 import { EmptyState } from '../components/EmptyState';
 import { cardImages } from '../api';
+import { movieGroupKey, versionLabel } from '../lib/versions';
 import { useArtPreference, useImageProvider } from '../store/settingsStore';
 import type { DownloadRecord } from '../types';
 
@@ -33,6 +34,25 @@ function titleLabel(d: DownloadRecord): string {
   const se = `S${String(d.seasonNumber).padStart(2, '0')}${d.episodeNumber != null ? `E${String(d.episodeNumber).padStart(2, '0')}` : ''}`;
   return `${base} · ${se}`;
 }
+
+/** Key of a standalone title (movie; TV stays one row per season/episode). */
+function movieTitleKey(d: DownloadRecord): string | null {
+  return movieGroupKey(d);
+}
+
+interface GroupHead {
+  kind: 'head';
+  key: string;
+  label: string;
+  count: number;
+}
+interface GroupRow {
+  kind: 'row';
+  d: DownloadRecord;
+  /** True when this row is one of several copies of the same movie title. */
+  grouped: boolean;
+}
+type ListEntry = GroupHead | GroupRow;
 
 export function DownloadsPage() {
   const downloads = useDownloadsStore((s) => s.downloads);
@@ -57,6 +77,31 @@ export function DownloadsPage() {
 
   const active = ordered.filter((d) => !(d.progress >= 1 || d.state === 'seeding')).length;
   const ready = ordered.length - active;
+
+  const entries = useMemo<ListEntry[]>(() => {
+    const versionCounts = new Map<string, number>();
+    for (const d of visible) {
+      const k = movieTitleKey(d);
+      if (k) versionCounts.set(k, (versionCounts.get(k) ?? 0) + 1);
+    }
+    const seen = new Set<string>();
+    const out: ListEntry[] = [];
+    for (const d of visible) {
+      const k = movieTitleKey(d);
+      const multi = k ? (versionCounts.get(k) ?? 0) > 1 : false;
+      if (k && multi && !seen.has(k)) {
+        seen.add(k);
+        out.push({
+          kind: 'head',
+          key: k,
+          label: d.title ?? d.torrentName,
+          count: versionCounts.get(k) ?? 0,
+        });
+      }
+      out.push({ kind: 'row', d, grouped: multi });
+    }
+    return out;
+  }, [visible]);
 
   async function handleRemove(d: DownloadRecord): Promise<void> {
     const ok = window.confirm(`Remove "${d.torrentName}" and delete its files? This cannot be undone.`);
@@ -126,7 +171,16 @@ export function DownloadsPage() {
         <p className="empty-state">No downloads match this filter.</p>
       ) : (
         <ul className="downloads-list">
-          {visible.map((d) => {
+          {entries.map((entry) => {
+            if (entry.kind === 'head') {
+              return (
+                <li key={entry.key} className="download-grouphead">
+                  <span className="download-group-title">{entry.label}</span>
+                  <span className="download-group-count">{entry.count} versions</span>
+                </li>
+              );
+            }
+            const d = entry.d;
             const srcs = cardImages(d, provider, preference);
             return (
               <li key={d.infoHash} className="download-row">
@@ -139,7 +193,7 @@ export function DownloadsPage() {
               <div className="download-info">
                 <div>
                   <div className="download-title" title={d.torrentName}>
-                    {titleLabel(d)}
+                    {entry.grouped ? versionLabel(d) : titleLabel(d)}
                   </div>
                   <div className="download-meta">
                     <DownloadQualityChips
@@ -148,6 +202,8 @@ export function DownloadsPage() {
                       codec={d.codec}
                       hdr={d.hdr}
                       isDolbyVision={d.isDolbyVision}
+                      audioLang={d.audioLang ?? null}
+                      audioMode={d.audioMode ?? null}
                     />
                     <StateBadge state={d.state} />
                     <span title={d.torrentName}>{d.torrentName}</span>

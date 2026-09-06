@@ -10,6 +10,14 @@ import { EmptyState } from '../components/EmptyState';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { useSearchStore } from '../store/searchStore';
+import { useVersionStore, versionKey, resolveActiveVersion } from '../store/versionStore';
+import {
+  bestPlayable,
+  movieGroupKey,
+  playable,
+  sortVersions,
+  versionLabel,
+} from '../lib/versions';
 
 interface SectionState {
   items: MediaItem[];
@@ -81,24 +89,68 @@ export function HomePage() {
     return [...done.sort(byTime), ...busy.sort(byTime)];
   }, [downloads]);
 
-  const completed = orderedDownloads.filter((d) => d.progress >= 1 || d.state === 'seeding').length;
-  const active = orderedDownloads.length - completed;
+  const versionActive = useVersionStore((s) => s.active);
+  const selectVersion = useVersionStore((s) => s.select);
 
-  function primaryFor(d: DownloadRecord): TitleCardPrimary | null {
-    if (d.streamable && d.progress >= 1) {
-      return { label: 'Watch', icon: 'play', onClick: () => navigate(`/watch/${d.infoHash}`) };
+  // One library entry per movie title (copies collapse into a single card with
+  // version chips); TV releases keep one card per season/episode download.
+  const downloadGroups = useMemo(() => {
+    const groups = new Map<string, DownloadRecord[]>();
+    const order: string[] = [];
+    for (const d of orderedDownloads) {
+      const g = movieGroupKey(d) ?? `raw:${d.infoHash}`;
+      if (!groups.has(g)) order.push(g);
+      const arr = groups.get(g);
+      if (arr) arr.push(d);
+      else groups.set(g, [d]);
     }
-    if (d.streamable) {
-      return {
-        label: 'Watch now',
-        icon: 'play',
-        onClick: () => navigate(`/watch/${d.infoHash}`),
-      };
+    return order.map((g) => ({ key: g, copies: groups.get(g)! }));
+  }, [orderedDownloads]);
+
+  const completedTitles = downloadGroups.filter(({ copies }) => copies.some((d) => d.streamable)).length;
+  const activeTitles = downloadGroups.length - completedTitles;
+
+  function cardFor(group: { key: string; copies: DownloadRecord[] }) {
+    const copies = sortVersions(group.copies);
+    const rep = copies[0]!;
+    const isMovie = movieGroupKey(rep) != null;
+    const movieId = rep.tmdbId ?? 0;
+    const activeHash = isMovie
+      ? resolveActiveVersion(versionKey('movie', movieId), copies, versionActive)
+      : rep.infoHash;
+    const activeCopy = copies.find((c) => c.infoHash === activeHash) ?? rep;
+    const watchableHash =
+      (activeCopy.streamable ? activeHash : null) ?? bestPlayable(copies)?.infoHash ?? null;
+
+    let primary: TitleCardPrimary;
+    if (watchableHash) {
+      primary = { label: 'Watch', icon: 'play', onClick: () => navigate(`/watch/${watchableHash}`) };
+    } else {
+      primary = { label: 'Manage', icon: 'down', onClick: () => navigate('/downloads') };
     }
-    if (d.progress < 1) {
-      return { label: 'Manage', icon: 'down', onClick: () => navigate('/downloads') };
-    }
-    return null;
+
+    const progress = copies.some(playable) ? null : activeCopy.progress < 1 ? activeCopy.progress : null;
+    const variants =
+      copies.length > 1
+        ? copies.map((c) => ({
+            id: c.infoHash,
+            label: versionLabel(c),
+            active: c.infoHash === activeHash,
+          }))
+        : null;
+
+    return (
+      <TitleCard
+        key={group.key}
+        item={toMediaItem(activeCopy)}
+        progress={progress}
+        primary={primary}
+        variants={variants}
+        onVariantSelect={
+          isMovie ? (id) => selectVersion(versionKey('movie', movieId), id) : undefined
+        }
+      />
+    );
   }
 
   return (
@@ -107,8 +159,12 @@ export function HomePage() {
       <div className="rails">
         <SectionRail
           title="My Downloads"
-          subtitle={downloads.length > 0 ? `${completed} ready · ${active} downloading` : undefined}
-          count={orderedDownloads.length}
+          subtitle={
+            downloadGroups.length > 0
+              ? `${completedTitles} ready · ${activeTitles} downloading`
+              : undefined
+          }
+          count={downloadGroups.length}
           emptyHint="Nothing downloaded yet."
           emptyContent={
             <EmptyState
@@ -122,14 +178,7 @@ export function HomePage() {
             />
           }
         >
-          {orderedDownloads.map((d) => (
-            <TitleCard
-              key={d.infoHash}
-              item={toMediaItem(d)}
-              progress={d.progress < 1 ? d.progress : null}
-              primary={primaryFor(d)}
-            />
-          ))}
+          {downloadGroups.map((group) => cardFor(group))}
         </SectionRail>
 
         {recents.length > 0 && (

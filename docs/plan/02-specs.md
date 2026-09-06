@@ -40,7 +40,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 
 ### S4 `POST /api/downloads`
 - Auth: none
-- Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, backdropPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string, seasonNumber?: number|null, episodeNumber?: number|null }`
+- Request body: `{ tmdbId: number, mediaType: "movie"|"tv", title: string, year: number|null, posterPath: string|null, backdropPath: string|null, infoHash: string, magnetUri: string, torrentName: string, indexer: string, seasonNumber?: number|null, episodeNumber?: number|null, resolution?, source?, codec?, hdr?, isDolbyVision?, audioLang?: "en"|"pt"|"es"|"fr"|"de"|"it"|null, audioMode?: "dub"|"dual"|"multi"|null }` — quality + audio identity of the chosen release are persisted so the UI can group copies into versions and label them (`audioLang`/`audioMode` are parsed from the release title, §4.3/4.5).
 - Behavior: adds the source to qBittorrent (category `stream`, savepath `/downloads`, `sequentialDownload=true`, `firstLastPiecePriority=true`, `rename=<torrentName>` — required for playback-before-complete and for hash adoption, §4.2), then inserts a `downloads` row keyed by `info_hash`. `magnetUri` may be a real magnet **or a Prowlarr torrent-download URL** (§4.3); `infoHash` may be a `url-` placeholder in the latter case — the poll adopts qBittorrent's real hash by torrent name (S9). `seasonNumber`/`episodeNumber` label the download (episode-level friendly downloads); `backdropPath` is stored so 16:9 cards have a landscape image.
 - Response: `201` → `DownloadRecord` (shape below).
 - Errors: `409` if `info_hash` already exists; `502` qBittorrent unreachable/add failed.
@@ -48,7 +48,7 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 ### S5 `GET /api/downloads`
 - Auth: none
 - Response: `200` → `{ downloads: DownloadRecord[] }`
-- `DownloadRecord`: `{ id: number, tmdbId: number|null, mediaType: string|null, title: string|null, year: number|null, posterPath: string|null, backdropPath: string|null, seasonNumber: number|null, episodeNumber: number|null, infoHash: string, torrentName: string, indexer: string|null, sizeBytes: number, state: string, progress: number, downloadSpeed: number, uploadSpeed: number, etaSeconds: number|null, ratio: number, contentPath: string|null, streamFilePath: string|null, streamable: boolean, createdAt: string, completedAt: string|null }`
+- `DownloadRecord`: `{ id: number, tmdbId: number|null, mediaType: string|null, title: string|null, year: number|null, posterPath: string|null, backdropPath: string|null, seasonNumber: number|null, episodeNumber: number|null, infoHash: string, torrentName: string, indexer: string|null, sizeBytes: number, state: string, progress: number, downloadSpeed: number, uploadSpeed: number, etaSeconds: number|null, ratio: number, contentPath: string|null, streamFilePath: string|null, streamable: boolean, createdAt: string, completedAt: string|null, resolution: string|null, source: string|null, codec: string|null, hdr: boolean, isDolbyVision: boolean, audioLang: string|null, audioMode: string|null }`
   - `state` values: one of `queued | fetching-metadata | downloading | stalled | paused | checking | seeding | error | unknown` (see §4.2 mapping).
   - `progress`: `0.0–1.0`. `streamable`: true iff a streamable file is resolvable (§4.4).
 
@@ -72,8 +72,8 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 
 ### S7b `GET /api/downloads/:infoHash/playinfo`
 - Auth: none
-- Behavior: resolves a fully-downloaded streamable file, runs the shallow probe + a full `lib/mediaInfo.ts` probe (video/height/HDR, every audio track with language/channels/default, every subtitle track text-vs-bitmap, duration, container) and scans for sidecar subtitle files next to the video. Returns the serving decision + track metadata + URLs.
-- Response: `200` → `{ mode: "direct"|"hls"|"remux-audio"|"transcode"|"player-required", videoCodec: string|null, audioCodec: string|null, height: number|null, container: string|null, durationSeconds: number|null, video: {codec,width,height,hdr}|null, audioTracks: [{index,codec,language,title,channels,default}], subtitleTracks: [{index,codec,kind:"text"|"bitmap",language,title,default}], sidecarSubtitles: [{name,language}], streamUrl: "/api/stream/<hash>/watch", playUrl: "/api/stream/<hash>", fileUrl: "/api/downloads/<hash>/file", manifestUrl: string|null }` (`manifestUrl` set when `mode === "hls"` → `/api/playback/<hash>/hls/master.m3u8`, see S14).
+- Behavior: resolves a fully-downloaded streamable file, runs the shallow probe + a full `lib/mediaInfo.ts` probe (video/height/HDR/profile/pix_fmt/level, every audio track with language/channels/profile/sample_rate/default, every subtitle track text-vs-bitmap, duration, container) and scans for sidecar subtitle files next to the video. Returns the serving decision + track metadata + URLs.
+- Response: `200` → `{ mode: "direct"|"hls"|"remux-audio"|"transcode"|"player-required", videoCodec: string|null, audioCodec: string|null, height: number|null, container: string|null, durationSeconds: number|null, video: {codec,width,height,hdr,profile,pix_fmt,level}|null, audioTracks: [{index,codec,language,title,channels,default,profile,sampleRate}], subtitleTracks: [{index,codec,kind:"text"|"bitmap",language,title,default}], sidecarSubtitles: [{name,language}], streamUrl: "/api/stream/<hash>/watch", playUrl: "/api/stream/<hash>", fileUrl: "/api/downloads/<hash>/file", manifestUrl: string|null, mseProbe: string[]|null }` (`manifestUrl` set when `mode === "hls"` → `/api/playback/<hash>/hls/master.m3u8`, see S14; `mseProbe` set when `mode === "hls"` → `MediaSource.isTypeSupported` type strings for the packaged rendition, `[]` when the video is definitely not browser-decodable, `null` otherwise).
 - Errors: `404` unknown torrent / no complete streamable file.
 
 ### S8 `GET /api/images/tmdb/*path`
@@ -126,7 +126,8 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - `GET /api/playback/:infoHash/hls/master.m3u8`: when ready → the authored master playlist (`application/vnd.apple.mpegurl`); while packaging → `202` + status body; failed → the failed status.
 - `DELETE /api/playback/:infoHash/hls`: deletes the cached package (used for a failed-package retry).
 - `GET /api/playback/pkg/:key/*`: serves the package's segments/init/subtitle files. `key` must match a package key (hash + slug); paths are containment-checked.
-- Packaging (`lib/hls.ts` + `lib/packages.ts`, cache root `PACKAGE_DIR` default `/packages` on a `packages` compose volume): ffmpeg stream-copies video, re-encodes each audio track to AAC into a separate HLS audio rendition, converts embedded text + sidecar subtitles to WebVTT, then writes `video/main.m3u8`, `audio/<idx>/main.m3u8`, `subs/<id>.{vtt,m3u8}` and a `master.m3u8` with EXT-X-MEDIA AUDIO/SUBTITLES groups. Done marker makes cached packages reusable across restarts. Packages are removed on torrent delete (S6).
+- Packaging (`lib/hls.ts` + `lib/packages.ts`, cache root `PACKAGE_DIR` default `/packages` on a `packages` compose volume): ffmpeg **stream-copies video and any browser-safe AAC-LC ≤48 kHz audio track** (`-c:a copy`), re-encodes only non-safe audio to AAC (`aac 192k` with the fast coder) into separate HLS audio renditions, converts embedded text + sidecar subtitles to WebVTT, then writes `video/main.m3u8`, `audio/<idx>/main.m3u8`, `subs/<id>.{vtt,m3u8}` and a `master.m3u8` with EXT-X-MEDIA AUDIO/SUBTITLES groups. Media renditions run as **concurrent ffmpeg processes** (one full-file pass each, parallel across cores) rather than serialized passes; in-flight progress is read from each process's `-progress` output so the bar moves during long encodes. Done marker makes cached packages reusable across restarts. Packages are removed on torrent delete (S6).
+- **MSE preflight (S7b `mseProbe`)**: before any packaging starts, the browser probes `MediaSource.isTypeSupported` against the returned codec strings. Unsupported video (e.g. HEVC **Main10 / 10-bit**, which Chrome/Firefox cannot decode) → Watch renders the player-required screen instantly with the codec reason and **never starts a package build** the browser could not play.
 - Watch plays `mode:"hls"` through **Shaka Player** (lazy-loaded `shaka-player`, its own controls overlay with audio-language/subtitle menus) after polling `status`; packaging/failure states show progress or external-player/Download-file fallbacks.
 
 ### S15 `GET /api/media/:id/trailer`
@@ -166,6 +167,8 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 | `backdrop_path` | text | no | TMDB backdrop path (16:9 cards); null for legacy rows |
 | `season_number` | int | no | TV only; null for movies/legacy |
 | `episode_number` | int | no | TV only; null for movies/legacy and whole-season downloads |
+| `audio_lang` | text | no | `en`\|`pt`\|`es`\|`fr`\|`de`\|`it` parsed from the release title (persisted from the chosen Source so copies differing only by language stay distinguishable) |
+| `audio_mode` | text | no | `dub`\|`dual`\|`multi` parsed from the release title |
 
 ### Table: `settings`
 | Column | Type | Required | Notes |
@@ -173,7 +176,7 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 | `key` | text PK | yes | e.g. `stream_dir`, `poll_interval_ms` |
 | `value` | jsonb NOT NULL | yes | |
 
-- Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1. The schema file must **also** run idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements for any column added after first release (`backdrop_path`, `season_number`, `episode_number`) so existing named volumes upgrade on boot.
+- Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1. The schema file must **also** run idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements for any column added after first release (`backdrop_path`, `season_number`, `episode_number`, `audio_lang`, `audio_mode`) so existing named volumes upgrade on boot.
 
 ### Table: `art_files`
 | Column | Type | Required | Notes |
@@ -215,7 +218,9 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 
 ### Screen: Media Detail (`/media/:id`)
 - Hero: `w1280` backdrop, title, meta row (year · genres · runtime · rating; TV adds "N Seasons"), overview, grayscale overlays.
-- **Movie**: primary ▶ **Download** (friendly: most-seeded S3 movie source; disabled + spinner until the on-mount S3 fetch resolves) · **Advanced** (opens `SourcePickerModal`) · if an active download exists → **Watch** + trash.
+- **Movie** — hero shows exactly one primary state (D19):
+  - **no copy** → primary ▶ **Download** (friendly most-seeded S3 movie source) with an inline "Best match · quality · size · seeds" hint under the button; **Advanced** (`SourcePickerModal`); while the source fetch runs the CTA reads `Finding the best release…` (shimmer, never a dead button). The S3 fetch runs **only when no copy is owned yet** and is cached per title+audio (S3 api cache), so revisiting an owned title never re-asks Prowlarr; deleting the last copy lazily re-fetches and returns the hero to the offer state.
+  - **copies exist** → a single status area (`DownloadsHeroPanel`): **anything playable** ⇒ one ▶ **Watch** button (targets the active version) + **Player** + delete, with a **version-chip row** to switch which ready copy is "the" copy; copies still downloading collapse into compact mini-rows. **Nothing playable yet** ⇒ a status card (big tabular %, state, speed · ETA, Pause/Resume, Remove) for the focused copy, plus chips to focus another when several are arriving. **No disabled Watch is ever rendered.**
 - **TV**:
   - Season dropdown — default = season with an active download, else the lowest `seasonNumber` with `episodeCount > 0` (S2). Season change → one lazy `S3?season=N` search (cached per `title|season`, request-id guarded, skeleton rows) + `S12` episodes.
   - Episode rows: still thumb (`w500`), big episode number, title, runtime, overview, availability chip; hover highlight.
@@ -231,7 +236,7 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 - `playinfo` 404 → "No playable file yet" (or the waiting state above while the download runs).
 
 ### Pages: Downloads (`/downloads`) and Settings (`/settings`)
-- Downloads rows: 16:9 thumb, title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality chip, progress bar, speed/ETA, actions **Watch · Player (S7 native, `movie://`) · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`). Watch/Player are disabled until `streamable` (a fully-downloaded file exists).
+- Downloads rows: 16:9 thumb, title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality + audio chip, progress bar, speed/ETA, actions **Watch · Player (S7 native, `movie://`) · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`). Watch/Player are disabled until `streamable` (a fully-downloaded file exists). **Multiple copies of one movie are grouped under a single header** (`Movie · N versions`); each grouped row is labeled with its **version** (`audio · quality`, e.g. `PT · Dub · 1080p WEB-DL x264`) so copies that differ only by language or quality are distinguishable instead of looking like duplicates.
 - Settings: existing System/Configuration/About cards + **Local player** card — platform-aware (`detectOs`): choose VLC/MPV/MPC-HC/PotPlayer on Windows, VLC/MPV on Linux (localStorage hint, `readPlayerPreference`); download the matching installer/uninstaller — `.cmd` (PowerShell, registers `movie://` under HKCU) on Windows, `.sh` (writes `movie-open.sh` + a `x-scheme-handler/movie` `.desktop` entry, registers via `xdg-mime`, auto-detects installed player via `command -v`/snap/flatpak) on Linux. The Artwork source card gains a **temporary** "Card style" A/B control (`backdrop` = current full-bleed tile vs `poster` = poster-first layered tile, D17) persisted as `artwork.style` so both looks can be compared live; both this toggle and the provider-agnostic warm guard (§4.8) are removed once the winning source is chosen.
 - Data for both: Socket.IO `downloads:initial` / `downloads:update` → Zustand store.
 
@@ -240,6 +245,7 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 
 ### UX layer (client-side, no new endpoints — PART C of the 2026-09-05 plan)
 - **ConfirmDownloadSheet (C-DL1):** every friendly download (movie / season / episode) first shows a sheet naming the exact pick — release title, resolution/source/codec, size, seeders, indexer — with `[Start]` and `[Advanced…]`. Sources resolve in the background (cache keyed `title|season|episode`, AbortController); while unresolved the CTA reads `Looking for best source…`. No silent auto-start.
+- **Versions (D19):** copies of one movie collapse into a single library item. `lib/versions.ts` holds the pure helpers (playable, label `audio · quality`, and the default rule: **most recently completed playable copy**, tie-break higher resolution); `store/versionStore` persists the active copy per `movie:<tmdbId>` in `localStorage` so rails, the Downloads page and the Detail hero agree on which version **Watch** targets. My Downloads shows **one card per movie** (progress follows the active copy) with **version chips on hover**; clicking a chip switches the active version everywhere.
 - **Resume (C-DL2):** `store/playbackStore` persists `{infoHash, file, seconds}` to `localStorage` every ~5s of playback. On return to the same file the player offers `Resume from mm:ss` / `Restart`. Local only; no server round-trip. Recents are marked on play start.
 - **Downloads tabs:** `All | Downloading | Ready to watch`, preserving arrival context; tabular numerals for speed/ETA; delete confirm states file impact (pack deletes warn they remove all contained episode files).
 - **TV sticky sub-bar:** while the episode list scrolls, a toolbar under the header shows back, compact title, season selector, **Download season N**, **Advanced**.

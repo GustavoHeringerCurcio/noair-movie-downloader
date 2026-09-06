@@ -37,15 +37,30 @@ export function audioLanguageNative(code: AudioLang): string {
 }
 
 const MODE_TEXT: Record<AudioMode, string> = {
-  dub: 'dub',
+  dub: 'Dub',
   dual: 'Dual',
   multi: 'MULTi',
 };
 
-/** Short chip text describing a release's audio, or null when untagged. */
-export function audioChipLabel(source: Source): string | null {
-  const lang = source.audioLang ? source.audioLang.toUpperCase() : null;
-  const mode = source.audioMode ? MODE_TEXT[source.audioMode] : null;
+export function audioModeText(mode: AudioMode): string {
+  return MODE_TEXT[mode];
+}
+
+export interface AudioIdentity {
+  audioLang?: AudioLang | null;
+  audioMode?: AudioMode | null;
+}
+
+/** Short text describing any audio-tagged entity (Source or DownloadRecord). */
+export function audioName(audio: AudioIdentity | null | undefined): string | null {
+  if (!audio) return null;
+  const lang = audio.audioLang ? audio.audioLang.toUpperCase() : null;
+  const mode = audio.audioMode ? MODE_TEXT[audio.audioMode] : null;
   if (lang && mode) return `${lang} · ${mode}`;
   return lang ?? mode ?? null;
+}
+
+/** Short chip text describing a release's audio, or null when untagged. */
+export function audioChipLabel(source: Source): string | null {
+  return audioName(source);
 }

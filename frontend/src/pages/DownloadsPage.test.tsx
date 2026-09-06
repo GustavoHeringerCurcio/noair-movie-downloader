@@ -70,7 +70,7 @@ describe('DownloadsPage', () => {
     useDownloadsStore.setState({
       downloads: [
         makeDownload('a'.repeat(40), { state: 'seeding', progress: 1, etaSeconds: null }),
-        makeDownload('b'.repeat(40), { title: 'The Matrix', year: 1999 }),
+        makeDownload('b'.repeat(40), { title: 'The Matrix', year: 1999, tmdbId: 603 }),
       ],
     });
 
@@ -87,7 +87,7 @@ describe('DownloadsPage', () => {
     expect(screen.getAllByRole('button', { name: /remove/i }).length).toBe(2);
   });
 
-  it('shows quality chips so duplicate copies of a title are distinguishable', () => {
+  it('groups copies of the same movie under one header and labels them as versions', () => {
     useDownloadsStore.setState({
       downloads: [
         makeDownload('a'.repeat(40), {
@@ -97,13 +97,17 @@ describe('DownloadsPage', () => {
           resolution: '2160p',
           source: 'REMUX',
           codec: 'x265',
+          audioLang: 'en',
         }),
         makeDownload('b'.repeat(40), {
-          title: 'Blade Runner 2049',
-          torrentName: 'Blade.Runner.2049.2017.1080p.WEB-DL',
+          state: 'seeding',
+          progress: 1,
+          etaSeconds: null,
           resolution: '1080p',
           source: 'WEB-DL',
           codec: 'x264',
+          audioLang: 'pt',
+          audioMode: 'dub',
         }),
       ],
     });
@@ -114,11 +118,10 @@ describe('DownloadsPage', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('2160p')).toBeInTheDocument();
-    expect(screen.getByText('REMUX')).toBeInTheDocument();
-    expect(screen.getByText('1080p')).toBeInTheDocument();
-    expect(screen.getByText('WEB-DL')).toBeInTheDocument();
-    expect(screen.getByText(/Blade\.Runner/)).toBeInTheDocument();
+    expect(screen.getByText('2 versions')).toBeInTheDocument();
+    expect(screen.getByText('EN · 2160p REMUX x265')).toBeInTheDocument();
+    expect(screen.getByText('PT · Dub · 1080p WEB-DL x264')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /remove/i }).length).toBe(2);
   });
 });
 

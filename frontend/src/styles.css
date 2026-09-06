@@ -250,6 +250,10 @@ ul {
   align-items: center;
   justify-content: center;
 }
+.icon-btn-sm {
+  width: 26px;
+  height: 26px;
+}
 
 .conn-dot {
   width: 9px;
@@ -865,17 +869,50 @@ ul {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   opacity: 0;
   transition: opacity 0.15s ease;
   pointer-events: none;
   z-index: 8;
+  padding: 0 8px;
 }
 .title-card:hover .title-card-overlay,
 .title-card:focus-within .title-card-overlay {
   opacity: 1;
+}
+.tc-variants {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  max-width: 100%;
+}
+.tc-version-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(10, 10, 10, 0.85);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.tc-version-chip.active {
+  background: var(--white);
+  border-color: transparent;
+  color: var(--bg);
+}
+.tc-version-chip:hover {
+  color: var(--white);
+  border-color: var(--white);
+}
+.tc-version-chip.active:hover {
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--bg);
 }
 .tc-btn {
   width: 42px;
@@ -1149,6 +1186,131 @@ ul {
   gap: 10px;
   font-size: 13px;
   color: var(--text-2);
+}
+
+/* Movie / season hero download states */
+.dh-offer-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.dh-offer-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  padding-left: 22px;
+}
+.dh-nosource {
+  margin: 0;
+  max-width: 480px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.version-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.version-chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(10, 10, 10, 0.72);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.version-chip:hover {
+  color: var(--white);
+  border-color: var(--white);
+}
+.version-chip.active {
+  background: var(--white);
+  border-color: transparent;
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.hero-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, 92vw);
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: rgba(10, 10, 10, 0.78);
+  border: 1px solid var(--border-weak);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+}
+.hero-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hero-status-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--white);
+}
+.hero-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.hero-status-pct {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+  min-width: 72px;
+  text-align: right;
+}
+.hero-progress {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+}
+.hero-status-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.hero-status-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hero-mini-dl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.hero-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.hero-mini-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.hero-mini-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  min-width: 38px;
+  text-align: right;
 }
 
 /* Detail body container */
