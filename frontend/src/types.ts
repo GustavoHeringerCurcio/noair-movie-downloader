@@ -76,6 +76,22 @@ export interface Trailer {
   name: string | null;
 }
 
+/**
+ * Everything the expanded Netflix-style hover card needs (S16/D20), resolved in
+ * one request. `genres`/`certification` can be empty; `runtime` is movie-only,
+ * `seasons` tv-only; `trailer: null` means the card shows the still artwork.
+ */
+export interface HoverCardInfo {
+  trailer: Trailer | null;
+  genres: string[];
+  /** Movie runtime in minutes; null for TV. */
+  runtime: number | null;
+  /** Number of aired seasons; null for movies. */
+  seasons: number | null;
+  /** US age rating (e.g. `R`, `PG-13`, `TV-MA`); null when TMDB has none. */
+  certification: string | null;
+}
+
 export interface TvEpisode {
   seasonNumber: number;
   episodeNumber: number;

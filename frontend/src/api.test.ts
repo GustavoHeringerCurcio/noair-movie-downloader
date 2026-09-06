@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cardImages,
+  clearHoverCache,
   clearSourcesCache,
-  clearTrailerCache,
+  hoverCardFor,
   humanEta,
   humanSize,
   humanSpeed,
@@ -10,7 +11,6 @@ import {
   posterStyleLayers,
   sources,
   trailerEmbedUrl,
-  trailerFor,
 } from './api';
 import type { ArtPreference, MediaArt } from './types';
 
@@ -196,57 +196,81 @@ describe('posterStyleLayers (D17 poster-first tile)', () => {
   });
 });
 
-describe('trailerEmbedUrl (D18)', () => {
-  it('builds a muted looping youtube-nocookie embed', () => {
+describe('trailerEmbedUrl (D18/D20)', () => {
+  it('builds a sound-on looping youtube-nocookie embed by default', () => {
     const url = trailerEmbedUrl({ provider: 'youtube', videoId: 'O-b2VfmmbyA', name: null });
     expect(url).toBe(
-      'https://www.youtube-nocookie.com/embed/O-b2VfmmbyA?autoplay=1&mute=1&controls=0&playsinline=1&loop=1&playlist=O-b2VfmmbyA&modestbranding=1',
+      'https://www.youtube-nocookie.com/embed/O-b2VfmmbyA?autoplay=1&mute=0&controls=0&playsinline=1&loop=1&playlist=O-b2VfmmbyA&modestbranding=1',
     );
   });
 
-  it('builds a muted looping Vimeo embed', () => {
+  it('mutes the youtube embed when asked', () => {
+    const url = trailerEmbedUrl({ provider: 'youtube', videoId: 'O-b2VfmmbyA', name: null }, { muted: true });
+    expect(url).toContain('mute=1');
+  });
+
+  it('builds a sound-on looping Vimeo embed', () => {
     const url = trailerEmbedUrl({ provider: 'vimeo', videoId: '12345', name: null });
     expect(url).toContain('https://player.vimeo.com/video/12345?autoplay=1');
-    expect(url).toContain('muted=1');
+    expect(url).toContain('muted=0');
     expect(url).toContain('loop=1');
+  });
+
+  it('mutes the Vimeo embed when asked', () => {
+    const url = trailerEmbedUrl({ provider: 'vimeo', videoId: '12345', name: null }, { muted: true });
+    expect(url).toContain('muted=1');
   });
 });
 
-describe('trailerFor (S15)', () => {
+describe('hoverCardFor (S16)', () => {
+  const CARD = {
+    trailer: { provider: 'youtube' as const, videoId: 'abc', name: null },
+    genres: ['Sci-Fi'],
+    runtime: 148,
+    seasons: null,
+    certification: 'PG-13',
+  };
+
   beforeEach(() => {
-    clearTrailerCache();
+    clearHoverCache();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('fetches once and serves later calls from the cache', async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse({ trailer: { provider: 'youtube', videoId: 'abc', name: null } }),
-    );
+  it('fetches the hover payload once and serves later calls from the cache', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(CARD));
     vi.stubGlobal('fetch', fetchMock);
     const item = { tmdbId: 550, mediaType: 'movie' as const };
-    const [a, b] = await Promise.all([trailerFor(item), trailerFor(item)]);
-    expect(a).toEqual({ provider: 'youtube', videoId: 'abc', name: null });
-    expect(b).toEqual({ provider: 'youtube', videoId: 'abc', name: null });
+    const [a, b] = await Promise.all([hoverCardFor(item), hoverCardFor(item)]);
+    expect(a).toEqual(CARD);
+    expect(b).toEqual(CARD);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await trailerFor(item);
+    await hoverCardFor(item);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('caches a null answer for trailer-less titles', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ trailer: null }));
+  it('requests the hover route with the media type', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(CARD));
     vi.stubGlobal('fetch', fetchMock);
-    const item = { tmdbId: 1, mediaType: 'tv' as const };
-    expect(await trailerFor(item)).toBeNull();
-    expect(await trailerFor(item)).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await hoverCardFor({ tmdbId: 100, mediaType: 'tv' });
+    const url = (fetchMock.mock.calls[0] as unknown[])[0];
+    expect(String(url)).toContain('/api/media/100/hover?type=tv');
+  });
+
+  it('keeps distinct entries per media type', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(CARD));
+    vi.stubGlobal('fetch', fetchMock);
+    await hoverCardFor({ tmdbId: 550, mediaType: 'movie' });
+    await hoverCardFor({ tmdbId: 550, mediaType: 'tv' });
+    await hoverCardFor({ tmdbId: 550, mediaType: 'movie' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('degrades any failure to null (never throws)', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ error: 'boom' }, 500));
     vi.stubGlobal('fetch', fetchMock);
-    expect(await trailerFor({ tmdbId: 550, mediaType: 'movie' })).toBeNull();
+    expect(await hoverCardFor({ tmdbId: 550, mediaType: 'movie' })).toBeNull();
   });
 });
 

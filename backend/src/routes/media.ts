@@ -199,6 +199,42 @@ export function createMediaRouter(deps: AppDeps): Router {
     }
   });
 
+  // S16 — everything the expanded Netflix-style hover card needs, in one call:
+  // best trailer + genres/duration/seasons/certification (D20). The certification
+  // and trailer lookups degrade to null so one missing extra never blanks the card.
+  router.get('/media/:id/hover', async (req, res) => {
+    const id = parseInt(req.params.id ?? '', 10);
+    const type = parseType(req.query.type);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ error: 'invalid media id' });
+      return;
+    }
+    if (!type) {
+      res.status(400).json({ error: 'missing or invalid type (movie|tv)' });
+      return;
+    }
+    try {
+      const detail = await deps.tmdb.details(id, type);
+      const [trailer, certification] = await Promise.all([
+        deps.tmdb.videos(id, type).then(pickTrailer).catch(() => null),
+        deps.tmdb.certification(id, type).catch(() => null),
+      ]);
+      res.json({
+        trailer,
+        genres: detail.genres,
+        runtime: type === 'movie' ? detail.runtime : null,
+        seasons: type === 'tv' ? (detail.seasons?.length ?? null) : null,
+        certification,
+      });
+    } catch (error) {
+      if (error instanceof UpstreamError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  });
+
   router.get('/media/:id/sources', async (req, res) => {
     const id = parseInt(req.params.id ?? '', 10);
     const type = parseType(req.query.type);

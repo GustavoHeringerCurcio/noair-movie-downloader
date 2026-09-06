@@ -1,0 +1,151 @@
+- generic [ref=e3]:
+  - link "Skip to content" [ref=e4] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=e8]:
+    - generic [ref=e9]:
+      - link "noAir home" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - generic [aria-hidden] [ref=e11]: ▶
+        - generic [ref=e12]: noAir
+      - navigation "Primary" [ref=e13]:
+        - link "Home" [ref=e14] [cursor=pointer]:
+          - /url: /
+        - link "Downloads" [ref=e15] [cursor=pointer]:
+          - /url: /downloads
+        - link "Settings" [ref=e16] [cursor=pointer]:
+          - /url: /settings
+      - generic [ref=e17]:
+        - button "Open search" [ref=e18] [cursor=pointer]
+        - link "Downloads" [ref=e22] [cursor=pointer]:
+          - /url: /downloads
+          - generic [ref=e132]: "3"
+        - link "Settings" [ref=e26] [cursor=pointer]:
+          - /url: /settings
+  - main [ref=e31]:
+    - region "noAir" [ref=e32]:
+      - generic [ref=e33]:
+        - heading "Find it. Download it. Watch it." [level=1] [ref=e34]
+        - paragraph [ref=e35]: Search movies & TV from TMDB, grab the most-seeded release, and stream it straight from the download — no waiting for the whole file.
+        - generic [ref=e36]:
+          - button "Search titles" [ref=e37] [cursor=pointer]
+          - button "My Downloads" [ref=e41] [cursor=pointer]
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - generic [ref=e48]:
+          - heading "My Downloads" [level=2] [ref=e49]
+          - generic [ref=e133]: 3 ready · 0 downloading
+        - generic [ref=e135]:
+          - button "X-Men '97 (2024) — open details" [ref=e136]:
+            - button "Watch" [ref=e137] [cursor=pointer]
+          - button "The Dark Knight (2008) — open details" [ref=e140]:
+            - button "Watch" [ref=e141] [cursor=pointer]
+          - button "Blade Runner 2049 (2017) — open details" [ref=e144]:
+            - button "Watch" [ref=e145] [cursor=pointer]
+      - generic [ref=e66]:
+        - generic [ref=e68]:
+          - heading "Recently Viewed" [level=2] [ref=e69]
+          - generic [ref=e70]: 5 titles
+        - generic [ref=e73]:
+          - button "Blade Runner 2049 (2017) — open details" [ref=e74]
+          - button "X-Men '97 (2024) — open details" [ref=e75]
+          - button "HLS Movie (E2E) (2025) — open details" [ref=e76]:
+            - generic [aria-hidden] [ref=e77]: H
+          - button "Direct Movie (E2E) (2025) — open details" [ref=e78]:
+            - generic [aria-hidden] [ref=e79]: D
+          - button "The Odyssey (2026) — open details" [ref=e80]
+      - generic [ref=e81]:
+        - heading "Trending This Week" [level=2] [ref=e84]
+        - generic [ref=e85]:
+          - generic [ref=e87]:
+            - button "The Runner (2026) — open details" [ref=e148]
+            - 'button "Spider-Man: Brand New Day (2026) — open details" [ref=e149]'
+            - button "Coyote vs. Acme (2026) — open details" [ref=e150]
+            - button "The Odyssey (2026) — open details" [ref=e151]
+            - button "The Whisper Man (2026) — open details" [ref=e152]
+            - button "Obsession (2026) — open details" [ref=e153]
+            - button "Buddy (2026) — open details" [ref=e154]
+            - button "Backrooms (2026) — open details" [ref=e155]
+            - button "Toy Story 5 (2026) — open details" [ref=e156]
+            - button "Mutiny (2026) — open details" [ref=e157]
+            - button "I Want Your Sex (2026) — open details" [ref=e158]
+            - button "Project Hail Mary (2026) — open details" [ref=e159]
+            - button "Just Play Dead (2026) — open details" [ref=e160]
+            - button "Mayday (2026) — open details" [ref=e161]
+            - button "Minions & Monsters (2026) — open details" [ref=e162]
+            - button "Resident Evil (2026) — open details" [ref=e163]
+            - button "The Mandalorian and Grogu (2026) — open details" [ref=e164]
+            - button "Clash of the Thundermans (2026) — open details" [ref=e165]
+            - button "Supergirl (2026) — open details" [ref=e166]
+            - button "The Dog Stars (2026) — open details" [ref=e167]
+            - button "Silo (2023) — open details" [ref=e168]
+            - button "Lanterns (2026) — open details" [ref=e169]
+            - button "The Gentlemen (2024) — open details" [ref=e170]
+            - button "Reacher (2022) — open details" [ref=e171]
+            - button "Ted Lasso (2020) — open details" [ref=e172]
+            - button "Bleach (2004) — open details" [ref=e173]
+            - button "Dark Matter (2024) — open details" [ref=e174]
+            - button "Furious (2026) — open details" [ref=e175]
+            - button "Mousetrap (2026) — open details" [ref=e176]
+            - button "One Piece (1999) — open details" [ref=e177]
+            - button "Lioness (2023) — open details" [ref=e178]
+            - button "The Early Spring (2026) — open details" [ref=e179]
+            - button "Chad Powers (2025) — open details" [ref=e180]
+            - button "The Grand Tour (2026) — open details" [ref=e181]
+            - button "Re:ZERO -Starting Life in Another World- (2016) — open details" [ref=e182]
+            - button "Rick and Morty (2013) — open details" [ref=e183]
+            - button "Stuart Fails to Save the Universe (2026) — open details" [ref=e184]
+            - button "Adults (2025) — open details" [ref=e185]
+            - button "Lovesick (2026) — open details" [ref=e186]
+            - button "Futurama (1999) — open details" [ref=e187]
+          - button "Scroll Trending This Week right"
+      - generic [ref=e98]:
+        - heading "Best Movies" [level=2] [ref=e101]
+        - generic [ref=e102]:
+          - generic [ref=e104]:
+            - button "Swapped (2026) — open details" [ref=e188]
+            - 'button "Demon Slayer: Kimetsu no Yaiba Infinity Castle (2025) — open details" [ref=e189]'
+            - button "The Shawshank Redemption (1994) — open details" [ref=e190]
+            - button "The Godfather (1972) — open details" [ref=e191]
+            - button "Michael (2026) — open details" [ref=e192]
+            - button "Project Hail Mary (2026) — open details" [ref=e193]
+            - button "The Godfather Part II (1974) — open details" [ref=e194]
+            - button "12 Angry Men (1957) — open details" [ref=e195]
+            - button "Schindler's List (1993) — open details" [ref=e196]
+            - button "The Dark Knight (2008) — open details" [ref=e197]
+            - button "Spirited Away (2001) — open details" [ref=e198]
+            - 'button "The Lord of the Rings: The Return of the King (2003) — open details" [ref=e199]'
+            - button "The Green Mile (1999) — open details" [ref=e200]
+            - button "Dilwale Dulhania Le Jayenge (1995) — open details" [ref=e201]
+            - button "Parasite (2019) — open details" [ref=e202]
+            - button "Interstellar (2014) — open details" [ref=e203]
+            - button "Your Name. (2016) — open details" [ref=e204]
+            - button "Pulp Fiction (1994) — open details" [ref=e205]
+            - button "The Good, the Bad and the Ugly (1966) — open details" [ref=e206]
+            - button "Forrest Gump (1994) — open details" [ref=e207]
+          - button "Scroll Best Movies left" [ref=e228] [cursor=pointer]
+          - button "Scroll Best Movies right" [ref=e231] [cursor=pointer]
+      - generic [ref=e115]:
+        - heading "Best Series" [level=2] [ref=e118]
+        - generic [ref=e119]:
+          - generic [ref=e121]:
+            - button "Teach You a Lesson (2026) — open details" [ref=e208]
+            - button "Dutton Ranch (2026) — open details" [ref=e209]
+            - button "Breaking Bad (2008) — open details" [ref=e210]
+            - button "Off Campus (2026) — open details" [ref=e211]
+            - 'button "Frieren: Beyond Journey''s End (2023) — open details" [ref=e212]'
+            - button "The Chosen (2019) — open details" [ref=e213]
+            - button "When Life Gives You Tangerines (2025) — open details" [ref=e214]
+            - 'button "Avatar: The Last Airbender (2005) — open details" [ref=e215]'
+            - button "One Piece (1999) — open details" [ref=e216]
+            - button "Arcane (2021) — open details" [ref=e217]
+            - button "Heated Rivalry (2025) — open details" [ref=e218]
+            - button "The Pitt (2025) — open details" [ref=e219]
+            - button "Chernobyl (2019) — open details" [ref=e220]
+            - 'button "Fullmetal Alchemist: Brotherhood (2009) — open details" [ref=e221]'
+            - button "Better Call Saul (2015) — open details" [ref=e222]
+            - button "X-Men '97 (2024) — open details" [ref=e223]
+            - button "Weak Hero (2022) — open details" [ref=e224]
+            - button "Attack on Titan (2013) — open details" [ref=e225]
+            - button "Solo Leveling (2024) — open details" [ref=e226]
+            - button "Rick and Morty (2013) — open details" [ref=e227]
+          - button "Scroll Best Series right"

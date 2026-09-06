@@ -137,6 +137,13 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 - Response: `200` → `{ trailer: Trailer | null }` where `Trailer = { provider: "youtube" | "vimeo", videoId: string, name: string | null }`. `trailer: null` when no usable video exists.
 - Errors: `400` missing/invalid `type`; `502` TMDB unreachable. The frontend treats any failure (HTTP error included) as `null` — a trailer is never allowed to block or break the card.
 
+### S16 `GET /api/media/:id/hover`
+- Auth: none.
+- Request: query `type: "movie" | "tv"` (required).
+- Behavior: resolves everything the expanded Netflix-style hover card (D20) needs in one call — fetches TMDB `GET /{movie|tv}/{id}` (existing `details` mapper → `genres`, movie `runtime`, tv `seasons`), `GET /{movie|tv}/{id}/videos` (picked via `lib/trailer.ts`, S15), and the US age rating: movie `GET /movie/{id}/release_dates` (first non-empty US `certification`), tv `GET /tv/{id}/content_ratings` (US `rating`). Trailer and certification lookups degrade to `null` on any failure so one missing extra never blanks the card; `details` failures surface as HTTP errors.
+- Response: `200` → `HoverCardInfo = { trailer: Trailer | null, genres: string[], runtime: number | null, seasons: number | null, certification: string | null }` (`runtime` movie-only minutes, `seasons` tv-only aired-season count).
+- Errors: `400` missing/invalid `type` or id; `502` TMDB unreachable. The frontend treats any failure as `null` (static card, no pop-up).
+
 ## 2. Data model
 
 Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver: `pg`.
@@ -193,7 +200,7 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 
 ## 3. UI / CLI
 
-Visual language (D15): **strict black & white, Netflix-style**. Fixed top header 68px that is transparent at the top of the page and fades to a black gradient (then solid `#000`) on scroll. Layout is full-bleed (no centered max-width column); content gutters are `4%`. Cards are **16:9 landscape title cards** sourcing `/api/images/tmdb/w1280<backdropPath>`; rails bleed to the viewport edge so the rightmost card is clipped mid-card to invite horizontal scroll; hover scales the card and reveals a white-ringed action panel. All colors are grayscale tokens (`--bg #000`, surfaces, `#fff/#e5e5e5/#b3b3b3/#808080`); state chips/progress/seeders map to luminance, never hue.
+Visual language (D15): **strict black & white, Netflix-style**. Fixed top header 68px that is transparent at the top of the page and fades to a black gradient (then solid `#000`) on scroll. Layout is full-bleed (no centered max-width column); content gutters are `4%`. Cards are **16:9 landscape title cards** sourcing `/api/images/tmdb/w1280<backdropPath>`; rails bleed to the viewport edge so the rightmost card is clipped mid-card to invite horizontal scroll; a sustained hover expands the card into the **D20 pop-up** (video/art top + details column). All colors are grayscale tokens (`--bg #000`, surfaces, `#fff/#e5e5e5/#b3b3b3/#808080`); state chips/progress/seeders map to luminance, never hue.
 
 Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/downloads`, `/settings`.
 
@@ -205,7 +212,7 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 
 ### Screen: Home (`/`)
 - Sections top→bottom: **Hero** (static brand GIF, grayscaled via CSS; fallback TMDB `w1280` backdrop → black gradient) → **My Downloads** (named so because resume positions are deferred, D15) → **Recently Viewed** → **Trending This Week** → **Best Movies** → **Best Series**.
-- Rail card = `TitleCard` (16:9 landscape backdrop; hover `scale(1.15)` + 1px white ring + dark panel with lucide Play/Download/More Info; white progress bar when downloading).
+- Rail card = `TitleCard` (16:9 landscape backdrop; **expanded pop-up card (D20)** on sustained hover; white progress bar when downloading).
 - My Downloads sources `DownloadRecord` (progress + quality chip when known); Recently Viewed sources the recents store.
 
 ### Screen: Search overlay (all pages)
@@ -214,7 +221,10 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 - Empty: "No results for '<q>'".
 - **Result selection**: activating a result (click/Enter) navigates to `/media/:id?type=…`; the overlay closes on any route change committed beneath it (so the destination is never hidden behind the full-screen layer). Closing resets query/results; no auto-save of the typed term into recent searches.
 
-- **Hover-trailer previews (D18, on every `TitleCard`)**: any card in a rail, the My Downloads rail, the landscape result grid, or the search overlay shows a **muted, looping trailer embed** on hover. Trigger: sustained hover (debounced ~600ms) → `trailerFor(item)` (S15, in-memory cache keyed `tmdbId:mediaType`, ~1h TTL) → an absolutely-positioned `<iframe>` overlay fills the card above the artwork but below the action overlay/progress (z 4). Embeds: YouTube `https://www.youtube-nocookie.com/embed/{videoId}?autoplay=1&mute=1&controls=0&playsinline=1&loop=1&playlist={videoId}&modestbranding=1`; Vimeo `https://player.vimeo.com/video/{videoId}?autoplay=1&muted=1&loop=1&controls=0`. The iframe is `pointer-events: none` (the whole card stays one click target), mounts only while hovered (unmounts on mouse leave / route change), and the still art remains beneath until playback begins. `trailer: null`, a fetch failure, or any HTTP error → static card, no layout shift, no toast. TV cards play the series trailer.
+- **Expanded Netflix-style hover card (D20, on every `TitleCard`)**: any card in a rail, My Downloads, the landscape result grid, or the search overlay expands into a **portaled pop-up card** on a sustained hover (debounced ~600 ms). Trigger → `hoverCardFor(item)` (**S16**, in-memory cache keyed `tmdbId:mediaType`, ~1h TTL); the pop-up opens immediately with the still art and fills in as the payload resolves. Card never has a trailer usable (or the fetch failed, `trailer:null`, `tmdbId <= 0`, or `prefers-reduced-motion`) → static card, no pop-up, no layout shift, no toast. TV cards play the **series** trailer.
+  - **Scale/position**: the pop-up is `position: fixed` (portal, `z-index: 150`, 8 px radius, strong dark shadow). Width = **1.7×** the base card (clamped to the viewport), **vertically centered on the base cell so it grows equally above and below**, horizontally centered so it **overflows the neighbours on both sides**; it is clamped to stay inside the viewport (below the 68px header). The base card keeps its grid slot (hover scale/ring removed while open). Any scroll/resize dismisses the pop-up.
+  - **Media half (16:9)**: iframe autoplays the looping trailer with **sound ON by default** — YouTube `https://www.youtube-nocookie.com/embed/{videoId}?autoplay=1&mute=0&controls=0&playsinline=1&loop=1&playlist={videoId}&modestbranding=1`, Vimeo `…?autoplay=1&muted=0&loop=1&controls=0`. Chrome still silences unmuted autoplay until the user has clicked the app once. A **circular mute/unmute button** sits bottom-right (remounts the iframe, restarting the clip); the title/logo sits bottom-left over a scrim. Iframe is `pointer-events:none`; clicking the media runs the Play action.
+  - **Details half (solid `--bg-2` column)**: Row 1 — **Play** (white circle; runs the card's `primary` Watch action when present, else opens Detail) and **More Info** (chevron → Detail); version chips (My Downloads) render in this row too. Row 2 — monochrome age-badge (`certification`, `--bg-4` square) · duration (`movie` `runtime` → "2h 15m") or seasons count ("N Seasons") · bordered `HD` chip. Row 3 — up to three genre tags joined by `•` (`genres`). All grayscale tokens.
 
 ### Screen: Media Detail (`/media/:id`)
 - Hero: `w1280` backdrop, title, meta row (year · genres · runtime · rating; TV adds "N Seasons"), overview, grayscale overlays.
@@ -391,4 +401,6 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 | Temporary card A/B setting | `artwork.style`: `backdrop` (default) \| `poster` (D17) |
 | Trailer pick (S15) | `Trailer = { provider, videoId, name }` (`provider`: `youtube` \| `vimeo`) |
 | Trailer lookup route | `GET /api/media/:id/trailer` |
-| Trailer player | YouTube `youtube-nocookie.com/embed/{videoId}` · Vimeo `player.vimeo.com/video/{videoId}` (muted autoplay loop) |
+| Expanded hover-card payload (S16) | `HoverCardInfo = { trailer, genres, runtime, seasons, certification }` |
+| Expanded hover-card route | `GET /api/media/:id/hover` |
+| Trailer player | YouTube `youtube-nocookie.com/embed/{videoId}` · Vimeo `player.vimeo.com/video/{videoId}` (autoplay loop, **sound on by default**, `mute=0`; `mute=1` via the pop-up toggle) |

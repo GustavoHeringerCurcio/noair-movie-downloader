@@ -107,3 +107,12 @@ Execution protocol: work through tasks in order. Read the referenced docs before
 - [ ] **T5.3** Hardening (nice-to-haves) — Read: `02-specs.md` §4
   - Confirm delete with files; pause/resume torrent; source dedupe already present; Prowlarr unavailable → `sources: []` with banner.
   - **Acceptance:** each implemented item has a manual verification note; app still boots and works with Prowlarr offline.
+
+## Milestone 6 — Expanded Netflix-style hover card (D20/S16)
+
+- [ ] **T6.1** Hover-card data layer — Read: `00-index.md` D18/D20, `02-specs.md` S15/S16
+  - Backend: `TmdbClient.certification()` (US movie `release_dates` first non-empty `certification`; US tv `content_ratings` `rating`; 404 → `null`, network/non-2xx → `UpstreamError`); new `GET /api/media/:id/hover?type=` returning `{ trailer, genres, runtime, seasons, certification }` (details + videos + certification; trailer/cert degrade to `null`, details failures surface). Frontend: `hoverCardFor()` (dedupe + ~1 h cache, keyed `mediaType:tmdbId`, failures → `null`), `trailerEmbedUrl(trailer, { muted })` defaults **sound-on**; pure `durationLabel`/`seasonCountLabel`/`hoverTags` helpers.
+  - **Acceptance:** backend unit tests for certification mapping + hover route (movie payload, tv seasons, trailer-less, cert-failure degrade, 400/502); frontend tests for cache/dedupe/type-keying/null and embed URLs.
+- [ ] **T6.2** Expanded pop-up card in `TitleCard` — Read: `02-specs.md` §3 (Home/Search), D20
+  - Sustained ~600 ms hover → open pop-up immediately (art fallback) + fetch S16; portaled fixed pop at **1.7×** base width, **vertically centered over the cell (grows up and down) and overflowing left/right**, media 16:9 + details column (Play / More Info + My-Downloads version chips, age badge · duration/seasons · HD, ≤3 genre tags); sound-on iframe with remount mute toggle; dismiss on leave/scroll/resize; disabled under reduced-motion / `tmdbId<=0` / payload failure. Base card keeps its grid slot (no white ring/scale while open).
+  - **Acceptance:** `TitleCard` component tests (open timing, sound default + mute toggle remount, trailer-less art expansion, metadata rows, primary/More-Info actions, leave/reduced-motion/payload-failure paths); visual Playwright pass (expansion overlaps neighbours, edge-of-rail clamping, mute icon, sound after first click).

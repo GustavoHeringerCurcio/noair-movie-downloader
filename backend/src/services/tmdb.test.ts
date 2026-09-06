@@ -291,3 +291,70 @@ describe('TmdbClient.videos', () => {
     await expect(clientDown.videos(550, 'movie')).rejects.toBeInstanceOf(UpstreamError);
   });
 });
+
+describe('TmdbClient.certification', () => {
+  it('returns the first non-empty US movie certification (S16)', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/movie/27205/release_dates'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { iso_3166_1: 'GB', release_dates: [{ certification: '12A' }] },
+              {
+                iso_3166_1: 'US',
+                release_dates: [{ certification: '' }, { certification: 'PG-13' }],
+              },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.certification(27205, 'movie')).resolves.toBe('PG-13');
+  });
+
+  it('returns the US tv content rating (S16)', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/tv/100/content_ratings'),
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { iso_3166_1: 'DE', rating: 'FSK 12' },
+              { iso_3166_1: 'US', rating: 'TV-MA' },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.certification(100, 'tv')).resolves.toBe('TV-MA');
+  });
+
+  it('returns null when the US entry has no certification', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: () => true,
+        respond: () =>
+          createResponse(200, {
+            results: [
+              { iso_3166_1: 'US', release_dates: [{ certification: '' }] },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.certification(27205, 'movie')).resolves.toBeNull();
+  });
+
+  it('returns null for an unknown id (404)', async () => {
+    const fetchImpl = makeFetch([{ match: () => true, respond: () => createResponse(404, {}) }]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.certification(999999, 'movie')).resolves.toBeNull();
+  });
+
+  it('throws UpstreamError on other non-2xx or network failure', async () => {
+    const fetchImpl = makeFetch([{ match: () => true, respond: () => createResponse(502, {}) }]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.certification(550, 'movie')).rejects.toBeInstanceOf(UpstreamError);
+  });
+});

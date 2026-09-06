@@ -6,6 +6,7 @@ import type {
   DiscoverSection,
   DownloadRecord,
   FanartArtKind,
+  HoverCardInfo,
   ImageProvider,
   MediaArt,
   MediaDetail,
@@ -259,38 +260,40 @@ export function mediaDetails(id: number, type: MediaType): Promise<MediaDetail> 
   return request<MediaDetail>(`/api/media/${id}?type=${type}`);
 }
 
-const TRAILER_TTL_MS = 60 * 60 * 1000;
-const trailerCache = new Map<string, { promise: Promise<Trailer | null>; expires: number }>();
+const HOVER_TTL_MS = 60 * 60 * 1000;
+const hoverCache = new Map<string, { promise: Promise<HoverCardInfo | null>; expires: number }>();
 
 /**
- * Best hover-trailer for a title (S15). In-flight requests are deduped and
- * results (including "no trailer") cached ~1h. Any failure degrades to `null` —
- * a trailer must never block or break a card.
+ * Everything the expanded Netflix-style hover card needs (S16/D20): best
+ * trailer + genres/duration/seasons/certification in one call. In-flight
+ * requests are deduped and results (including "no hover card" answers) cached
+ * ~1h. Any failure degrades to `null` — a hover card must never block a card.
  */
-export function trailerFor(item: { tmdbId: number; mediaType: MediaType }): Promise<Trailer | null> {
+export function hoverCardFor(item: { tmdbId: number; mediaType: MediaType }): Promise<HoverCardInfo | null> {
   const key = `${item.mediaType}:${item.tmdbId}`;
-  const cached = trailerCache.get(key);
+  const cached = hoverCache.get(key);
   if (cached && cached.expires > Date.now()) return cached.promise;
-  const promise = request<{ trailer: Trailer | null }>(
-    `/api/media/${item.tmdbId}/trailer?type=${item.mediaType}`,
-  )
-    .then((body) => body?.trailer ?? null)
+  const promise = request<HoverCardInfo>(`/api/media/${item.tmdbId}/hover?type=${item.mediaType}`)
+    .then((body) => body ?? null)
     .catch(() => null);
-  trailerCache.set(key, { promise, expires: Date.now() + TRAILER_TTL_MS });
+  hoverCache.set(key, { promise, expires: Date.now() + HOVER_TTL_MS });
   return promise;
 }
 
-/** Test hook — clears the module-level trailer cache. */
-export function clearTrailerCache(): void {
-  trailerCache.clear();
+/** Test hook — clears the module-level hover cache. */
+export function clearHoverCache(): void {
+  hoverCache.clear();
 }
 
-/** Muted-autoplay looping embed URL for the hover preview (D18). */
-export function trailerEmbedUrl(trailer: Trailer): string {
+/** Looping hover-preview embed URL (D18/D20); sound defaults ON (`muted` false). */
+export function trailerEmbedUrl(trailer: Trailer, opts: { muted?: boolean } = {}): string {
+  const muted = opts.muted ?? false;
   if (trailer.provider === 'vimeo') {
-    return `https://player.vimeo.com/video/${encodeURIComponent(trailer.videoId)}?autoplay=1&muted=1&loop=1&controls=0&title=0&byline=0&portrait=0`;
+    const v = muted ? '1' : '0';
+    return `https://player.vimeo.com/video/${encodeURIComponent(trailer.videoId)}?autoplay=1&muted=${v}&loop=1&controls=0&title=0&byline=0&portrait=0`;
   }
-  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.videoId)}?autoplay=1&mute=1&controls=0&playsinline=1&loop=1&playlist=${encodeURIComponent(trailer.videoId)}&modestbranding=1`;
+  const m = muted ? '1' : '0';
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.videoId)}?autoplay=1&mute=${m}&controls=0&playsinline=1&loop=1&playlist=${encodeURIComponent(trailer.videoId)}&modestbranding=1`;
 }
 
 export function seasonEpisodes(id: number, season: number): Promise<SeasonEpisodesResponse> {

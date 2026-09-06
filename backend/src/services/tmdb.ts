@@ -29,6 +29,8 @@ export interface TmdbClient {
   tvdbId(id: number): Promise<number | null>;
   /** Raw `/movie|tv/{id}/videos` results (S15); a 404 (unknown id) maps to `[]`. */
   videos(id: number, type: MediaType): Promise<TmdbVideo[]>;
+  /** US age rating (`R`, `PG-13`, `TV-MA`, …) for the hover card (S16); null when the title has no US certification. */
+  certification(id: number, type: MediaType): Promise<string | null>;
 }
 
 export interface TmdbClientConfig {
@@ -85,6 +87,16 @@ interface TmdbEpisodeDto {
 
 interface TmdbExternalIds {
   tvdb_id?: number | null;
+}
+
+interface TmdbReleaseDatesResult {
+  iso_3166_1?: string;
+  release_dates?: { certification?: string }[];
+}
+
+interface TmdbContentRatingsResult {
+  iso_3166_1?: string;
+  rating?: string;
 }
 
 interface TmdbVideoDto {
@@ -269,7 +281,31 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
       }));
   }
 
-  return { searchMulti, details, browse, seasonEpisodes, tvdbId, videos };
+  async function certification(id: number, type: MediaType): Promise<string | null> {
+    const path = type === 'movie' ? `/movie/${id}/release_dates` : `/tv/${id}/content_ratings`;
+    const url = `${config.baseUrl}${path}?language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
+    let res: Response;
+    try {
+      res = await fetchWithRetry(fetchImpl, url, {}, { retries: 1, baseBackoffMs: 300, timeoutMs: 8000 });
+    } catch {
+      throw new UpstreamError(502, 'TMDB unreachable');
+    }
+    // An unknown id (or a title with no age ratings) is not an error for the hover card.
+    if (res.status === 404) return null;
+    if (!res.ok) throw new UpstreamError(502, `TMDB certification failed (HTTP ${res.status})`);
+    const data = (await res.json()) as { results?: (TmdbReleaseDatesResult | TmdbContentRatingsResult)[] };
+    const us = (data.results ?? []).find((r) => r.iso_3166_1 === 'US');
+    if (!us) return null;
+    if (type === 'movie') {
+      const dates = (us as TmdbReleaseDatesResult).release_dates ?? [];
+      const cert = dates.map((d) => d.certification ?? '').find((c) => c.trim().length > 0);
+      return cert ? cert.trim() : null;
+    }
+    const rating = (us as TmdbContentRatingsResult).rating ?? '';
+    return rating.trim().length > 0 ? rating.trim() : null;
+  }
+
+  return { searchMulti, details, browse, seasonEpisodes, tvdbId, videos, certification };
 }
 
 function sectionPaths(section: DiscoverSection): string[] {

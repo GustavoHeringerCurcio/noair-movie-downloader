@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { TitleCard } from './TitleCard';
 import { useSettingsStore } from '../store/settingsStore';
-import { trailerFor } from '../api';
-import type { MediaItem } from '../types';
+import { hoverCardFor } from '../api';
+import type { HoverCardInfo, MediaItem } from '../types';
 
 vi.mock('../api', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../api')>();
-  return { ...mod, trailerFor: vi.fn() };
+  return { ...mod, hoverCardFor: vi.fn() };
 });
 
-const mockTrailerFor = vi.mocked(trailerFor);
+const mockHoverCardFor = vi.mocked(hoverCardFor);
 
 const FULL: MediaItem = {
   tmdbId: 27205,
@@ -39,10 +39,45 @@ const FANART_POSTER_ONLY: MediaItem = {
 
 const NO_ART: MediaItem = { ...FULL, posterPath: null, backdropPath: null };
 
+const MOVIE_HOVER: HoverCardInfo = {
+  trailer: { provider: 'youtube', videoId: 'abc', name: null },
+  genres: ['Sci-Fi', 'Action'],
+  runtime: 148,
+  seasons: null,
+  certification: 'PG-13',
+};
+
+const TV_HOVER: HoverCardInfo = {
+  trailer: { provider: 'youtube', videoId: 'tvabc', name: null },
+  genres: ['Psychological', 'Drama'],
+  runtime: null,
+  seasons: 2,
+  certification: 'TV-MA',
+};
+
+const NO_TRAILER_HOVER: HoverCardInfo = {
+  trailer: null,
+  genres: ['Drama'],
+  runtime: 121,
+  seasons: null,
+  certification: 'R',
+};
+
 function renderCard(item: MediaItem): void {
   render(
     <MemoryRouter>
       <TitleCard item={item} />
+    </MemoryRouter>,
+  );
+}
+
+function renderNav(item: MediaItem): void {
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <Routes>
+        <Route path="/" element={<TitleCard item={item} />} />
+        <Route path="/media/:id" element={<div>DETAIL PAGE</div>} />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -158,10 +193,10 @@ describe('TitleCard poster-first style (D17)', () => {
   });
 });
 
-describe('TitleCard hover-trailer preview (D18)', () => {
+describe('TitleCard expanded hover card (D20)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    mockTrailerFor.mockReset();
+    mockHoverCardFor.mockReset();
   });
 
   afterEach(() => {
@@ -173,30 +208,36 @@ describe('TitleCard hover-trailer preview (D18)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(ms);
     });
+    await act(async () => {});
   }
 
-  it('starts the muted embed after a sustained hover and stops on leave', async () => {
-    mockTrailerFor.mockResolvedValue({ provider: 'youtube', videoId: 'abc', name: null });
+  it('opens the expanded card after a sustained hover and plays sound on by default', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
     renderCard(FULL);
     const card = screen.getByRole('button', { name: /inception/i });
 
     await hoverFor(card, 600);
-    await act(async () => {});
 
-    expect(mockTrailerFor).toHaveBeenCalledTimes(1);
-    expect(mockTrailerFor).toHaveBeenCalledWith({ tmdbId: 27205, mediaType: 'movie' });
-    const iframe = document.querySelector('.title-card-trailer') as HTMLIFrameElement | null;
-    expect(iframe?.src).toContain('youtube-nocookie.com/embed/abc');
-    expect(iframe?.src).toContain('autoplay=1');
-    expect(iframe?.src).toContain('mute=1');
+    expect(mockHoverCardFor).toHaveBeenCalledTimes(1);
+    expect(mockHoverCardFor).toHaveBeenCalledWith({ tmdbId: 27205, mediaType: 'movie' });
+    const pop = document.querySelector('.tc-pop') as HTMLElement | null;
+    expect(pop).not.toBeNull();
+    expect(pop?.querySelector('.tc-pop-title-text')?.textContent).toBe('Inception');
+    const video = pop?.querySelector('.tc-pop-video') as HTMLIFrameElement | null;
+    expect(video?.src).toContain('youtube-nocookie.com/embed/abc');
+    expect(video?.src).toContain('autoplay=1');
+    expect(video?.src).toContain('mute=0');
+    expect(screen.getByRole('button', { name: 'Mute preview' })).toBeInTheDocument();
 
     fireEvent.mouseLeave(card);
-    await act(async () => {});
-    expect(document.querySelector('.title-card-trailer')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(document.querySelector('.tc-pop')).toBeNull();
   });
 
-  it('does not fetch on a quick hover sweep', async () => {
-    mockTrailerFor.mockResolvedValue(null);
+  it('does not fetch or expand on a quick hover sweep', async () => {
+    mockHoverCardFor.mockResolvedValue(null);
     renderCard(FULL);
     const card = screen.getByRole('button', { name: /inception/i });
 
@@ -204,24 +245,116 @@ describe('TitleCard hover-trailer preview (D18)', () => {
     fireEvent.mouseLeave(card);
     await act(async () => {});
 
-    expect(mockTrailerFor).not.toHaveBeenCalled();
+    expect(mockHoverCardFor).not.toHaveBeenCalled();
+    expect(document.querySelector('.tc-pop')).toBeNull();
   });
 
-  it('keeps the card static when the title has no trailer', async () => {
-    mockTrailerFor.mockResolvedValue(null);
+  it('toggles the mute state and remounts the embed with mute=1', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
     renderCard(FULL);
     const card = screen.getByRole('button', { name: /inception/i });
-
     await hoverFor(card, 600);
-    await act(async () => {});
 
-    expect(mockTrailerFor).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.title-card-trailer')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mute preview' }));
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Unmute preview' })).toBeInTheDocument();
+    const video = document.querySelector('.tc-pop-video') as HTMLIFrameElement | null;
+    expect(video?.src).toContain('mute=1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute preview' }));
+    await act(async () => {});
+    const again = document.querySelector('.tc-pop-video') as HTMLIFrameElement | null;
+    expect(again?.src).toContain('mute=0');
+  });
+
+  it('expands with still artwork and details when the title has no trailer', async () => {
+    mockHoverCardFor.mockResolvedValue(NO_TRAILER_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    const pop = document.querySelector('.tc-pop') as HTMLElement | null;
+    expect(pop).not.toBeNull();
+    expect(pop?.querySelector('.tc-pop-video')).toBeNull();
+    expect(pop?.querySelector('.tc-pop-art')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mute preview' })).not.toBeInTheDocument();
+    expect(screen.getByText('R')).toBeInTheDocument();
+    expect(screen.getByText('2h 1m')).toBeInTheDocument();
+    expect(screen.getByText('HD')).toBeInTheDocument();
+    expect(screen.getByText('Drama')).toBeInTheDocument();
+  });
+
+  it('renders season metadata for a tv title', async () => {
+    const tvItem: MediaItem = { ...FULL, mediaType: 'tv', title: 'Fallout' };
+    mockHoverCardFor.mockResolvedValue(TV_HOVER);
+    renderCard(tvItem);
+    const card = screen.getByRole('button', { name: /fallout/i });
+    await hoverFor(card, 600);
+
+    expect(screen.getByText('TV-MA')).toBeInTheDocument();
+    expect(screen.getByText('2 Seasons')).toBeInTheDocument();
+  });
+
+  it('keeps the card static when the hover payload cannot be resolved', async () => {
+    mockHoverCardFor.mockResolvedValue(null);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    expect(mockHoverCardFor).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.tc-pop')).toBeNull();
+  });
+
+  it('does not expand for reduced-motion users', async () => {
+    const mm = (query: string): MediaQueryList =>
+      ({ matches: true, media: query, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }) as unknown as MediaQueryList;
+    vi.spyOn(window, 'matchMedia').mockImplementation(mm);
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    expect(mockHoverCardFor).not.toHaveBeenCalled();
+    expect(document.querySelector('.tc-pop')).toBeNull();
+  });
+
+  it('triggers the primary watch action from the pop-up Play button', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    const onClick = vi.fn();
+    render(
+      <MemoryRouter>
+        <TitleCard item={FULL} primary={{ label: 'Watch', icon: 'play', onClick }} />
+      </MemoryRouter>,
+    );
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the detail page from the pop-up More Info button', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderNav(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    fireEvent.click(screen.getByRole('button', { name: 'More info' }));
+    await act(async () => {});
+    expect(screen.getByText('DETAIL PAGE')).toBeInTheDocument();
+  });
+
+  it('keeps the pop open when moving the pointer from the card onto it', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
 
     fireEvent.mouseLeave(card);
-    fireEvent.mouseEnter(card);
-    await hoverFor(card, 600);
-    await act(async () => {});
-    expect(mockTrailerFor).toHaveBeenCalledTimes(1);
+    fireEvent.mouseEnter(document.querySelector('.tc-pop')!);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(document.querySelector('.tc-pop')).not.toBeNull();
   });
 });
