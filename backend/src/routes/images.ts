@@ -2,13 +2,25 @@ import { Readable } from 'node:stream';
 import type { ReadableStream } from 'node:stream/web';
 import { Router } from 'express';
 import type { AppDeps } from '../deps.js';
+import type { ArtKind } from '../db/artFilesRepo.js';
 
 const TMDB_IMAGE_PATH_RE = /^[a-zA-Z0-9/_.-]+$/;
-const ALLOWED_SIZES = new Set(['w500', 'w1280']);
+const ALLOWED_SIZES = new Set(['w500', 'w780', 'w1280']);
+const ART_KINDS: ArtKind[] = ['poster', 'background', 'logo'];
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+};
 
 export function createImagesRouter(deps: AppDeps): Router {
   const router = Router();
 
+  // S8 — TMDB image proxy (key never reaches the browser).
   router.get('/images/tmdb/*', async (req, res) => {
     const imagePath = (req.params as Record<string, string>)['0'] ?? '';
     if (!TMDB_IMAGE_PATH_RE.test(imagePath)) {
@@ -38,6 +50,49 @@ export function createImagesRouter(deps: AppDeps): Router {
       console.error(`image proxy fetch failed: ${url}`, error);
       res.status(502).json({ error: 'upstream error' });
     }
+  });
+
+  // S8b — locally cached artwork from the pipeline (D17). The file name always
+  // comes from the `art_files` row — never from the request — so traversal is
+  // impossible; `root` containment is an extra guard.
+  router.get('/images/art/:mediaType/:tmdbId/:kind', async (req, res) => {
+    const { mediaType, tmdbId: tmdbIdRaw, kind } = req.params as Record<string, string>;
+    if (mediaType !== 'movie' && mediaType !== 'tv') {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const tmdbId = Number(tmdbIdRaw);
+    if (!Number.isInteger(tmdbId) || tmdbId <= 0 || !ART_KINDS.includes(kind as ArtKind)) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    if (!deps.artFiles) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const rows = await deps.artFiles.getMany([{ mediaType, tmdbId }]);
+    const row = rows.find((r) => r.kind === kind);
+    if (!row || row.status !== 'ok' || !row.filePath) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const fileName = row.filePath;
+    if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    const ext = fileName.slice(fileName.lastIndexOf('.'));
+    res.set('Content-Type', MIME_BY_EXT[ext] ?? 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(fileName, { root: deps.config.artDir }, (error) => {
+      if (!error) return;
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      console.error('art file serve failed', error);
+      if (!res.headersSent) res.status(500).json({ error: 'internal error' });
+    });
   });
 
   return router;

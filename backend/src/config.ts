@@ -38,6 +38,8 @@ export interface AppConfig {
   downloadDir: string;
   /** Root for the HLS package cache produced for completed files (Playback). */
   packageDir: string;
+  /** Root where the artwork pipeline stores downloaded images (poster-first tiles). */
+  artDir: string;
   pollIntervalMs: number;
   fanartMinGapMs: number;
   artWarmIntervalMs: number;
@@ -63,6 +65,7 @@ export function loadConfig(): AppConfig {
     databaseUrl: requireEnv('DATABASE_URL'),
     downloadDir: optionalEnv('DOWNLOAD_DIR', '/downloads'),
     packageDir: optionalEnv('PACKAGE_DIR', '/packages'),
+    artDir: optionalEnv('ART_DIR', '/art'),
     pollIntervalMs: 2000,
     fanartMinGapMs: parseInt(optionalEnv('FANART_MIN_GAP_MS', '800'), 10),
     artWarmIntervalMs: parseInt(optionalEnv('ART_WARM_INTERVAL_MS', String(12 * 60 * 60 * 1000)), 10),

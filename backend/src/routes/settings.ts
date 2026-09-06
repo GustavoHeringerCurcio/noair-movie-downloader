@@ -10,11 +10,19 @@ import {
   setImageProvider,
   resolveArtPreference,
   saveArtPreference,
+  resolveCardStyle,
+  saveCardStyle,
+  isCardStyle,
   type ImageProvider,
+  type CardStyle,
 } from '../lib/enrich.js';
 
 function toProvider(value: unknown): ImageProvider | null {
   return value === 'tmdb' || value === 'fanart' ? value : null;
+}
+
+function toCardStyle(value: unknown): CardStyle | null {
+  return isCardStyle(value) ? value : null;
 }
 
 export function createSettingsRouter(deps: AppDeps): Router {
@@ -23,9 +31,10 @@ export function createSettingsRouter(deps: AppDeps): Router {
   async function settingsBody() {
     const provider = await resolveImageProvider(deps);
     const preference = await resolveArtPreference(deps);
+    const style = await resolveCardStyle(deps);
     const audio = await loadAudioPreference(deps);
     return {
-      artwork: { provider, fanartConfigured: deps.fanart != null, preference },
+      artwork: { provider, fanartConfigured: deps.fanart != null, preference, style },
       language: { audio },
     };
   }
@@ -72,12 +81,13 @@ export function createSettingsRouter(deps: AppDeps): Router {
 
   router.put('/settings', async (req, res) => {
     const body = (req.body ?? {}) as {
-      artwork?: { provider?: unknown; preference?: { tmdb?: unknown; fanart?: unknown } };
+      artwork?: { provider?: unknown; preference?: { tmdb?: unknown; fanart?: unknown }; style?: unknown };
       language?: { audio?: unknown };
     };
 
     const providerRaw = body?.artwork?.provider ?? null;
     const preferenceRaw = body?.artwork?.preference ?? null;
+    const styleRaw = body?.artwork?.style ?? null;
     const audioRaw = body?.language?.audio ?? null;
     if (providerRaw !== null) {
       const provider = toProvider(providerRaw);
@@ -99,6 +109,14 @@ export function createSettingsRouter(deps: AppDeps): Router {
         return;
       }
     }
+    if (styleRaw !== null) {
+      const style = toCardStyle(styleRaw);
+      if (!style) {
+        res.status(400).json({ error: 'artwork.style must be "backdrop" or "poster"' });
+        return;
+      }
+      await saveCardStyle(deps, style);
+    }
     if (audioRaw !== null) {
       if (!isAudioLang(audioRaw)) {
         res.status(400).json({ error: 'language.audio must be "en", "pt", "es", "fr", "de" or "it"' });
@@ -106,8 +124,8 @@ export function createSettingsRouter(deps: AppDeps): Router {
       }
       await saveAudioPreference(deps, audioRaw);
     }
-    if (providerRaw === null && preferenceRaw === null && audioRaw === null) {
-      res.status(400).json({ error: 'nothing to update (artwork.provider, artwork.preference or language.audio expected)' });
+    if (providerRaw === null && preferenceRaw === null && styleRaw === null && audioRaw === null) {
+      res.status(400).json({ error: 'nothing to update (artwork.provider, artwork.preference, artwork.style or language.audio expected)' });
       return;
     }
     res.json(await settingsBody());

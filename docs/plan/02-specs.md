@@ -78,8 +78,15 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 
 ### S8 `GET /api/images/tmdb/*path`
 - Auth: none
-- Behavior: proxies `https://image.tmdb.org/t/p/w500/<path>` (poster) / `w1280` (backdrop) server-side. Never exposes the TMDB key. `path` must match `^[a-zA-Z0-9/_.-]+$` (reject anything else with `400`).
+- Behavior: proxies `https://image.tmdb.org/t/p/{w500|w780|w1280}/<path>` server-side (`w500`/`w780` posters, `w1280` backdrops). Never exposes the TMDB key. `path` must match `^[a-zA-Z0-9/_.-]+$` (reject anything else with `400`).
 - Response: `200` image bytes; `502` TMDB unreachable.
+
+### S8b `GET /api/images/art/:mediaType/:tmdbId/:kind`
+- Auth: none. Serves artwork that the pipeline (§4.8) downloaded to the `art` volume.
+- Request: params `mediaType: "movie" | "tv"`, `tmdbId: int`, `kind: "poster" | "background" | "logo"`.
+- Behavior: looks up the matching `art_files` row, resolves `file_path` inside `ART_DIR` (path comes from the DB — never from the request; containment-checked), and streams the file with `Content-Type` from its extension and `Cache-Control: public, max-age=31536000, immutable`.
+- Response: `200` image bytes; `404` unknown subject/kind or file missing from disk.
+- Fallback contract: the frontend treats this route as primary in `poster` card style; an `onError`/missing 404 falls back to the S8 TMDB proxy URLs.
 
 ### S9 Socket.IO events
 - Namespace: default (`/`).
@@ -161,6 +168,19 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 
 - Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1. The schema file must **also** run idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements for any column added after first release (`backdrop_path`, `season_number`, `episode_number`) so existing named volumes upgrade on boot.
 
+### Table: `art_files`
+| Column | Type | Required | Notes |
+|--------|------|----------|-------|
+| `media_type` | text | yes | `movie` \| `tv`; PK part |
+| `tmdb_id` | int | yes | PK part |
+| `kind` | text | yes | `poster` \| `background` \| `logo`; PK part |
+| `origin_url` | text | no | upstream URL the file was downloaded from |
+| `file_path` | text | no | file name relative to `ART_DIR` |
+| `status` | text NOT NULL DEFAULT 'ok' | yes | `ok` \| `empty` (no source found) |
+| `fetched_at` | timestamptz NOT NULL DEFAULT now() | yes | |
+
+- `ART_DIR` is a named compose volume (like `/downloads`, `/packages`) mounted at the backend's configured `ART_DIR` (default `/art`). Files are named `{mediaType}_{tmdbId}_{kind}.{ext}`.
+
 ## 3. UI / CLI
 
 Visual language (D15): **strict black & white, Netflix-style**. Fixed top header 68px that is transparent at the top of the page and fades to a black gradient (then solid `#000`) on scroll. Layout is full-bleed (no centered max-width column); content gutters are `4%`. Cards are **16:9 landscape title cards** sourcing `/api/images/tmdb/w1280<backdropPath>`; rails bleed to the viewport edge so the rightmost card is clipped mid-card to invite horizontal scroll; hover scales the card and reveals a white-ringed action panel. All colors are grayscale tokens (`--bg #000`, surfaces, `#fff/#e5e5e5/#b3b3b3/#808080`); state chips/progress/seeders map to luminance, never hue.
@@ -182,6 +202,7 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 - Trigger: header search icon. Fixed `#000` overlay, `role="dialog"`, focus trap, Esc/× closes, focus restored to trigger.
 - Big input (debounced 300ms → S1), `All | Movies | TV` segmented control, landscape-card result grid.
 - Empty: "No results for '<q>'".
+- **Result selection**: activating a result (click/Enter) navigates to `/media/:id?type=…`; the overlay closes on any route change committed beneath it (so the destination is never hidden behind the full-screen layer). Closing resets query/results; no auto-save of the typed term into recent searches.
 
 ### Screen: Media Detail (`/media/:id`)
 - Hero: `w1280` backdrop, title, meta row (year · genres · runtime · rating; TV adds "N Seasons"), overview, grayscale overlays.
@@ -202,7 +223,7 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 
 ### Pages: Downloads (`/downloads`) and Settings (`/settings`)
 - Downloads rows: 16:9 thumb, title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality chip, progress bar, speed/ETA, actions **Watch · Player (S7 native, `movie://`) · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`). Watch/Player are disabled until `streamable` (a fully-downloaded file exists).
-- Settings: existing System/Configuration/About cards + **Local player** card — choose VLC/MPV/MPC-HC/PotPlayer (localStorage hint) and download a `.cmd` installer/uninstaller that registers the `movie://` handler on the user's machine.
+- Settings: existing System/Configuration/About cards + **Local player** card — choose VLC/MPV/MPC-HC/PotPlayer (localStorage hint) and download a `.cmd` installer/uninstaller that registers the `movie://` handler on the user's machine. The Artwork source card gains a **temporary** "Card style" A/B control (`backdrop` = current full-bleed tile vs `poster` = poster-first layered tile, D17) persisted as `artwork.style` so both looks can be compared live; both this toggle and the provider-agnostic warm guard (§4.8) are removed once the winning source is chosen.
 - Data for both: Socket.IO `downloads:initial` / `downloads:update` → Zustand store.
 
 ### Grayscale state mapping (replaces §4.2 colors)
@@ -312,6 +333,20 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 - Enrichment (`lib/enrich.ts`): `enrichItems` (search/browse) and `enrichDetail` (`/media/:id`) run **best-effort, parallel (5 workers), `Promise.allSettled`** and attach `art?: MediaArt` only on success. No enrichment on `/sources` or `/season/:n`.
 - `MediaArt = { thumbUrl: string|null, logoUrl: string|null }`. UI card image priority: `art.thumbUrl` → TMDB `w1280` backdrop → poster crop → monogram.
 
+### 4.7 Hi-res poster sourcing (movies + TV) — resolved
+- iTunes Store artwork was evaluated as the hi-res poster source but **rejected**: the public `itunes.apple.com/search` API is deprecated and returns empty results (Apple Developer Forums); the replacement requires an affiliate token. No iTunes integration.
+- Hi-res poster ladder (used by §4.8): Fanart.tv `movieposter`/`tvposter` (`posterUrl`, most-liked, only for titles Fanart has) → TMDB poster `w780`. TMDB posters cover ~every title.
+
+### 4.8 Artwork download pipeline (poster-first tiles) — TEMPORARY v2, D17
+- Problem: Fanart.tv coverage is sparse and TMDB backdrops are generic scene frames, so landscape cards fail the "user must know the movie" test. v2 makes the **poster** the card identity.
+- Per-title art set (`lib/artCache.ts`, `art_files` table, disk under `ART_DIR`):
+  - `poster` source ladder: Fanart `posterUrl` (§4.6/§4.7) → TMDB poster `w780` (via S8 proxy fetch).
+  - `background` source ladder: Fanart.tv `thumbUrl` (§4.6) when the title has one → none (UI falls back to a CSS-blurred poster).
+  - `logo` (optional): Fanart.tv `logoUrl`.
+- The cache downloads each missing file once (`file_path` recorded), skips fresh rows within the refetch TTL, retries transient failures, and never serves stale/missing files (S8b `404`).
+- The warm loop (`lib/warmArt.ts`) now runs in **both** provider modes (guard relaxed — temporary) and, after the Fanart pass, warms the art set for the same subject set (rails + downloads). The old provider-only early-return and the `cardStyle` A/B toggle are temporary until a single winning horizontal-poster source is chosen, after which one source wins and the relaxed guard is re-tightened.
+- DB `media_art` remains the metadata cache of best origin URLs (Fanart); `art_files` records what is actually on disk.
+
 ## 5. Canonical naming (single source of truth)
 | Term | Canonical name |
 |------|----------------|
@@ -334,3 +369,7 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 | TV download label | `seasonNumber` / `episodeNumber` |
 | Landscape image path stored on downloads | `backdropPath` |
 | Episode-deep-link param on Watch | `/watch/:infoHash?episode=SxxExx` |
+| Locally cached artwork file set | table `art_files`; disk root `ART_DIR` |
+| Art file kind (S8b) | `poster` \| `background` \| `logo` |
+| Local artwork route | `/api/images/art/:mediaType/:tmdbId/:kind` |
+| Temporary card A/B setting | `artwork.style`: `backdrop` (default) \| `poster` (D17) |

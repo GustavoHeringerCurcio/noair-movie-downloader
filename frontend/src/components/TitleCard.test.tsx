@@ -44,7 +44,11 @@ function cardMedia(): HTMLImageElement | null {
 }
 
 function setProvider(provider: 'tmdb' | 'fanart'): void {
-  useSettingsStore.setState({ provider, fanartConfigured: provider === 'fanart', ready: true });
+  useSettingsStore.setState({ provider, fanartConfigured: provider === 'fanart', style: 'backdrop', ready: true });
+}
+
+function setStyle(style: 'backdrop' | 'poster'): void {
+  useSettingsStore.setState({ provider: 'tmdb', fanartConfigured: false, style, ready: true });
 }
 
 beforeEach(() => {
@@ -111,5 +115,37 @@ describe('TitleCard', () => {
     );
     expect(screen.getByRole('button', { name: 'Watch' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /more info/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('TitleCard poster-first style (D17)', () => {
+  beforeEach(() => {
+    setStyle('poster');
+  });
+
+  it('layers a ground image and a centered poster figure', () => {
+    renderCard(FULL);
+    const figure = document.querySelector('.title-card-figure') as HTMLImageElement | null;
+    const ground = document.querySelector('.title-card-bg') as HTMLImageElement | null;
+    expect(document.querySelector('.title-card-poster')).not.toBeNull();
+    // The local S8b cache is the first figure candidate.
+    expect(figure?.src).toContain('/api/images/art/movie/27205/poster');
+    // The 16:9 backdrop is the first ground candidate when no Fanart thumb exists.
+    expect(ground?.src).toContain('/api/images/tmdb/w1280/backdrop.jpg');
+  });
+
+  it('falls the figure back to the TMDB w780 poster when the local file 404s', () => {
+    renderCard(FULL);
+    const figure = document.querySelector('.title-card-figure') as HTMLImageElement | null;
+    fireEvent.error(figure!);
+    const next = document.querySelector('.title-card-figure') as HTMLImageElement | null;
+    expect(next?.src).toContain('/api/images/tmdb/w780/poster.jpg');
+  });
+
+  it('shows the monogram and an empty ground when there is no art at all', () => {
+    renderCard(NO_ART);
+    expect(document.querySelector('.title-card-figure')).toBeNull();
+    expect(document.querySelector('.title-card-bg-empty')).not.toBeNull();
+    expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
   });
 });

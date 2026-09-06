@@ -22,7 +22,7 @@ describe('GET /api/settings', () => {
     const res = await request(app).get('/api/settings');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      artwork: { provider: 'tmdb', fanartConfigured: false, preference: PREF },
+      artwork: { provider: 'tmdb', fanartConfigured: false, preference: PREF, style: 'backdrop' },
       language: { audio: 'en' },
     });
   });
@@ -31,7 +31,7 @@ describe('GET /api/settings', () => {
     const app = createApp(depsWithKey(true));
     const res = await request(app).get('/api/settings');
     expect(res.body).toEqual({
-      artwork: { provider: 'fanart', fanartConfigured: true, preference: PREF },
+      artwork: { provider: 'fanart', fanartConfigured: true, preference: PREF, style: 'backdrop' },
       language: { audio: 'en' },
     });
   });
@@ -51,7 +51,7 @@ describe('PUT /api/settings', () => {
     const res = await request(app).put('/api/settings').send({ artwork: { provider: 'fanart' } });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      artwork: { provider: 'fanart', fanartConfigured: true, preference: PREF },
+      artwork: { provider: 'fanart', fanartConfigured: true, preference: PREF, style: 'backdrop' },
       language: { audio: 'en' },
     });
     expect(stored).toEqual({ provider: 'fanart' });
@@ -134,5 +134,40 @@ describe('PUT /api/settings', () => {
     const res = await request(app).put('/api/settings').send({ language: { audio: 'pt-BR' } });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('language.audio');
+  });
+
+  it('persists a poster-first card style (D17 A/B)', async () => {
+    const state: Record<string, unknown> = {};
+    const deps = depsWithKey(false);
+    deps.settings = {
+      get: async (key: string) => state[key] ?? null,
+      set: async (key, value) => {
+        state[key] = value;
+      },
+    };
+    const app = createApp(deps);
+    const res = await request(app).put('/api/settings').send({ artwork: { style: 'poster' } });
+    expect(res.status).toBe(200);
+    expect(res.body.artwork.style).toBe('poster');
+    expect(state.cardStyle).toEqual({ style: 'poster' });
+  });
+
+  it('rejects unknown card styles', async () => {
+    const app = createApp(depsWithKey(false));
+    const res = await request(app).put('/api/settings').send({ artwork: { style: 'wide' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('artwork.style');
+  });
+
+  it('reads a stored card style back on GET', async () => {
+    const deps = depsWithKey(false);
+    deps.settings = {
+      get: async (key: string) => (key === 'cardStyle' ? { style: 'poster' } : null),
+      set: async () => {},
+    };
+    const app = createApp(deps);
+    const res = await request(app).get('/api/settings');
+    expect(res.status).toBe(200);
+    expect(res.body.artwork.style).toBe('poster');
   });
 });

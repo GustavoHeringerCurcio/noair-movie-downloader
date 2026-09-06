@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowDownToLine, Play, Download } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MediaItem } from '../types';
-import { cardImages } from '../api';
-import { useArtPreference, useImageProvider } from '../store/settingsStore';
+import { cardImages, posterStyleLayers } from '../api';
+import { useArtPreference, useCardStyle, useImageProvider } from '../store/settingsStore';
 
 export interface TitleCardPrimary {
   label: string;
@@ -36,31 +36,46 @@ function glyphFor(type?: 'download' | 'play' | 'down'): JSX.Element {
   }
 }
 
+/** Walk an ordered candidate list: on error advance to the next, then give up. */
+function useImageChain(sources: string[], resetKey: string): { src: string | null; onError: () => void } {
+  const [index, setIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setIndex(0);
+    setFailed(false);
+  }, [resetKey]);
+
+  const src = !failed && index < sources.length ? sources[index] : null;
+  const onError = (): void => {
+    if (index + 1 < sources.length) {
+      setIndex((i) => i + 1);
+    } else {
+      setFailed(true);
+    }
+  };
+  return { src, onError };
+}
+
 export function TitleCard({ item, progress, primary }: TitleCardProps) {
   const navigate = useNavigate();
   const provider = useImageProvider();
   const preference = useArtPreference();
+  const style = useCardStyle();
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
+  const resetKey = `${item.tmdbId}:${item.mediaType}:${provider}:${preference.tmdb}:${preference.fanart}:${style}`;
 
-  const sources = useMemo(() => cardImages(item, provider, preference), [item, provider, preference]);
-  const [srcIndex, setSrcIndex] = useState(0);
-  const [failed, setFailed] = useState(false);
+  const isPoster = style === 'poster';
 
-  useEffect(() => {
-    setSrcIndex(0);
-    setFailed(false);
-  }, [item.tmdbId, item.mediaType, provider, preference]);
+  const figureSources = useMemo(
+    () => (isPoster ? posterStyleLayers(item).figure : cardImages(item, provider, preference)),
+    [item, provider, preference, isPoster],
+  );
+  const backgroundSources = useMemo(() => (isPoster ? posterStyleLayers(item).background : []), [item, isPoster]);
 
-  const src = !failed && srcIndex < sources.length ? sources[srcIndex] : null;
-
-  function handleError(): void {
-    if (srcIndex + 1 < sources.length) {
-      setSrcIndex((i) => i + 1);
-    } else {
-      setFailed(true);
-    }
-  }
+  const figure = useImageChain(figureSources, resetKey);
+  const background = useImageChain(backgroundSources, resetKey);
 
   function goDetail(): void {
     navigate(openDetail(item));
@@ -75,21 +90,30 @@ export function TitleCard({ item, progress, primary }: TitleCardProps) {
 
   return (
     <div
-      className="title-card"
+      className={`title-card ${isPoster ? 'title-card-poster' : ''}`}
       role="button"
       tabIndex={0}
       aria-label={`${title} — open details`}
       onClick={goDetail}
       onKeyDown={handleKey}
     >
-      {src ? (
-        <img
-          className="title-card-media"
-          src={src}
-          alt=""
-          loading="lazy"
-          onError={handleError}
-        />
+      {isPoster ? (
+        <>
+          {background.src ? (
+            <img className="title-card-bg" src={background.src} alt="" aria-hidden="true" onError={background.onError} />
+          ) : (
+            <div className="title-card-bg-empty" aria-hidden="true" />
+          )}
+          {figure.src ? (
+            <img className="title-card-figure" src={figure.src} alt="" loading="lazy" onError={figure.onError} />
+          ) : (
+            <div className="title-card-fallback" aria-hidden="true">
+              {item.title.charAt(0).toUpperCase()}
+            </div>
+          )}
+        </>
+      ) : figure.src ? (
+        <img className="title-card-media" src={figure.src} alt="" loading="lazy" onError={figure.onError} />
       ) : (
         <div className="title-card-fallback" aria-hidden="true">
           {item.title.charAt(0).toUpperCase()}

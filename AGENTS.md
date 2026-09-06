@@ -23,10 +23,9 @@ Entry point for any agent working in this repo. Read this file first.
 - qBittorrent is polled at exactly 2s intervals; never faster.
 
 ## Editing rules
-- Do not modify files under `docs/plan/` unless explicitly asked.
 - Design decisions belong in `docs/plan/00-index.md` — never invent them in code.
+- Keep `docs/plan/` up to date when a design or spec changes; you are allowed (and expected) to edit these files when necessary.
 - Follow the execution protocol in `docs/plan/00-index.md`.
 
 ## Do not touch
 - `.env` (user secrets)
-- `docs/plan/` (plan docs) unless explicitly asked

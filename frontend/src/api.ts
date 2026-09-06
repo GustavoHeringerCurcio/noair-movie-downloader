@@ -1,6 +1,7 @@
 import type {
   AudioLang,
   ArtPreference,
+  CardStyle,
   CreateDownloadPayload,
   DiscoverSection,
   DownloadRecord,
@@ -34,18 +35,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-export function posterUrl(posterPath: string | null): string | null {
-  return posterPath ? `/api/images/tmdb/w500${posterPath}` : null;
+export function posterUrl(posterPath: string | null, size: 'w500' | 'w780' = 'w500'): string | null {
+  return posterPath ? `/api/images/tmdb/${size}${posterPath}` : null;
 }
 
 export function backdropUrl(backdropPath: string | null): string | null {
   return backdropPath ? `/api/images/tmdb/w1280${backdropPath}` : null;
 }
 
+/** S8b — artwork the pipeline downloaded to the backend `art` volume. */
+export function localArtUrl(mediaType: MediaType, tmdbId: number, kind: 'poster' | 'background' | 'logo'): string {
+  return `/api/images/art/${mediaType}/${tmdbId}/${kind}`;
+}
+
 export interface ArtworkSettings {
   provider: ImageProvider;
   fanartConfigured: boolean;
   preference: ArtPreference;
+  /** Temporary card A/B (D17). */
+  style: CardStyle;
 }
 
 export interface SiteSettings {
@@ -54,6 +62,7 @@ export interface SiteSettings {
 }
 
 export const DEFAULT_ART_PREFERENCE: ArtPreference = { tmdb: 'backdrop', fanart: 'thumb' };
+export const DEFAULT_CARD_STYLE: CardStyle = 'backdrop';
 
 export function fetchSettings(): Promise<SiteSettings> {
   return request<SiteSettings>('/api/settings');
@@ -70,6 +79,13 @@ export function saveArtworkPreference(preference: Partial<ArtPreference>): Promi
   return request<SiteSettings>('/api/settings', {
     method: 'PUT',
     body: JSON.stringify({ artwork: { preference } }),
+  });
+}
+
+export function saveCardStyle(style: CardStyle): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ artwork: { style } }),
   });
 }
 
@@ -119,6 +135,36 @@ export function cardImages(item: CardArtSource, provider: ImageProvider, prefere
   const preferred: TmdbArtKind = preference.tmdb;
   const ordered = preferred === 'backdrop' ? [backdrop, poster] : [poster, backdrop];
   return ordered.filter((v): v is string => Boolean(v));
+}
+
+/** Poster-first layered tile (D17, temporary): needs the title's identity to build S8b URLs. */
+export interface PosterCardLayers {
+  /** Ordered background candidates (full-bleed, CSS-blurred unless it is 16:9 key art). */
+  background: string[];
+  /** Ordered poster candidates (the crisp figure — title identity). */
+  figure: string[];
+}
+
+export function dedupeUrls(urls: Array<string | null>): string[] {
+  return urls.filter((u): u is string => Boolean(u)).filter((u, i, all) => all.indexOf(u) === i);
+}
+
+export function posterStyleLayers(
+  item: CardArtSource & { mediaType: MediaType; tmdbId: number },
+): PosterCardLayers {
+  const posterUrlHi = posterUrl(item.posterPath, 'w780');
+  const posterUrlLo = posterUrl(item.posterPath);
+  const localPoster = item.posterPath ? localArtUrl(item.mediaType, item.tmdbId, 'poster') : null;
+
+  const figure = dedupeUrls([localPoster, item.art?.posterUrl ?? null, posterUrlHi, posterUrlLo]);
+  const background = dedupeUrls([
+    item.art?.thumbUrl ?? null,
+    backdropUrl(item.backdropPath),
+    localPoster,
+    item.art?.posterUrl ?? null,
+    posterUrlHi,
+  ]);
+  return { background, figure };
 }
 
 export function fanartArtKindLabel(kind: FanartArtKind): string {

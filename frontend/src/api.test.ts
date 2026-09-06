@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardImages, humanEta, humanSize, humanSpeed } from './api';
+import { cardImages, humanEta, humanSize, humanSpeed, localArtUrl, posterStyleLayers } from './api';
 import type { ArtPreference, MediaArt } from './types';
 
 const PREF: ArtPreference = { tmdb: 'backdrop', fanart: 'thumb' };
@@ -113,5 +113,65 @@ describe('cardImages (STRICT provider isolation)', () => {
   it('returns no sources when neither provider has any image', () => {
     const srcs = cardImages({ backdropPath: null, posterPath: null, art: null }, 'fanart', PREF);
     expect(srcs).toEqual([]);
+  });
+});
+
+describe('localArtUrl', () => {
+  it('points at the local S8b artwork route', () => {
+    expect(localArtUrl('movie', 550, 'poster')).toBe('/api/images/art/movie/550/poster');
+    expect(localArtUrl('tv', 1396, 'background')).toBe('/api/images/art/tv/1396/background');
+  });
+});
+
+describe('posterStyleLayers (D17 poster-first tile)', () => {
+  it('builds the figure from local cache, then Fanart hi-res, then TMDB w780/w500', () => {
+    const item = {
+      mediaType: 'movie' as const,
+      tmdbId: 550,
+      backdropPath: '/b.jpg',
+      posterPath: '/p.jpg',
+      art: art({ posterUrl: 'https://fanart.tv/poster.jpg', thumbUrl: 'https://fanart.tv/key.jpg' }),
+    };
+    const { figure } = posterStyleLayers(item);
+    expect(figure).toEqual([
+      '/api/images/art/movie/550/poster',
+      'https://fanart.tv/poster.jpg',
+      expect.stringContaining('/api/images/tmdb/w780/p.jpg'),
+      expect.stringContaining('/api/images/tmdb/w500/p.jpg'),
+    ]);
+  });
+
+  it('keeps the 16:9 Fanart thumb or the TMDB backdrop as the ground layer', () => {
+    const item = {
+      mediaType: 'tv' as const,
+      tmdbId: 1396,
+      backdropPath: '/b.jpg',
+      posterPath: '/p.jpg',
+      art: art({ thumbUrl: 'https://fanart.tv/key.jpg' }),
+    };
+    const { background } = posterStyleLayers(item);
+    expect(background[0]).toBe('https://fanart.tv/key.jpg');
+    expect(background[1]).toBe('/api/images/tmdb/w1280/b.jpg');
+    expect(background).toContain('/api/images/art/tv/1396/poster');
+  });
+
+  it('degrades to empty layers when nothing exists (UI shows the monogram)', () => {
+    const item = { mediaType: 'movie' as const, tmdbId: 1, backdropPath: null, posterPath: null, art: null };
+    const { figure, background } = posterStyleLayers(item);
+    expect(figure).toEqual([]);
+    expect(background).toEqual([]);
+  });
+
+  it('keeps each layer internally unique (ground may reuse the figure source)', () => {
+    const item = {
+      mediaType: 'movie' as const,
+      tmdbId: 550,
+      backdropPath: null,
+      posterPath: '/p.jpg',
+      art: art({ posterUrl: 'https://fanart.tv/poster.jpg' }),
+    };
+    const { figure, background } = posterStyleLayers(item);
+    expect(new Set(figure).size).toBe(figure.length);
+    expect(new Set(background).size).toBe(background.length);
   });
 });

@@ -6,7 +6,9 @@ import { runSchema } from './db/migrate.js';
 import { createDownloadsRepository } from './db/downloadsRepo.js';
 import { createSettingsRepository } from './db/settingsRepo.js';
 import { createArtRepository } from './db/artRepo.js';
+import { createArtFilesRepository } from './db/artFilesRepo.js';
 import { createArtService } from './lib/artService.js';
+import { createArtCache } from './lib/artCache.js';
 import { createFanartGateway } from './lib/fanartGateway.js';
 import { startArtWarmLoop } from './lib/warmArt.js';
 import { createTmdbClient } from './services/tmdb.js';
@@ -25,6 +27,15 @@ async function main(): Promise<void> {
 
   const tmdb = createTmdbClient({ baseUrl: config.tmdbBaseUrl, apiKey: config.tmdbApiKey });
   const fanart = config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null;
+  const artRepo = createArtRepository(pool);
+  const artService = createArtService({
+    repo: artRepo,
+    gateway: createFanartGateway({
+      fanart,
+      resolveTvdbId: (tmdbId) => tmdb.tvdbId(tmdbId),
+      minGapMs: config.fanartMinGapMs,
+    }),
+  });
 
   const deps: AppDeps = {
     config,
@@ -42,13 +53,13 @@ async function main(): Promise<void> {
     settings: createSettingsRepository(pool),
     fanart,
     prowlarrAdmin: createProwlarrAdminClient({ baseUrl: config.prowlarrUrl, apiKey: config.prowlarrApiKey }),
-    art: createArtService({
-      repo: createArtRepository(pool),
-      gateway: createFanartGateway({
-        fanart,
-        resolveTvdbId: (tmdbId) => tmdb.tvdbId(tmdbId),
-        minGapMs: config.fanartMinGapMs,
-      }),
+    art: artService,
+    artFiles: createArtFilesRepository(pool),
+    artCache: createArtCache({
+      repo: createArtFilesRepository(pool),
+      artDir: config.artDir,
+      tmdbImageBaseUrl: config.tmdbImageBaseUrl,
+      resolveMediaArt: (subjects) => artService.resolveManyCached(subjects),
     }),
   };
 

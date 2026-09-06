@@ -87,6 +87,7 @@ services:
     volumes:
       - downloads:/downloads
       - packages:/packages
+      - art:/art
     restart: unless-stopped
     networks: [internal]
 
@@ -105,6 +106,7 @@ volumes:
   prowlarr-config:
   downloads:
   packages:
+  art:
 
 networks:
   internal:

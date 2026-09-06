@@ -3,6 +3,8 @@ import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useToastStore } from '@/store/toastStore';
 import type {
+  AudioLang,
+  CardStyle,
   FanartArtKind,
   ImageProvider,
   MediaType,
@@ -23,7 +25,6 @@ import {
   readPlayerPreference,
   savePlayerPreference,
 } from '@/lib/openerInstaller';
-import type { AudioLang } from '@/types';
 import { AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel } from '@/lib/audio';
 
 const CONFIG_KEYS: Array<{ key: string; description: string }> = [
@@ -44,6 +45,7 @@ export function SettingsPage() {
   const connected = useDownloadsStore((s) => s.connected);
   const provider = useSettingsStore((s) => s.provider);
   const preference = useSettingsStore((s) => s.preference);
+  const style = useSettingsStore((s) => s.style);
   const fanartConfigured = useSettingsStore((s) => s.fanartConfigured);
   const audio = useSettingsStore((s) => s.audio);
   const ready = useSettingsStore((s) => s.ready);
@@ -52,6 +54,7 @@ export function SettingsPage() {
   const saveProvider = useSettingsStore((s) => s.saveProvider);
   const saveTmdbKind = useSettingsStore((s) => s.saveTmdbKind);
   const saveFanartKind = useSettingsStore((s) => s.saveFanartKind);
+  const saveStyle = useSettingsStore((s) => s.saveStyle);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
   const toast = useToastStore((s) => s.toast);
   const [player, setPlayer] = useState<string>(() => readPlayerPreference() ?? 'vlc');
@@ -147,6 +150,16 @@ export function SettingsPage() {
     try {
       await saveFanartKind(kind);
       toast(`FanArt.tv artwork: ${fanartArtKindLabel(kind)}`, 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  async function changeStyle(next: CardStyle): Promise<void> {
+    if (next === style || saving) return;
+    try {
+      await saveStyle(next);
+      toast(next === 'poster' ? 'Card style: poster-first' : 'Card style: backdrop tile', 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Save failed', 'error');
     }
@@ -382,6 +395,37 @@ export function SettingsPage() {
             )}
           </div>
         )}
+      </section>
+
+      <section className="settings-card">
+        <h2>Card style</h2>
+        <p className="settings-note">
+          Temporary A/B while the poster-first artwork pipeline is being compared (D17). Pick which
+          look the 16:9 home/download tiles use; the loser gets removed.
+        </p>
+        <div className="artwork-options" role="group" aria-label="Card style">
+          {(
+            [
+              { value: 'backdrop', label: 'Backdrop tile', hint: 'Current — full-bleed artwork' },
+              { value: 'poster', label: 'Poster-first', hint: 'New — poster as the identity' },
+            ] as const
+          ).map((option) => {
+            const active = style === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={active}
+                disabled={saving || !ready}
+                onClick={() => void changeStyle(option.value)}
+              >
+                <span className="artwork-option-label">{option.label}</span>
+                <span className="artwork-option-hint">{option.hint}</span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <section className="settings-card">

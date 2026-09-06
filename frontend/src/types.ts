@@ -3,6 +3,9 @@ export type SearchType = MediaType | 'all';
 export type DiscoverSection = 'trending-week' | 'best-movies' | 'best-tv';
 export type ImageProvider = 'tmdb' | 'fanart';
 
+/** Temporary card A/B (D17): `backdrop` = current full-bleed tile; `poster` = poster-first layered tile. */
+export type CardStyle = 'backdrop' | 'poster';
+
 /** TMDB-native card art kinds (never FanArt). */
 export type TmdbArtKind = 'backdrop' | 'poster';
 /** FanArt.tv-native sizes; FanArt never falls back to TMDB art. */

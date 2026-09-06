@@ -4,9 +4,20 @@ import { artKey } from './artService.js';
 
 export type ImageProvider = 'tmdb' | 'fanart';
 
+/** Temporary card A/B (D17): `backdrop` keeps the current full-bleed tile. */
+export type CardStyle = 'backdrop' | 'poster';
+
 export const IMAGE_PROVIDER_KEY = 'imageProvider';
 /** Per-provider preferred art kind. FanArt kinds are its own sizes only; never TMDB. */
 export const ART_PREFERENCE_KEY = 'artworkPreference';
+/** Card-render style (D17, temporary while the poster-first pipeline is A/B'd). */
+export const CARD_STYLE_KEY = 'cardStyle';
+
+export const DEFAULT_CARD_STYLE: CardStyle = 'backdrop';
+
+export function isCardStyle(value: unknown): value is CardStyle {
+  return value === 'backdrop' || value === 'poster';
+}
 
 /** TMDB-native card image kinds (its posters/backdrops are never FanArt). */
 export type TmdbArtKind = 'backdrop' | 'poster';
@@ -78,6 +89,20 @@ export async function resolveImageProvider(deps: AppDeps): Promise<ImageProvider
 export async function setImageProvider(deps: AppDeps, provider: ImageProvider): Promise<void> {
   await deps.settings.set(IMAGE_PROVIDER_KEY, { provider });
   deps.art.clear();
+}
+
+interface CardStyleSetting {
+  style?: unknown;
+}
+
+/** Resolve the card-render style; `backdrop` is the default (D17 temporary A/B). */
+export async function resolveCardStyle(deps: AppDeps): Promise<CardStyle> {
+  const stored = await deps.settings.get<CardStyleSetting>(CARD_STYLE_KEY);
+  return stored && isCardStyle(stored.style) ? stored.style : DEFAULT_CARD_STYLE;
+}
+
+export async function saveCardStyle(deps: AppDeps, style: CardStyle): Promise<void> {
+  await deps.settings.set(CARD_STYLE_KEY, { style });
 }
 
 function isFanartActive(deps: AppDeps): Promise<boolean> {

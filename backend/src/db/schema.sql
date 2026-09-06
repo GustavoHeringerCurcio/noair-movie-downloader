@@ -51,3 +51,14 @@ CREATE TABLE IF NOT EXISTS media_art (
 
 ALTER TABLE media_art ADD COLUMN IF NOT EXISTS poster_url text;
 ALTER TABLE media_art ADD COLUMN IF NOT EXISTS background_url text;
+
+CREATE TABLE IF NOT EXISTS art_files (
+  media_type text NOT NULL CHECK (media_type IN ('movie', 'tv')),
+  tmdb_id integer NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('poster', 'background', 'logo')),
+  origin_url text,
+  file_path text,
+  status text NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'empty')),
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (media_type, tmdb_id, kind)
+);
