@@ -9,6 +9,7 @@ import { createImagesRouter } from './routes/images.js';
 import { createBrowseRouter } from './routes/browse.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createPlaybackRouter } from './routes/playback.js';
+import { createDevArtGridRouter } from './routes/devArtGrid.js';
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
@@ -27,6 +28,11 @@ export function createApp(deps: AppDeps): Express {
   app.use('/api', createBrowseRouter(deps));
   app.use('/api', createSettingsRouter(deps));
   app.use('/api', createPlaybackRouter(deps));
+
+  // Dev-only artwork comparison spike (ART_GRID=1). Never mounted in prod.
+  if (deps.config.artGrid) {
+    app.use('/api', createDevArtGridRouter(deps));
+  }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof UpstreamError) {

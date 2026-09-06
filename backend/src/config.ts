@@ -40,6 +40,8 @@ export interface AppConfig {
   packageDir: string;
   /** Root where the artwork pipeline stores downloaded images (poster-first tiles). */
   artDir: string;
+  /** Dev-only artwork comparison grid (`/api/dev/artgrid`). Off in production. */
+  artGrid: boolean;
   pollIntervalMs: number;
   fanartMinGapMs: number;
   artWarmIntervalMs: number;
@@ -66,6 +68,7 @@ export function loadConfig(): AppConfig {
     downloadDir: optionalEnv('DOWNLOAD_DIR', '/downloads'),
     packageDir: optionalEnv('PACKAGE_DIR', '/packages'),
     artDir: optionalEnv('ART_DIR', '/art'),
+    artGrid: optionalEnv('ART_GRID', '0') === '1',
     pollIntervalMs: 2000,
     fanartMinGapMs: parseInt(optionalEnv('FANART_MIN_GAP_MS', '800'), 10),
     artWarmIntervalMs: parseInt(optionalEnv('ART_WARM_INTERVAL_MS', String(12 * 60 * 60 * 1000)), 10),
