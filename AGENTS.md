@@ -17,8 +17,8 @@ Entry point for any agent working in this repo. Read this file first.
 ## Conventions
 - TypeScript strict in both packages. Tests are Vitest (backend) with mocked external providers.
 - API field names are camelCase; DB columns snake_case (see `docs/plan/02-specs.md` §5).
-- External providers (TMDB, Prowlarr, qBittorrent) are always behind an interface in `backend/src/services/`.
-- Secrets live only in `.env` (gitignored). Never commit keys. The TMDB key must never reach the browser — images go through `/api/images/tmdb/*`; portrait posters are downloaded once by the backend to the `art` volume and served from `/api/images/art/*` (D21).
+- External providers (TMDB, fanart.tv, Prowlarr, qBittorrent) are always behind an interface in `backend/src/services/`.
+- Secrets live only in `.env` (gitignored). Never commit keys. The TMDB and fanart.tv keys must never reach the browser — TMDB images go through `/api/images/tmdb/*`; fanart key-art is cached server-side and served from `/api/images/fanart/*`; portrait posters and transparent logos are downloaded once by the backend to the `art` volume and served from `/api/images/art/*` (D21/D22/T-002).
 - Credentials setup is documented in `docs/credentials.md` (template) and `docs/credentials.local.md` (gitignored local notes).
 - qBittorrent is polled at exactly 2s intervals; never faster.
 

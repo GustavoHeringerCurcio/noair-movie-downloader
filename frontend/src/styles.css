@@ -35,6 +35,8 @@
   --nav-h: 68px;
   --gutter: 4%;
   --card-w: clamp(160px, 16.5vw, 300px);
+  /* Vertical 2:3 poster mode (T-002): narrower, taller cards. */
+  --card-w-vert: clamp(128px, 10.5vw, 190px);
   --radius-card: 10px;
   --radius-poster: 6px;
   --rail-gap: 14px;
@@ -781,7 +783,9 @@ ul {
 }
 
 /* --------------------------------------------------------------------------
-   Title card (16:9 landscape)
+   Title card (T-002): horizontal-poster look by default, 2:3 poster mode opt-in.
+   Art stack (bottom → top): typography mark → TMDB backdrop → transparent
+   studio logo → fanart.tv key-art thumb (horizontal) or TMDB poster (vertical).
    -------------------------------------------------------------------------- */
 .title-card {
   position: relative;
@@ -789,9 +793,16 @@ ul {
   aspect-ratio: 16 / 9;
   border-radius: var(--radius-card);
   overflow: hidden;
-  background: var(--bg-2);
+  background: linear-gradient(150deg, #171717 0%, #242424 55%, #1a1a1a 100%);
   border: 1px solid transparent;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-radius 0.18s ease;
+}
+/* Vertical 2:3 poster mode (T-002): narrower cards grown to poster ratio. */
+.posters-vertical {
+  --card-w: var(--card-w-vert);
+}
+.posters-vertical .title-card {
+  aspect-ratio: 2 / 3;
 }
 .title-card:hover,
 .title-card:focus-within {
@@ -807,44 +818,117 @@ ul {
   transition: none;
 }
 
-.title-card-fallback {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 34px;
-  font-weight: 800;
-  color: var(--text-3);
-  background: linear-gradient(135deg, var(--bg-2), var(--bg-3));
-}
-
-/* Netflix-style wide tile (D21): portrait poster from the art volume as both
-   the blurred full-bleed ground and the crisp centered figure. */
-.title-card-poster .title-card-bg,
-.title-card-poster .title-card-bg-empty {
+/* Full-bleed art layers. `tc-art-main` (fanart thumb / poster) sits on top and
+   covers the whole card once loaded; `tc-art-backdrop` paints beneath the
+   typography mark so the fallback reads as "backdrop + strong title". */
+.title-card-art {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-}
-.title-card-poster .title-card-bg {
   object-fit: cover;
-  filter: blur(18px) brightness(0.55);
-  transform: scale(1.12);
+  object-position: center;
 }
-.title-card-poster .title-card-bg-empty {
-  background: var(--bg-2);
+.title-card .tc-art-main,
+.title-card .tc-art-poster {
+  z-index: 4;
 }
-.title-card-poster .title-card-figure {
+.title-card .tc-art-backdrop {
+  z-index: 1;
+}
+
+/* Transparent studio logo (T-002 fallback): centered over the backdrop at
+   roughly the "title" height of a real poster; only rendered once a backdrop
+   is actually showing. */
+.tc-logo {
   position: absolute;
-  top: 50%;
   left: 50%;
+  top: 40%;
   transform: translate(-50%, -50%);
-  height: 94%;
-  aspect-ratio: 2 / 3;
+  max-width: 74%;
+  max-height: 44%;
+  width: auto;
+  height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.65));
+  z-index: 3;
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}
+
+/* Typography mark: the strong-title base layer. It is always mounted so a card
+   whose art has not resolved yet (or never will) still reads like a poster —
+   never a bare empty box. Hidden once the transparent logo takes over. */
+.title-card-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 38px 14px 13px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.86) 6%, rgba(0, 0, 0, 0.5) 48%, rgba(0, 0, 0, 0) 100%);
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.title-card.tc-logo-on .title-card-mark {
+  opacity: 0;
+}
+.tc-mark-letter {
+  display: none;
+}
+.tc-mark-title {
+  max-width: 100%;
+  font-size: clamp(15px, 1.35vw, 22px);
+  font-weight: 900;
+  color: var(--white);
+  letter-spacing: -0.3px;
+  line-height: 1.08;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+.tc-mark-year {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+}
+/* Total-art-missing: the mark becomes the poster — centered monogram + title. */
+.title-card.tc-noart .title-card-mark {
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 3px;
+  padding: 16px;
+  background: linear-gradient(150deg, #161616 0%, #222222 55%, #191919 100%);
+}
+.title-card.tc-noart .tc-mark-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(44px, 5vw, 66px);
+  height: clamp(44px, 5vw, 66px);
+  margin-bottom: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  font-size: clamp(21px, 2.2vw, 30px);
+  font-weight: 800;
+  color: var(--text-1);
+}
+.title-card.tc-noart .tc-mark-title {
+  font-size: clamp(16px, 1.7vw, 24px);
+  -webkit-line-clamp: 3;
+}
+.title-card.tc-noart .tc-mark-year {
+  color: var(--text-3);
 }
 
 .title-card .progress-track {
@@ -974,6 +1058,11 @@ ul {
   background: var(--bg);
   border: 0;
   pointer-events: none;
+}
+/* A 2:3 poster standing in as the pop-up still is portrait — keep the subject's
+   face in frame instead of center-cropping through it. */
+.tc-pop-art-poster {
+  object-position: center 22%;
 }
 .tc-pop-fallback {
   position: absolute;
@@ -1374,6 +1463,28 @@ ul {
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 3px;
+}
+/* IMDb rating chip (T-004) — one component and one look on the hover card and
+   the detail hero (movies and TV); omitted entirely when no rating is cached. */
+.rating-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 3px;
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+.rating-badge-star {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.95;
 }
 .dh-overview {
   max-width: 640px;
