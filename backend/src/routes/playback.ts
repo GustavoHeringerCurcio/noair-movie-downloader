@@ -67,7 +67,13 @@ export function createPlaybackRouter(deps: AppDeps): Router {
   }
 
   function packageStatusBody(state: PackageState) {
-    return { phase: state.phase, progress: state.progress, error: state.error };
+    return {
+      phase: state.phase,
+      progress: state.progress,
+      playable: state.playable,
+      frontierSeconds: state.frontierSeconds,
+      error: state.error,
+    };
   }
 
   function variantFrom(value: unknown): 'web' | 'compat' {
@@ -94,7 +100,10 @@ export function createPlaybackRouter(deps: AppDeps): Router {
       res.status(loaded.error.status).json({ error: loaded.error.message });
       return;
     }
-    if (loaded.state.phase !== 'ready') {
+    // A package is served as soon as it is playable (early segments + provisional
+    // master exist), not only once the whole copy has finished building — the
+    // client starts streaming while the rest is still converted in the background.
+    if (loaded.state.phase !== 'ready' && !loaded.state.playable) {
       res.status(202).json(packageStatusBody(loaded.state));
       return;
     }

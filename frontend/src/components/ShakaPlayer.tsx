@@ -90,7 +90,11 @@ export function ShakaPlayer({ manifestUrl, resumeAt, onTick, onPlayback, onError
         handleRef.current.player = player;
         await player.attach(video);
         player.configure({
-          streaming: { bufferingGoal: 60 },
+          // startAtLiveEdge: a package that is still being converted is served as
+          // a growing EVENT playlist (no #EXT-X-ENDLIST yet), which Shaka treats as
+          // live — without this it would jump to the live edge (the conversion
+          // frontier) and skip the start of the movie. Start from the beginning.
+          streaming: { bufferingGoal: 60, startAtLiveEdge: false },
           abr: { enabled: false },
         });
 

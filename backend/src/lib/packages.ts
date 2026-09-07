@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
 import type { MediaInfo, SidecarSubtitle } from './mediaInfo.js';
 import type { SubtitleInfo } from './mediaInfo.js';
 import { listStreamableFiles } from './streaming.js';
@@ -17,7 +18,9 @@ import {
   subtitleMediaPlaylist,
   videoCompatSegmentArgs,
   videoSegmentArgs,
+  type AudioRendition,
   type PackageLayout,
+  type SubtitleRendition,
 } from './hls.js';
 
 export type PackagePhase = 'idle' | 'packaging' | 'ready' | 'failed';
@@ -29,6 +32,15 @@ export interface PackageState {
   absolutePath: string;
   phase: PackagePhase;
   progress: number;
+  /**
+   * True as soon as the earliest video (and default-audio) segments exist, so a
+   * browser can start streaming the package while the rest of the copy is still
+   * being built (W-001). The Watch page mounts the player on `playable`, not
+   * only on `ready`.
+   */
+  playable: boolean;
+  /** Seconds of contiguous video available from the start (the conversion frontier). */
+  frontierSeconds: number | null;
   error: string | null;
 }
 
@@ -52,18 +64,25 @@ export interface PackageManager {
   deletePackage(key: string): void;
 }
 
+export interface CommandPromise extends Promise<number> {
+  /** Kill the underlying ffmpeg process. Optional — fake runners used in tests may omit it. */
+  cancel?: () => void;
+}
+
 /**
  * Run one ffmpeg-style command. `onProgress` (when given) receives the parsed
  * `out_time_us` from ffmpeg's `-progress pipe:1` so the manager can surface
  * in-flight progress instead of coarse per-command jumps.
  */
-export type CommandRunner = (args: string[], onProgress?: (outTimeUs: number | null) => void) => Promise<number>;
+export type CommandRunner = (args: string[], onProgress?: (outTimeUs: number | null) => void) => CommandPromise;
 
 function realRunner(): CommandRunner {
-  return (args, onProgress) =>
-    new Promise((resolve) => {
+  return (args, onProgress) => {
+    let proc: ChildProcessByStdio<null, Readable, Readable> | null = null;
+    let settled = false;
+    const promise = new Promise<number>((resolve) => {
       const progressArgs = onProgress ? ['-progress', 'pipe:1', '-nostats'] : [];
-      const proc = spawn('ffmpeg', [...progressArgs, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+      proc = spawn('ffmpeg', [...progressArgs, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
       let stderr = '';
       proc.stderr.on('data', (chunk: Buffer) => {
         stderr = `${stderr}${chunk.toString()}`.slice(-4000);
@@ -87,18 +106,35 @@ function realRunner(): CommandRunner {
       } else {
         proc.stdout.resume();
       }
-      proc.on('error', () => resolve(1));
+      proc.on('error', () => {
+        settled = true;
+        resolve(1);
+      });
       proc.on('exit', (code) => {
+        settled = true;
         if (code !== 0) console.error(`[packages] ffmpeg exited ${code}: ${stderr.split('\n').slice(-6).join('\n')}`);
         resolve(code ?? 1);
       });
-    });
+    }) as CommandPromise;
+    promise.cancel = () => {
+      if (!settled && proc) proc.kill('SIGKILL');
+    };
+    return promise;
+  };
+}
+
+export interface PackageManagerOptions {
+  packageRoot: string;
+  maxBytes?: number | null;
+  /** Abort the video pass (compat re-encode) if it makes no progress for this long. */
+  stallTimeoutMs?: number;
 }
 
 export function createPackageManager(
-  config: { packageRoot: string; maxBytes?: number | null },
+  config: PackageManagerOptions,
   runCommand: CommandRunner = realRunner(),
 ): PackageManager {
+  const stallTimeoutMs = config.stallTimeoutMs ?? 90_000;
   const store = new Map<string, PackageState>();
   const running = new Set<string>();
 
@@ -150,6 +186,8 @@ export function createPackageManager(
         absolutePath: '',
         phase: 'ready',
         progress: 1,
+        playable: true,
+        frontierSeconds: null,
         error: null,
       };
       store.set(key, s);
@@ -166,6 +204,8 @@ export function createPackageManager(
       absolutePath: request.absolutePath,
       phase: 'packaging',
       progress: 0,
+      playable: false,
+      frontierSeconds: null,
       error: null,
     };
     store.set(s.key, s);
@@ -177,144 +217,268 @@ export function createPackageManager(
     if (current) store.set(key, { ...current, ...patch });
   }
 
+  interface Step {
+    kind: 'video' | 'audio' | 'sub';
+    ref: string;
+    weight: number;
+    args: string[];
+    note: string;
+  }
+
   async function runPackage(request: PackageRequest): Promise<void> {
     const key = packageKey(request.infoHash, request.relative, request.variant);
     const layout = layoutFor(config.packageRoot, key);
     const media = request.media;
-    const audio = pickAudioRenditions(media);
-    const subs = pickSubtitleRenditions(media.subtitleTracks, request.sidecars);
-    const duration = media.durationSeconds;
     const compat = request.variant === 'compat';
+    const duration = media.durationSeconds;
+    const durationUs = duration && duration > 0 ? duration * 1_000_000 : null;
+
+    const audioRenditions = pickAudioRenditions(media);
+    const subs = pickSubtitleRenditions(media.subtitleTracks, request.sidecars);
+
+    const defaultAudio = audioRenditions.find((a) => a.default) ?? audioRenditions[0];
+    const defaultAudioStreamIndex = defaultAudio?.streamIndex ?? null;
+
+    const videoStep: Step = {
+      kind: 'video',
+      ref: 'video',
+      weight: 0.5,
+      args: compat
+        ? videoCompatSegmentArgs(request.absolutePath, layout.videoDir, { targetHeight: request.targetHeight ?? null })
+        : videoSegmentArgs(request.absolutePath, layout.videoDir),
+      note: compat ? 'video (compat H.264)' : 'video',
+    };
+    const audioSteps: Step[] = media.audioTracks.map((track) => ({
+      kind: 'audio',
+      ref: `audio:${track.index}`,
+      weight: 0.45 / Math.max(media.audioTracks.length, 1),
+      args: audioSegmentArgs(request.absolutePath, track.index, layout.audioDir(track.index), {
+        copy: canCopyAudioTrack(track),
+      }),
+      note: `audio ${track.index}`,
+    }));
+    const subSteps: Step[] = [];
+    if (subs.length > 0) {
+      const embedded: Array<{ sub: SubtitleInfo; index: number }> = media.subtitleTracks
+        .filter((s) => s.kind === 'text')
+        .map((s, i) => ({ sub: s, index: i }));
+      const sidecarEntries = request.sidecars.map((sidecar, i) => ({ sidecar, id: `sidecar-${i}` }));
+      embedded.forEach(({ sub, index }) => {
+        const rendition = subs.find((r) => r.id === `track-${index}`);
+        const id = rendition?.id ?? `track-${index}`;
+        const out = path.join(layout.subsDir, `${id}.vtt`);
+        subSteps.push({
+          kind: 'sub',
+          ref: `sub:${id}`,
+          weight: 0.05 / Math.max(embedded.length + sidecarEntries.length, 1),
+          args: embeddedSubtitleArgs(request.absolutePath, sub.index, out),
+          note: `subtitle ${sub.index}`,
+        });
+      });
+      const sourceDir = path.dirname(request.absolutePath);
+      sidecarEntries.forEach(({ sidecar, id }) => {
+        const out = path.join(layout.subsDir, `${id}.vtt`);
+        subSteps.push({
+          kind: 'sub',
+          ref: `sub:${id}`,
+          weight: 0.05 / Math.max(embedded.length + sidecarEntries.length, 1),
+          args: sidecarSubtitleArgs(path.join(sourceDir, sidecar.name), out),
+          note: `sidecar ${sidecar.name}`,
+        });
+      });
+    }
 
     fs.mkdirSync(layout.root, { recursive: true });
     fs.mkdirSync(layout.videoDir, { recursive: true });
-    audio.forEach((a) => fs.mkdirSync(layout.audioDir(a.streamIndex), { recursive: true }));
-    if (subs.length > 0) fs.mkdirSync(layout.subsDir, { recursive: true });
+    for (const r of audioRenditions) fs.mkdirSync(layout.audioDir(r.streamIndex), { recursive: true });
+    if (subSteps.length > 0) fs.mkdirSync(layout.subsDir, { recursive: true });
+
+    const succeeded = new Set<string>();
+    const fracs = new Map<Step, number>();
+
+    const publish = (): void => {
+      let done = 0;
+      for (const step of [...audioSteps, videoStep, ...subSteps]) {
+        const frac = fracs.get(step) ?? 0;
+        done += step.weight * Math.min(Math.max(frac, 0), 1);
+      }
+      const videoFrac = fracs.get(videoStep) ?? 0;
+      const frontier = durationUs && videoFrac > 0 ? Math.min((durationUs * Math.min(Math.max(videoFrac, 0), 1)) / 1_000_000, duration ?? 0) : null;
+      update(key, {
+        progress: Math.min(0.05 + 0.95 * done, 1),
+        frontierSeconds: frontier,
+      });
+    };
+
+    const recordProgress = (step: Step, outTimeUs: number | null): void => {
+      const frac = durationUs && outTimeUs != null ? outTimeUs / durationUs : 0;
+      fracs.set(step, Math.max(fracs.get(step) ?? 0, frac));
+      publish();
+    };
+
+    const runStep = async (step: Step): Promise<void> => {
+      const code = await runCommand(step.args, (outTimeUs) => recordProgress(step, outTimeUs));
+      if (code !== 0) throw new Error(`ffmpeg ${step.note} failed (exit ${code})`);
+      succeeded.add(step.ref);
+      fracs.set(step, 1);
+      publish();
+    };
+
+    /**
+     * The video pass is the critical path for "watchable early" (W-001): it must
+     * keep producing segments to stay ahead of the player. Watch it for liveness
+     * and abort with a clear error when it makes no progress for `stallTimeoutMs`
+     * (a real symptom on broken/corrupt inputs that would otherwise sit forever
+     * near the progress floor).
+     */
+    const runVideoStep = async (step: Step): Promise<void> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let progressCb: ((outTimeUs: number | null) => void) | undefined = undefined;
+      let stalled = false;
+      const clearTimer = (): void => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+      };
+      const arm = (): void => {
+        clearTimer();
+        if (stallTimeoutMs > 0) {
+          timer = setTimeout(() => {
+            stalled = true;
+            p.cancel?.();
+          }, stallTimeoutMs);
+        }
+      };
+      const p = runCommand(step.args, (outTimeUs) => progressCb?.(outTimeUs));
+      progressCb = (outTimeUs) => {
+        arm(); // any progress resets the stall window
+        recordProgress(step, outTimeUs);
+      };
+      arm();
+      let code: number;
+      try {
+        code = await p;
+      } finally {
+        clearTimer();
+      }
+      if (code !== 0) {
+        throw new Error(
+          stalled
+            ? `video encode stalled — no progress for ${Math.max(1, Math.round(stallTimeoutMs / 1000))}s; aborting`
+            : `ffmpeg ${step.note} failed (exit ${code})`,
+        );
+      }
+      succeeded.add(step.ref);
+      fracs.set(step, 1);
+      publish();
+    };
+
+    const launch = (step: Step): Promise<void> => (step.kind === 'video' ? runVideoStep(step) : runStep(step));
+
+    function writeMasterFile(audio: AudioRendition[], subtitleRenditions: SubtitleRendition[]): void {
+      const size = fileSize(request.absolutePath);
+      const bandwidth = size > 0 && duration ? Math.round((size * 8) / duration) : 4_000_000;
+      // A compat build re-encodes to H.264 (8-bit), so the CODECS hint must say
+      // avc1 — not the source's hevc/vp9/… The RESOLUTION hint is dropped when the
+      // compat build downscales (we don't know the scaled width up-front).
+      const scaled = compat && request.targetHeight && request.targetHeight > 0;
+      const master = buildMasterPlaylist({
+        durationSeconds: duration,
+        audio,
+        subtitles: subtitleRenditions,
+        bandwidth,
+        videoCodec: compat ? 'h264' : media.video?.codec ?? null,
+        resolution:
+          compat || scaled
+            ? null
+            : { width: media.video?.width ?? null, height: media.video?.height ?? null },
+      });
+      fs.writeFileSync(path.join(layout.root, 'master.m3u8'), master);
+    }
 
     try {
-      const steps: Array<{ weight: number; args: string[]; note: string }> = [];
-      const videoArgs = compat
-        ? videoCompatSegmentArgs(request.absolutePath, layout.videoDir, { targetHeight: request.targetHeight ?? null })
-        : videoSegmentArgs(request.absolutePath, layout.videoDir);
-      steps.push({ weight: 0.5, args: videoArgs, note: compat ? 'video (compat H.264)' : 'video' });
-      media.audioTracks.forEach((track) => {
-        const copy = canCopyAudioTrack(track);
-        steps.push({
-          weight: 0.45 / Math.max(media.audioTracks.length, 1),
-          args: audioSegmentArgs(request.absolutePath, track.index, layout.audioDir(track.index), { copy }),
-          note: `audio ${track.index}${copy ? ' (copy)' : ''}`,
-        });
-      });
-      if (subs.length > 0) {
-        const embedded: Array<{ sub: SubtitleInfo; index: number }> = media.subtitleTracks
-          .filter((s) => s.kind === 'text')
-          .map((s, i) => ({ sub: s, index: i }));
-        const sidecarEntries = request.sidecars.map((sidecar, i) => ({ sidecar, id: `sidecar-${i}` }));
-        const subtitleCount = Math.max(embedded.length + sidecarEntries.length, 1);
-        embedded.forEach(({ sub, index }) => {
-          const rendition = subs.find((r) => r.id === `track-${index}`);
-          const out = path.join(layout.subsDir, `${rendition?.id ?? `track-${index}`}.vtt`);
-          steps.push({
-            weight: 0.05 / subtitleCount,
-            args: embeddedSubtitleArgs(request.absolutePath, sub.index, out),
-            note: `subtitle ${sub.index}`,
-          });
-        });
-        const sourceDir = path.dirname(request.absolutePath);
-        sidecarEntries.forEach(({ sidecar, id }) => {
-          const out = path.join(layout.subsDir, `${id}.vtt`);
-          steps.push({
-            weight: 0.05 / subtitleCount,
-            args: sidecarSubtitleArgs(path.join(sourceDir, sidecar.name), out),
-            note: `sidecar ${sidecar.name}`,
-          });
-        });
+      // Staged waves: the video + default audio renditions run first at full
+      // CPU so the conversion frontier (and therefore "you can watch now")
+      // advances as fast as possible. Optional audio tracks and subtitles run
+      // afterwards — they'd only steal cores from the critical video pass.
+      const criticalPromises: Promise<void>[] = [launch(videoStep)];
+      if (defaultAudioStreamIndex != null) {
+        const def = audioSteps.find((s) => s.ref === `audio:${defaultAudioStreamIndex}`);
+        if (def) criticalPromises.push(launch(def));
+      }
+      const criticalSettled = Promise.allSettled(criticalPromises);
+
+      // Provision the package as playable the moment the earliest segments land,
+      // without waiting for the video pass to finish. The provisional master
+      // advertises only the default audio rendition; the final master (all
+      // tracks + subtitles) is written when the whole copy is done.
+      const canProvision = (): boolean =>
+        countSegments(layout.videoDir) >= 1 &&
+        (defaultAudioStreamIndex == null || countSegments(layout.audioDir(defaultAudioStreamIndex)) >= 1);
+      let provisioned = false;
+      const provision = (): void => {
+        if (provisioned || !canProvision()) return;
+        provisioned = true;
+        writeMasterFile(defaultAudio ? [defaultAudio] : [], []);
+        update(key, { playable: true });
+        publish();
+      };
+
+      while (!provisioned) {
+        const winner = await Promise.race([criticalSettled.then(() => true), delay(400).then(() => false)]);
+        if (winner) break;
+        if (canProvision()) {
+          provision();
+          break;
+        }
+      }
+      provision(); // last chance if the passes finished just after a poll
+
+      const criticalResults = await criticalSettled;
+      const criticalFailure = criticalResults.find((r) => r.status === 'rejected');
+      if (criticalFailure) throw criticalFailure.reason;
+
+      // Optional renditions: never fail the whole package — the user is already
+      // watching the default rendition; just log and keep the successful ones.
+      const optionalPromises = audioSteps
+        .filter((s) => s.ref !== `audio:${defaultAudioStreamIndex}`)
+        .map((s) => launch(s));
+      const optionalResults = await Promise.allSettled(optionalPromises);
+      for (const r of optionalResults) {
+        if (r.status === 'rejected') console.error(`[packages] non-critical step failed: ${String(r.reason)}`);
+      }
+      const subResults = await Promise.allSettled(subSteps.map((s) => launch(s)));
+      for (const r of subResults) {
+        if (r.status === 'rejected') console.error(`[packages] subtitle step failed: ${String(r.reason)}`);
       }
 
-      // Media renditions are independent ffmpeg runs against the same input, so
-      // run them concurrently (each on its own core) instead of as serialized
-      // full-file passes. In-flight progress comes from ffmpeg's -progress.
-      const durationUs = duration && duration > 0 ? duration * 1_000_000 : null;
-      const fracs = new Map<(typeof steps)[number], number>();
-      const publish = (): void => {
-        let done = 0;
-        for (const step of steps) {
-          const frac = fracs.get(step) ?? 0;
-          done += step.weight * Math.min(Math.max(frac, 0), 1);
-        }
-        update(key, { progress: Math.min(0.05 + 0.95 * done, 1) });
-      };
-      const results = await Promise.allSettled(
-        steps.map((step) =>
-          runCommand(step.args, (outTimeUs) => {
-            const frac = durationUs && outTimeUs != null ? outTimeUs / durationUs : 0;
-            fracs.set(step, frac);
-            publish();
-          }).then((code) => {
-            if (code !== 0) throw new Error(`ffmpeg ${step.note} failed (exit ${code})`);
-            fracs.set(step, 1);
-            publish();
-          }),
-        ),
-      );
-      const failure = results.find((r) => r.status === 'rejected');
-      if (failure) throw failure.reason;
-
+      const finishedAudio = audioRenditions.filter((r) => succeeded.has(`audio:${r.streamIndex}`));
+      const finishedSubs = subs.filter((s) => succeeded.has(`sub:${s.id}`));
       writeSubtitlePlaylists(subs, duration, layout);
-      writeMaster(key, request, audio, subs, duration, media, layout);
+      writeMasterFile(finishedAudio, finishedSubs);
       fs.writeFileSync(path.join(layout.root, 'DONE'), String(Date.now()));
-      update(key, { phase: 'ready', progress: 1, error: null });
+      update(key, { phase: 'ready', progress: 1, playable: true, frontierSeconds: duration ?? null, error: null });
     } catch (error) {
-      update(key, {
-        phase: 'failed',
-        error: error instanceof Error ? error.message : 'packaging failed',
-      });
+      const message = error instanceof Error ? error.message : 'packaging failed';
+      console.error(`[packages] package failed (${key}): ${message}`);
+      update(key, { phase: 'failed', error: message });
     } finally {
       running.delete(key);
     }
   }
 
   function writeSubtitlePlaylists(
-    subs: Array<{ id: string; language: string | null; label: string }>,
+    subtitleRenditions: SubtitleRendition[],
     duration: number | null,
     layout: PackageLayout,
   ): void {
-    for (const sub of subs) {
+    for (const sub of subtitleRenditions) {
       const vtt = path.join(layout.subsDir, `${sub.id}.vtt`);
       const m3u8 = path.join(layout.subsDir, `${sub.id}.m3u8`);
       if (!fs.existsSync(vtt)) continue;
       fs.writeFileSync(m3u8, subtitleMediaPlaylist(duration, `${sub.id}.vtt`));
     }
-  }
-
-  function writeMaster(
-    key: string,
-    request: PackageRequest,
-    audio: ReturnType<typeof pickAudioRenditions>,
-    subs: ReturnType<typeof pickSubtitleRenditions>,
-    duration: number | null,
-    media: MediaInfo,
-    layout: PackageLayout,
-  ): void {
-    const size = fileSize(request.absolutePath);
-    const bandwidth = size > 0 && duration ? Math.round((size * 8) / duration) : 4_000_000;
-    // A compat build re-encodes to H.264 (8-bit), so the CODECS hint must say
-    // avc1 — not the source's hevc/vp9/… The RESOLUTION hint is dropped when the
-    // compat build downscales (we don't know the scaled width up-front).
-    const compat = request.variant === 'compat';
-    const scaled = compat && request.targetHeight && request.targetHeight > 0;
-    const master = buildMasterPlaylist({
-      durationSeconds: duration,
-      audio,
-      subtitles: subs,
-      bandwidth,
-      videoCodec: compat ? 'h264' : media.video?.codec ?? null,
-      resolution:
-        compat || scaled
-          ? null
-          : { width: media.video?.width ?? null, height: media.video?.height ?? null },
-    });
-    fs.writeFileSync(path.join(layout.root, 'master.m3u8'), master);
   }
 
   return {
@@ -363,6 +527,22 @@ function fileSize(absolutePath: string): number {
   } catch {
     return 0;
   }
+}
+
+function countSegments(dir: string): number {
+  let count = 0;
+  try {
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry.startsWith('seg_') && entry.endsWith('.m4s')) count += 1;
+    }
+  } catch {
+    // dir not created yet
+  }
+  return count;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function totalPackageBytes(packageRoot: string): number {

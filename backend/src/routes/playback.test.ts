@@ -22,10 +22,20 @@ vi.mock('../lib/mediaInfo.js', () => ({
 }));
 
 vi.mock('../lib/packages.js', () => {
-  const fake: { phase: string; progress: number; error: string | null; master: string | null; file: string | null } = {
+  const fake: {
+    phase: string;
+    progress: number;
+    error: string | null;
+    playable: boolean;
+    frontierSeconds: number | null;
+    master: string | null;
+    file: string | null;
+  } = {
     phase: 'packaging',
     progress: 0,
     error: null,
+    playable: false,
+    frontierSeconds: null,
     master: null,
     file: null,
   };
@@ -36,6 +46,8 @@ vi.mock('../lib/packages.js', () => {
     absolutePath: '',
     phase: fake.phase,
     progress: fake.progress,
+    playable: fake.playable,
+    frontierSeconds: fake.frontierSeconds,
     error: fake.error,
   });
   return {
@@ -74,7 +86,7 @@ function setup(): { app: ReturnType<typeof createApp>; downloadDir: string } {
 }
 
 beforeEach(() => {
-  __setFake({ phase: 'packaging', progress: 0, error: null, master: null, file: null });
+  __setFake({ phase: 'packaging', progress: 0, error: null, playable: false, frontierSeconds: null, master: null, file: null });
 });
 
 describe('GET /api/playback/:infoHash/hls/status', () => {
@@ -82,7 +94,7 @@ describe('GET /api/playback/:infoHash/hls/status', () => {
     const { app } = setup();
     const res = await request(app).get(`/api/playback/${HASH}/hls/status`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ phase: 'packaging', progress: 0, error: null });
+    expect(res.body).toEqual({ phase: 'packaging', progress: 0, playable: false, frontierSeconds: null, error: null });
   });
 
   it('404s for an unknown download', async () => {
@@ -104,7 +116,7 @@ describe('GET /api/playback/:infoHash/hls/status', () => {
 });
 
 describe('GET /api/playback/:infoHash/hls/master.m3u8', () => {
-  it('answers 202 with status while packaging is still running', async () => {
+  it('answers 202 with status while packaging is still running and not yet playable', async () => {
     const { app } = setup();
     const res = await request(app).get(`/api/playback/${HASH}/hls/master.m3u8`);
     expect(res.status).toBe(202);
@@ -115,10 +127,20 @@ describe('GET /api/playback/:infoHash/hls/master.m3u8', () => {
     const { app, downloadDir } = setup();
     const master = path.join(downloadDir, 'master.m3u8');
     fs.writeFileSync(master, '#EXTM3U\n');
-    __setFake({ phase: 'ready', progress: 1, master });
+    __setFake({ phase: 'ready', progress: 1, playable: true, master });
     const res = await request(app).get(`/api/playback/${HASH}/hls/master.m3u8`);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('mpegurl');
+    expect(res.text).toContain('#EXTM3U');
+  });
+
+  it('serves the master playlist as soon as the package is playable, even mid-build', async () => {
+    const { app, downloadDir } = setup();
+    const master = path.join(downloadDir, 'master.m3u8');
+    fs.writeFileSync(master, '#EXTM3U\n');
+    __setFake({ phase: 'packaging', progress: 0.1, playable: true, master });
+    const res = await request(app).get(`/api/playback/${HASH}/hls/master.m3u8`);
+    expect(res.status).toBe(200);
     expect(res.text).toContain('#EXTM3U');
   });
 });

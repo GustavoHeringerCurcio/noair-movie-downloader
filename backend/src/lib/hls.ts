@@ -3,11 +3,16 @@ import type { AudioInfo, MediaInfo, SidecarSubtitle, SubtitleInfo } from './medi
 
 /**
  * Pure builders for the "web package" pipeline: converting a fully-downloaded
- * file into an HLS VOD package (video stream-copied, audio re-encoded to AAC per
+ * file into an HLS package (video stream-copied, audio re-encoded to AAC per
  * track, text subtitles to WebVTT) that a MSE player (Shaka) can play with
  * audio-language and subtitle switching. No ffmpeg is invoked here — these
  * functions only describe the file layout, ffmpeg arguments and playlists so
  * they can be unit-tested.
+ *
+ * Media playlists are emitted as growing EVENT playlists (never sealed with
+ * #EXT-X-ENDLIST until the ffmpeg pass finishes) written through a temp file,
+ * so a player can start streaming from the earliest segments while the rest of
+ * the copy is still being built — the "watchable package" (W-001).
  */
 
 /**
@@ -94,7 +99,7 @@ export function pickSubtitleRenditions(
   return [...textTracks, ...sidecar];
 }
 
-/** fMP4 HLS segments, ~6s each, VOD (static) playlist written to `<dir>/main.m3u8`. */
+/** fMP4 HLS segments, ~6s each, EVENT (growing, playable-early) playlist written to `<dir>/main.m3u8`. */
 export function videoSegmentArgs(input: string, dir: string): string[] {
   return [
     '-hide_banner',
@@ -105,7 +110,8 @@ export function videoSegmentArgs(input: string, dir: string): string[] {
     '-an', '-dn',
     '-f', 'hls',
     '-hls_time', '6',
-    '-hls_playlist_type', 'vod',
+    '-hls_playlist_type', 'event',
+    '-hls_flags', 'temp_file',
     '-hls_segment_type', 'fmp4',
     '-hls_fmp4_init_filename', 'init.mp4',
     '-hls_segment_filename', path.join(dir, 'seg_%05d.m4s'),
@@ -143,7 +149,8 @@ export function videoCompatSegmentArgs(
     '-an', '-dn',
     '-f', 'hls',
     '-hls_time', '6',
-    '-hls_playlist_type', 'vod',
+    '-hls_playlist_type', 'event',
+    '-hls_flags', 'temp_file',
     '-hls_segment_type', 'fmp4',
     '-hls_fmp4_init_filename', 'init.mp4',
     '-hls_segment_filename', path.join(dir, 'seg_%05d.m4s'),
@@ -184,7 +191,8 @@ export function audioSegmentArgs(
     ...encode,
     '-f', 'hls',
     '-hls_time', '6',
-    '-hls_playlist_type', 'vod',
+    '-hls_playlist_type', 'event',
+    '-hls_flags', 'temp_file',
     '-hls_segment_type', 'fmp4',
     '-hls_fmp4_init_filename', 'init.mp4',
     '-hls_segment_filename', path.join(dir, 'seg_%05d.m4s'),

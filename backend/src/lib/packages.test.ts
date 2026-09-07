@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createPackageManager, cleanupTorrentPackages } from './packages.js';
+import { createPackageManager, cleanupTorrentPackages, type CommandPromise, type CommandRunner } from './packages.js';
 import { packageKey, layoutFor } from './hls.js';
 import type { MediaInfo } from './mediaInfo.js';
 
@@ -206,6 +206,79 @@ describe('createPackageManager', () => {
 
     expect(fs.existsSync(oldLayout.root)).toBe(false);
     expect(fs.existsSync(newLayout.root)).toBe(true);
+  });
+
+  it('becomes playable as soon as the first segments land while the video pass still runs', async () => {
+    const root = makeDir('pkg-playable-');
+    const source = path.join(makeDir('src-playable-'), 'movie.mkv');
+    fs.writeFileSync(source, Buffer.alloc(1_000_000));
+    let releaseVideo: (() => void) | undefined;
+    const runner: CommandRunner = (args) => {
+      const dir = path.dirname(args[args.length - 1]!);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'init.mp4'), 'x');
+      fs.writeFileSync(path.join(dir, 'seg_00000.m4s'), 'x');
+      fs.writeFileSync(path.join(dir, 'seg_00001.m4s'), 'x');
+      if (args.indexOf('-map') !== -1 && args[args.indexOf('-map') + 1] === '0:v:0') {
+        // Hold the video pass open so we can observe the playable window first.
+        return new Promise<number>((resolve) => {
+          releaseVideo = () => resolve(0);
+        }) as CommandPromise;
+      }
+      return Promise.resolve(0) as CommandPromise;
+    };
+    const manager = createPackageManager({ packageRoot: root }, runner);
+
+    const key = packageKey('ee'.repeat(20), 'movie.mkv');
+    await manager.ensurePackage({
+      infoHash: 'ee'.repeat(20),
+      relative: 'movie.mkv',
+      absolutePath: source,
+      media,
+      sidecars: [],
+    });
+    expect(manager.status(key)?.phase).toBe('packaging');
+    await waitUntil(() => manager.status(key)?.playable === true);
+    // A provisional master exists so the player can start while the build continues.
+    expect(manager.masterPlaylistPath(key)).not.toBeNull();
+    expect(manager.status(key)?.phase).toBe('packaging');
+
+    releaseVideo?.();
+    await waitUntil(() => manager.status(key)?.phase === 'ready');
+    const layout = layoutFor(root, key);
+    expect(fs.existsSync(path.join(layout.root, 'DONE'))).toBe(true);
+  });
+
+  it('aborts a video encode that makes no progress and reports the stall', async () => {
+    const root = makeDir('pkg-stall-');
+    const source = path.join(makeDir('src-stall-'), 'movie.mkv');
+    fs.writeFileSync(source, Buffer.alloc(1_000_000));
+    let cancelVideo: (() => void) | undefined;
+    const runner: CommandRunner = (args) => {
+      const isVideo = args.indexOf('-map') !== -1 && args[args.indexOf('-map') + 1] === '0:v:0';
+      if (isVideo) {
+        const promise = new Promise<number>((resolve) => {
+          cancelVideo = () => resolve(1);
+        }) as CommandPromise;
+        promise.cancel = () => cancelVideo?.();
+        return promise;
+      }
+      return Promise.resolve(0) as CommandPromise;
+    };
+    const manager = createPackageManager({ packageRoot: root, stallTimeoutMs: 40 }, runner);
+
+    const key = packageKey('ff'.repeat(20), 'movie.mkv', 'compat');
+    await manager.ensurePackage({
+      infoHash: 'ff'.repeat(20),
+      relative: 'movie.mkv',
+      absolutePath: source,
+      media,
+      sidecars: [],
+      variant: 'compat',
+      targetHeight: null,
+    });
+    await waitUntil(() => manager.status(key)?.phase === 'failed');
+    expect(manager.status(key)?.error).toContain('stalled');
   });
 });
 

@@ -155,7 +155,7 @@ describe('ShakaPlayer', () => {
     expect(shakaState.installAll).toHaveBeenCalled();
     expect(player.attach).toHaveBeenCalledWith(video());
     expect(player.configure).toHaveBeenCalledWith({
-      streaming: { bufferingGoal: 60 },
+      streaming: { bufferingGoal: 60, startAtLiveEdge: false },
       abr: { enabled: false },
     });
     expect(player.load).toHaveBeenCalledWith(MANIFEST);

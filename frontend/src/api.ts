@@ -117,6 +117,10 @@ export function playInfo(infoHash: string, file?: string): Promise<PlayInfo> {
 export interface PackageStatus {
   phase: 'idle' | 'packaging' | 'ready' | 'failed';
   progress: number;
+  /** True once the earliest segments exist — a player can start streaming while the rest is still built. */
+  playable: boolean;
+  /** Seconds of contiguous video available from the start (null until known). */
+  frontierSeconds: number | null;
   error: string | null;
 }
 

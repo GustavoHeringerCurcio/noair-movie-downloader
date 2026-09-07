@@ -136,6 +136,7 @@ interface HlsStatus {
   phase: 'packaging' | 'ready' | 'failed';
   progress: number;
   error: string | null;
+  playable?: boolean;
 }
 
 function hlsPlayInfo(): Record<string, unknown> {
@@ -252,6 +253,20 @@ describe('WatchPage HLS playback', () => {
     // the status poll ticks every 2s; once it reports ready the player mounts
     await waitFor(() => expect(shakaDouble.mounts).toBe(1), { timeout: 6000 });
     expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+  });
+
+  it('mounts the player as soon as the package is playable, while the copy still builds (W-001)', async () => {
+    stubHls([{ phase: 'packaging', progress: 0.2, error: null, playable: true }]);
+    renderWatch();
+
+    // No full "wait for the whole film" — the player starts on the early segments.
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1), { timeout: 6000 });
+    expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+    expect(screen.getByRole('status')).toHaveTextContent(/you can watch now/i);
+
+    // The poll keeps running and the player stays mounted once the copy is done.
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument(), { timeout: 6000 });
+    expect(shakaDouble.mounts).toBe(1);
   });
 
   it('gates mounting behind the resume prompt and starts at the saved position', async () => {

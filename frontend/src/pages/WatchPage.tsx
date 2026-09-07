@@ -62,6 +62,7 @@ export function WatchPage() {
   const [stall, setStall] = useState(false);
   const [pkgPhase, setPkgPhase] = useState<PackagePhase>('idle');
   const [pkgProgress, setPkgProgress] = useState(0);
+  const [pkgPlayable, setPkgPlayable] = useState(false);
   const [pkgFailed, setPkgFailed] = useState(false);
   const [pkgError, setPkgError] = useState<string | null>(null);
   const [pkgTick, setPkgTick] = useState(0);
@@ -129,6 +130,7 @@ export function WatchPage() {
     setPkgFailed(false);
     setPkgError(null);
     setPkgProgress(0);
+    setPkgPlayable(false);
     setCodecUnsupported(false);
 
     async function load(): Promise<void> {
@@ -174,6 +176,7 @@ export function WatchPage() {
       setPkgFailed(false);
       setPkgError(null);
       setPkgProgress(0);
+      setPkgPlayable(false);
       setCodecUnsupported(false);
       playInfo(infoHash, file ?? undefined)
         .then((info) => {
@@ -251,13 +254,19 @@ export function WatchPage() {
         if (status.phase === 'ready') {
           setPkgPhase('ready');
           setPkgProgress(1);
+          setPkgPlayable(true);
         } else if (status.phase === 'failed') {
           setPkgPhase('failed');
           setPkgFailed(true);
           setPkgError(status.error);
+          setPkgPlayable(status.playable);
         } else {
           setPkgPhase('packaging');
           setPkgProgress(status.progress);
+          // The backend marks a package playable as soon as the earliest segments
+          // exist (W-001): the player can start now while the rest is still being
+          // converted in the background, instead of waiting for the full copy.
+          setPkgPlayable(status.playable);
           timer = window.setTimeout(poll, 2000);
         }
       } catch {
@@ -436,20 +445,7 @@ export function WatchPage() {
 
       {resumeSeconds == null &&
         (webPackage ? (
-          pkgPhase === 'ready' && !pkgFailed ? (
-            <ShakaPlayer
-              key={`${manifestUrl || 'hls'}::${reloadNonce}`}
-              manifestUrl={manifestUrl}
-              resumeAt={startAt}
-              onTick={(video) => saveProgress(video)}
-              onPlayback={onPlaying}
-              onStarted={() => setStartAt(null)}
-              onError={(message) => {
-                setPkgFailed(true);
-                setPkgError(message);
-              }}
-            />
-          ) : pkgPhase === 'failed' || pkgFailed ? (
+          pkgFailed || pkgPhase === 'failed' ? (
             <div className="watch-overlay watch-overlay-fail">
               <p className="watch-overlay-msg">Couldn’t prepare a browser-playable copy.</p>
               {pkgError && (
@@ -472,6 +468,27 @@ export function WatchPage() {
                 </a>
               </div>
             </div>
+          ) : pkgPlayable || pkgPhase === 'ready' ? (
+            <>
+              {pkgPhase !== 'ready' && (
+                <div className="resume-bar" role="status" style={{ justifyContent: 'center', gap: 8 }}>
+                  <span className="spinner spinner-sm" aria-hidden="true" />
+                  <span>You can watch now — converting the rest of the copy in the background.</span>
+                </div>
+              )}
+              <ShakaPlayer
+                key={`${manifestUrl || 'hls'}::${reloadNonce}`}
+                manifestUrl={manifestUrl}
+                resumeAt={startAt}
+                onTick={(video) => saveProgress(video)}
+                onPlayback={onPlaying}
+                onStarted={() => setStartAt(null)}
+                onError={(message) => {
+                  setPkgFailed(true);
+                  setPkgError(message);
+                }}
+              />
+            </>
           ) : (
             <div className="watch-overlay">
               <span className="spinner spinner-sm" aria-hidden="true" />

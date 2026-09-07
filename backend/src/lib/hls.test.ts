@@ -91,6 +91,17 @@ describe('ffmpeg argument builders', () => {
     expect(args[args.length - 1]).toBe(path.join('/packages', 'k', 'video', 'main.m3u8'));
   });
 
+  it('emits growing EVENT playlists via temp files so playback can start early (W-001)', () => {
+    for (const args of [
+      videoSegmentArgs('/m.mkv', '/packages/k/video'),
+      videoCompatSegmentArgs('/m.mkv', '/packages/k/video'),
+      audioSegmentArgs('/m.mkv', 1, '/packages/k/audio/1'),
+    ]) {
+      expect(args[args.indexOf('-hls_playlist_type') + 1]).toBe('event');
+      expect(args[args.indexOf('-hls_flags') + 1]).toBe('temp_file');
+    }
+  });
+
   it('audio segment args target one track (global stream index) and encode AAC', () => {
     const args = audioSegmentArgs('/x.mkv', 2, path.join('/packages', 'k', 'audio', '2'));
     expect(args).toContain('-map');
