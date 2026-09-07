@@ -40,15 +40,6 @@ export function backdropUrl(backdropPath: string | null): string | null {
 }
 
 /**
- * Portrait poster the backend downloaded to its `art` volume (D21). The image
- * route lazily warms a title on first request, so this resolves for anything
- * that has an OMDb poster; otherwise it 404s and the card shows its monogram.
- */
-export function cardPosterUrl(mediaType: MediaType, tmdbId: number): string {
-  return `/api/images/art/${mediaType}/${tmdbId}/poster`;
-}
-
-/**
  * 16:9 key-art thumbnail the backend cached from fanart.tv `moviethumb`/
  * `tvthumb` (T-002, S8c) — the primary wide art of the horizontal poster card.
  * The route warms on first miss; a 404 means the title has no fanart thumb and
@@ -120,14 +111,30 @@ export interface PackageStatus {
   error: string | null;
 }
 
-export function packageStatus(infoHash: string, file?: string): Promise<PackageStatus> {
-  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
-  return request<PackageStatus>(`/api/playback/${encodeURIComponent(infoHash)}/hls/status${qs}`);
+export function packageStatus(infoHash: string, file?: string, variant?: 'web' | 'compat'): Promise<PackageStatus> {
+  const params = new URLSearchParams();
+  if (file) params.set('file', file);
+  if (variant) params.set('variant', variant);
+  const qs = params.toString();
+  return request<PackageStatus>(`/api/playback/${encodeURIComponent(infoHash)}/hls/status${qs ? `?${qs}` : ''}`);
 }
 
-export function clearPackage(infoHash: string, file?: string): Promise<void> {
-  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
-  return request<void>(`/api/playback/${encodeURIComponent(infoHash)}/hls${qs}`, { method: 'DELETE' });
+export function clearPackage(infoHash: string, file?: string, variant?: 'web' | 'compat'): Promise<void> {
+  const params = new URLSearchParams();
+  if (file) params.set('file', file);
+  if (variant) params.set('variant', variant);
+  const qs = params.toString();
+  return request<void>(`/api/playback/${encodeURIComponent(infoHash)}/hls${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
+}
+
+export interface RemoteStatus {
+  enabled: boolean;
+  mode: 'off' | 'starting' | 'quick' | 'named';
+  url: string | null;
+}
+
+export function remoteStatus(): Promise<RemoteStatus> {
+  return request<RemoteStatus>('/api/remote/status');
 }
 
 export function fileUrl(infoHash: string, file?: string): string {
@@ -157,8 +164,9 @@ const hoverCache = new Map<string, { promise: Promise<HoverCardInfo | null>; exp
 /**
  * Everything the expanded Netflix-style hover card needs (S16/D20): best
  * trailer + genres/duration/seasons/certification in one call. In-flight
- * requests are deduped and results (including "no hover card" answers) cached
- * ~1h. Any failure degrades to `null` — a hover card must never block a card.
+ * requests are deduped and successful payloads cached ~1h. Failures and empty
+ * answers degrade to `null` and are **not** cached — a transient backend
+ * hiccup must never silence the hover card for the rest of the hour.
  */
 export function hoverCardFor(item: { tmdbId: number; mediaType: MediaType }): Promise<HoverCardInfo | null> {
   const key = `${item.mediaType}:${item.tmdbId}`;
@@ -166,7 +174,11 @@ export function hoverCardFor(item: { tmdbId: number; mediaType: MediaType }): Pr
   if (cached && cached.expires > Date.now()) return cached.promise;
   const promise = request<HoverCardInfo>(`/api/media/${item.tmdbId}/hover?type=${item.mediaType}`)
     .then((body) => body ?? null)
-    .catch(() => null);
+    .catch(() => null)
+    .then((res) => {
+      if (res == null) hoverCache.delete(key);
+      return res;
+    });
   hoverCache.set(key, { promise, expires: Date.now() + HOVER_TTL_MS });
   return promise;
 }
@@ -185,6 +197,17 @@ export function trailerEmbedUrl(trailer: Trailer, opts: { muted?: boolean } = {}
   }
   const m = muted ? '1' : '0';
   return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.videoId)}?autoplay=1&mute=${m}&controls=0&playsinline=1&loop=1&playlist=${encodeURIComponent(trailer.videoId)}&modestbranding=1`;
+}
+
+/**
+ * A static first-frame image for a hover trailer, used when the pop-up must
+ * not autoplay video (`prefers-reduced-motion`). Only YouTube exposes a
+ * reliable public thumbnail; any other provider returns `null` and the pop-up
+ * falls back to its artwork still instead.
+ */
+export function trailerStillUrl(trailer: Trailer | null): string | null {
+  if (trailer?.provider !== 'youtube' || !trailer.videoId) return null;
+  return `https://i.ytimg.com/vi/${encodeURIComponent(trailer.videoId)}/hqdefault.jpg`;
 }
 
 export function seasonEpisodes(id: number, season: number): Promise<SeasonEpisodesResponse> {

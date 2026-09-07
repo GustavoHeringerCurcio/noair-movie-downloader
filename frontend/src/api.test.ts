@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  cardPosterUrl,
   clearHoverCache,
   clearSourcesCache,
   externalPlayerHref,
@@ -12,6 +11,7 @@ import {
   logoUrl,
   sources,
   trailerEmbedUrl,
+  trailerStillUrl,
 } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -46,13 +46,6 @@ describe('humanEta', () => {
     expect(humanEta(45)).toBe('45s');
     expect(humanEta(125)).toBe('2m 5s');
     expect(humanEta(3700)).toBe('1h 1m');
-  });
-});
-
-describe('cardPosterUrl (D21 OMDb portrait)', () => {
-  it('points at the local art-volume poster route for a subject', () => {
-    expect(cardPosterUrl('movie', 550)).toBe('/api/images/art/movie/550/poster');
-    expect(cardPosterUrl('tv', 1396)).toBe('/api/images/art/tv/1396/poster');
   });
 });
 
@@ -109,6 +102,19 @@ describe('trailerEmbedUrl (D18/D20)', () => {
   });
 });
 
+describe('trailerStillUrl (reduced-motion static frame)', () => {
+  it('builds a YouTube first-frame thumbnail for a youtube trailer', () => {
+    expect(trailerStillUrl({ provider: 'youtube', videoId: 'O-b2VfmmbyA', name: null })).toBe(
+      'https://i.ytimg.com/vi/O-b2VfmmbyA/hqdefault.jpg',
+    );
+  });
+
+  it('returns null for trailers without a public thumbnail', () => {
+    expect(trailerStillUrl({ provider: 'vimeo', videoId: '12345', name: null })).toBeNull();
+    expect(trailerStillUrl(null)).toBeNull();
+  });
+});
+
 describe('hoverCardFor (S16)', () => {
   const CARD = {
     trailer: { provider: 'youtube' as const, videoId: 'abc', name: null },
@@ -158,6 +164,18 @@ describe('hoverCardFor (S16)', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ error: 'boom' }, 500));
     vi.stubGlobal('fetch', fetchMock);
     expect(await hoverCardFor({ tmdbId: 550, mediaType: 'movie' })).toBeNull();
+  });
+
+  it('does not cache a null answer, so the next hover re-queries', async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      return calls === 1 ? jsonResponse({ error: 'boom' }, 500) : jsonResponse(CARD);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await hoverCardFor({ tmdbId: 550, mediaType: 'movie' })).toBeNull();
+    expect(await hoverCardFor({ tmdbId: 550, mediaType: 'movie' })).toEqual(CARD);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

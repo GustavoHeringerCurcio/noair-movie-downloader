@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowDownToLine, Play, Plus, Download, ChevronDown, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import type { HoverCardInfo, MediaItem } from '../types';
-import { backdropUrl, fanartThumbUrl, hoverCardFor, logoUrl, posterUrl, trailerEmbedUrl } from '../api';
+import { backdropUrl, fanartThumbUrl, hoverCardFor, logoUrl, posterUrl, trailerEmbedUrl, trailerStillUrl } from '../api';
 import { durationLabel, hoverTags, seasonCountLabel } from '../lib/hoverCard';
 import { RatingBadge } from './RatingBadge';
 import { usePosterStyleStore } from '../store/posterStyleStore';
@@ -174,10 +174,13 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
     setSoundOn(true);
   }, [subjectKey]);
 
-  const canHover = item.tmdbId > 0 && !prefersReducedMotion();
+  const reduceMotion = prefersReducedMotion();
+  const canHover = item.tmdbId > 0;
 
-  // D18/D20: sustained hover opens the expanded card (no pop for reduced motion
-  // or titles without a resolvable TMDB id — e.g. manual torrent downloads).
+  // Sustained hover opens the expanded card for every resolvable title. Users
+  // who prefer reduced motion still get the full info pop-up — the trailer is
+  // simply never autoplayed (a static first-frame stands in below), so nothing
+  // on screen moves on its own.
   useEffect(() => {
     if (!hovering || !canHover) {
       setExpanded(false);
@@ -275,13 +278,17 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
     }
   }, [geometry, expanded, info]);
 
-  const showTrailer = info?.trailer != null;
+  const hasTrailer = info?.trailer != null;
+  // Reduced-motion users never get an autoplaying <iframe>; a static YouTube
+  // first-frame stands in so the pop-up stays motion-free but informative.
+  const showTrailer = hasTrailer && !reduceMotion;
+  const trailerStill = reduceMotion && hasTrailer ? trailerStillUrl(info?.trailer ?? null) : null;
 
   // ------------------------------------------------------------------------
-  // Artwork (T-002). Default = horizontal 16:9 poster look: fanart.tv key-art
-  // thumb (the "real horizontal poster"), falling back to TMDB backdrop with
-  // the transparent studio logo overlaid, else strong typography. Vertical
-  // (opt-in) = raw TMDB 2:3 poster with the same typography fallback.
+  // Artwork (T-002). Default = vertical 2:3 poster: raw TMDB poster over the
+  // typography mark. Horizontal (opt-in) = the 16:9 poster look: fanart.tv
+  // key-art thumb (the "real horizontal poster"), falling back to TMDB
+  // backdrop with the transparent studio logo overlaid, else typography.
   // ------------------------------------------------------------------------
   const fanart = useArtImage(
     vertical ? null : fanartThumbUrl(item.mediaType, item.tmdbId),
@@ -592,6 +599,14 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                   title={`${item.title} trailer preview`}
                   tabIndex={-1}
                   allow="autoplay; encrypted-media; picture-in-picture"
+                />
+              ) : trailerStill ? (
+                <img
+                  key={`trailerstill:${trailerStill}`}
+                  className="tc-pop-art"
+                  src={trailerStill}
+                  alt=""
+                  loading="lazy"
                 />
               ) : popArtSrc ? (
                 <img

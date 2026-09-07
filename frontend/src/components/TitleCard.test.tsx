@@ -101,11 +101,16 @@ async function exhaustMainArt(): Promise<void> {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  usePosterStyleStore.setState({ style: 'horizontal' });
+  // Reset to the app defaults (vertical 2:3 + IMDb badge shown) so every test starts clean.
+  usePosterStyleStore.setState({ style: 'vertical' });
   usePosterImdbStore.setState({ show: true });
 });
 
-describe('TitleCard artwork (T-002 horizontal-poster default)', () => {
+describe('TitleCard artwork (horizontal 16:9 poster mode)', () => {
+  beforeEach(() => {
+    usePosterStyleStore.setState({ style: 'horizontal' });
+  });
+
   it('renders the horizontal poster look: fanart key-art over a typography mark', () => {
     renderCard(FULL);
     const card = document.querySelector('.title-card');
@@ -229,6 +234,9 @@ describe('TitleCard expanded hover card (D20)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockHoverCardFor.mockReset();
+    // The pop-up/art stills are asserted against the 16:9 fanart key-art look;
+    // vertical-mode geometry has its own dedicated case below.
+    usePosterStyleStore.setState({ style: 'horizontal' });
   });
 
   afterEach(() => {
@@ -363,7 +371,7 @@ describe('TitleCard expanded hover card (D20)', () => {
     expect(document.querySelector('.tc-pop')).toBeNull();
   });
 
-  it('does not expand for reduced-motion users', async () => {
+  it('opens the pop-up for reduced-motion users with a static trailer frame (no autoplay)', async () => {
     const mm = (query: string): MediaQueryList =>
       ({ matches: true, media: query, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }) as unknown as MediaQueryList;
     vi.spyOn(window, 'matchMedia').mockImplementation(mm);
@@ -372,8 +380,18 @@ describe('TitleCard expanded hover card (D20)', () => {
     const card = screen.getByRole('button', { name: /inception/i });
     await hoverFor(card, 600);
 
-    expect(mockHoverCardFor).not.toHaveBeenCalled();
-    expect(document.querySelector('.tc-pop')).toBeNull();
+    expect(mockHoverCardFor).toHaveBeenCalledTimes(1);
+    const pop = document.querySelector('.tc-pop');
+    expect(pop).not.toBeNull();
+    // The trailer is never autoplayed: no <iframe>, no sound toggle.
+    expect(pop?.querySelector('.tc-pop-video')).toBeNull();
+    expect(pop?.querySelector('.tc-pop-sound')).toBeNull();
+    // A static YouTube first-frame stands in for the video.
+    const still = pop?.querySelector('img.tc-pop-art') as HTMLImageElement | null;
+    expect(still?.src).toContain('i.ytimg.com/vi/abc/');
+    // The info pop-up itself is fully functional.
+    expect(pop?.querySelector('.tc-pop-details')).not.toBeNull();
+    expect(pop?.querySelector('.tc-pop-meta')).not.toBeNull();
   });
 
   it('triggers the primary watch action from the pop-up Play button', async () => {
