@@ -36,13 +36,15 @@ import {
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
 import { ExternalPlayerLink } from '../components/ExternalPlayerLink';
+import { RatingBadge } from '../components/RatingBadge';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
-import { chooseEpisodePick, chooseSeasonPick } from '../lib/coverage';
+import { chooseEpisodePick, chooseMoviePick, chooseSeasonPick, isWebExhibitable } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { useAudioLanguage } from '../store/settingsStore';
+import { useFriendlyPickStore } from '../store/friendlyPickStore';
 import { useVersionStore, versionKey } from '../store/versionStore';
 import {
   bestPlayable,
@@ -85,17 +87,6 @@ function pickSummary(source: Source): string {
   if (source.indexer) bits.push(source.indexer);
   bits.push(`${source.seeders} seeds`);
   return bits.join(' · ');
-}
-
-/** Small caption under the primary Download button naming the friendly pick. */
-function movieOfferHint(source: Source | null): string | null {
-  if (!source) return null;
-  const bits: string[] = [];
-  const q = pickQuality(source);
-  if (q) bits.push(q);
-  bits.push(humanSize(source.sizeBytes));
-  bits.push(`${source.seeders} seeds`);
-  return bits.length > 0 ? `Best match · ${bits.join(' · ')}` : 'Best match available';
 }
 
 interface AdvancedSheetProps {
@@ -542,6 +533,7 @@ export function DetailPage() {
   const toast = useToastStore((s) => s.toast);
   const recordRecent = useRecentsStore((s) => s.record);
   const audio = useAudioLanguage();
+  const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
 
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -761,12 +753,12 @@ export function DetailPage() {
   }
 
   function movieFriendlyPick(): Source | null {
-    return movieSources.length > 0 ? movieSources[0]! : null;
+    return chooseMoviePick(movieSources, friendlyPickMode);
   }
 
   function seasonFullPick(): Source | null {
     if (activeSeason == null) return null;
-    return chooseSeasonPick(seasonSources, activeSeason);
+    return chooseSeasonPick(seasonSources, activeSeason, friendlyPickMode);
   }
 
   // Episode -> action derivation
@@ -786,7 +778,7 @@ export function DetailPage() {
     own: DownloadRecord | null;
   } {
     const own = titleDownloads.find((d) => d.seasonNumber === episode.seasonNumber && d.episodeNumber === episode.episodeNumber) ?? null;
-    const source = chooseEpisodePick(seasonSources, episode.seasonNumber, episode.episodeNumber);
+    const source = chooseEpisodePick(seasonSources, episode.seasonNumber, episode.episodeNumber, friendlyPickMode);
     if (own) return { kind: 'own', download: own, source: null, own };
     if (seasonPackDownload) return { kind: 'pack', download: seasonPackDownload, source: null, own: null };
     if (source) return { kind: 'download', download: null, source, own: null };
@@ -916,7 +908,7 @@ export function DetailPage() {
             <span>{detail.year ?? '—'}</span>
             <span>{detail.genres.join(' · ')}</span>
             {detail.runtime != null && <span>{detail.runtime} min</span>}
-            <span className="dh-meta-chip">★ {detail.voteAverage.toFixed(1)}</span>
+            <RatingBadge value={detail.imdbRating} />
             {mediaType === 'tv' && <span className="dh-meta-chip">{seasons.length} Seasons</span>}
           </div>
           <p className="dh-overview">{detail.overview}</p>
@@ -949,19 +941,16 @@ export function DetailPage() {
                 </button>
               ) : movieSources.length > 0 ? (
                 <>
-                  <div className="dh-offer-main">
-                    <button
-                      type="button"
-                      className="btn btn-white btn-lg"
-                      onClick={() => {
-                        const pick = movieFriendlyPick();
-                        if (pick) openConfirm('Download this movie', pick, null, null);
-                      }}
-                    >
-                      <ArrowDownToLine size={20} /> Download
-                    </button>
-                    <span className="dh-offer-hint">{movieOfferHint(movieFriendlyPick())}</span>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-white btn-lg"
+                    onClick={() => {
+                      const pick = movieFriendlyPick();
+                      if (pick) openConfirm('Download this movie', pick, null, null);
+                    }}
+                  >
+                    <ArrowDownToLine size={20} /> Download
+                  </button>
                   <button
                     type="button"
                     className="btn btn-ghost btn-lg"
@@ -1215,6 +1204,9 @@ export function DetailPage() {
               <div>
                 <div className="pick-title">{confirm.source.title}</div>
                 <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {friendlyPickMode === 'web-playable' && isWebExhibitable(confirm.source) && (
+                    <span className="chip">Web-playable</span>
+                  )}
                   {audioChipLabel(confirm.source) && (
                     <span className="chip chip-audio">{audioChipLabel(confirm.source)}</span>
                   )}

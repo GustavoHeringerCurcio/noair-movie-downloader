@@ -32,6 +32,8 @@ export interface TmdbClient {
   videos(id: number, type: MediaType): Promise<TmdbVideo[]>;
   /** US age rating (`R`, `PG-13`, `TV-MA`, …) for the hover card (S16); null when the title has no US certification. */
   certification(id: number, type: MediaType): Promise<string | null>;
+  /** Transparent-logo `file_path` from `/movie|tv/{id}/images` (T-002); null when the title has no usable logo. */
+  logoPath(id: number, type: MediaType): Promise<string | null>;
 }
 
 export interface TmdbClientConfig {
@@ -110,10 +112,37 @@ interface TmdbVideoDto {
   published_at?: string | null;
 }
 
+interface TmdbLogoDto {
+  file_path?: string | null;
+  iso_639_1?: string | null;
+  vote_average?: number;
+}
+
 function yearFromDate(date: string | null | undefined): number | null {
   if (!date) return null;
   const year = parseInt(date.slice(0, 4), 10);
   return Number.isFinite(year) ? year : null;
+}
+
+/**
+ * Pure pick of the best transparent logo from TMDB `/images` `logos` (T-002).
+ * Logos are the studio wordmark/lockup used as a poster overlay. English (or
+ * language-agnostic) art wins, then the community's highest `vote_average`;
+ * entries without a `file_path` are ignored.
+ */
+export function pickBestLogoPath(logos: TmdbLogoDto[] | undefined | null): string | null {
+  if (!logos || logos.length === 0) return null;
+  const ranked = logos
+    .filter((logo) => typeof logo.file_path === 'string' && (logo.file_path as string).length > 0)
+    .sort((a, b) => {
+      const aLang = a.iso_639_1 ?? '';
+      const bLang = b.iso_639_1 ?? '';
+      const aEn = aLang === 'en' || aLang === '' ? 1 : 0;
+      const bEn = bLang === 'en' || bLang === '' ? 1 : 0;
+      if (aEn !== bEn) return bEn - aEn;
+      return (b.vote_average ?? 0) - (a.vote_average ?? 0);
+    });
+  return ranked[0]?.file_path ?? null;
 }
 
 export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
@@ -306,7 +335,22 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     return rating.trim().length > 0 ? rating.trim() : null;
   }
 
-  return { searchMulti, details, browse, seasonEpisodes, imdbId, videos, certification };
+  async function logoPath(id: number, type: MediaType): Promise<string | null> {
+    const url = `${config.baseUrl}/${type}/${id}/images?api_key=${encodeURIComponent(config.apiKey)}`;
+    let res: Response;
+    try {
+      res = await fetchWithRetry(fetchImpl, url, {}, { retries: 1, baseBackoffMs: 300, timeoutMs: 8000 });
+    } catch {
+      throw new UpstreamError(502, 'TMDB unreachable');
+    }
+    // Unknown id / no image record is not an error for the logo overlay.
+    if (res.status === 404) return null;
+    if (!res.ok) throw new UpstreamError(502, `TMDB images failed (HTTP ${res.status})`);
+    const data = (await res.json()) as { logos?: TmdbLogoDto[] };
+    return pickBestLogoPath(data.logos ?? []);
+  }
+
+  return { searchMulti, details, browse, seasonEpisodes, imdbId, videos, certification, logoPath };
 }
 
 function sectionPaths(section: DiscoverSection): string[] {

@@ -27,6 +27,9 @@ export interface AppConfig {
   tmdbBaseUrl: string;
   tmdbImageBaseUrl: string;
   omdbApiKey: string | null;
+  /** Optional fanart.tv key (16:9 key-art thumbs for the horizontal poster cards, T-002). */
+  fanartApiKey: string | null;
+  fanartBaseUrl: string;
   prowlarrUrl: string;
   prowlarrApiKey: string;
   prowlarrBootstrapIndexers: boolean;
@@ -51,6 +54,8 @@ export function loadConfig(): AppConfig {
     tmdbBaseUrl: 'https://api.themoviedb.org/3',
     tmdbImageBaseUrl: 'https://image.tmdb.org/t/p',
     omdbApiKey: optionalEnv('OMDB_API_KEY', '') || null,
+    fanartApiKey: optionalEnv('FANART_API_KEY', '') || null,
+    fanartBaseUrl: 'https://webservice.fanart.tv/v3',
     prowlarrUrl: requireEnv('PROWLARR_URL'),
     prowlarrApiKey: requireEnv('PROWLARR_API_KEY'),
     prowlarrBootstrapIndexers: optionalEnv('PROWLARR_BOOTSTRAP_INDEXERS', '1') === '1',

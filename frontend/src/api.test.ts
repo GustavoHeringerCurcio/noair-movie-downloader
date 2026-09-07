@@ -4,10 +4,12 @@ import {
   clearHoverCache,
   clearSourcesCache,
   externalPlayerHref,
+  fanartThumbUrl,
   hoverCardFor,
   humanEta,
   humanSize,
   humanSpeed,
+  logoUrl,
   sources,
   trailerEmbedUrl,
 } from './api';
@@ -66,6 +68,18 @@ describe('externalPlayerHref (T-001 movie: hand-off)', () => {
     expect(new URL(href).href).toBe(href);
     // Old shape for comparison — canonicalized by dropping the nested colon:
     expect(new URL('movie://http://localhost:5173/x').href).toBe('movie://http//localhost:5173/x');
+  });
+});
+
+describe('fanartThumbUrl / logoUrl (T-002 horizontal-poster art)', () => {
+  it('builds the fanart key-art thumb route under /api/images/fanart', () => {
+    expect(fanartThumbUrl('movie', 27205)).toBe('/api/images/fanart/movie/27205/thumb');
+    expect(fanartThumbUrl('tv', 100)).toBe('/api/images/fanart/tv/100/thumb');
+  });
+
+  it('builds the cached TMDB logo route under /api/images/art', () => {
+    expect(logoUrl('movie', 27205)).toBe('/api/images/art/movie/27205/logo');
+    expect(logoUrl('tv', 100)).toBe('/api/images/art/tv/100/logo');
   });
 });
 
