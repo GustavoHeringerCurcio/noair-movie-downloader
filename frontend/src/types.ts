@@ -39,6 +39,9 @@ export interface MediaItem {
   backdropPath: string | null;
   overview: string;
   voteAverage: number;
+  /** True IMDb score cached on the backend `art_files` poster row (T-004). The
+   * /browse and /search listings attach it; null/absent while not yet known. */
+  imdbRating?: number | null;
 }
 
 export interface TvSeasonSummary {
@@ -207,6 +210,9 @@ export interface DownloadRecord {
   audioLang?: AudioLang | null;
   /** Audio descriptor from the release title (`dub`/`dual`/`multi`). */
   audioMode?: AudioMode | null;
+  /** IMDb score cached on the subject's poster row; the downloads feed carries
+   * it so My Downloads cards can show the rating badge. */
+  imdbRating?: number | null;
 }
 
 export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required' | 'hls';

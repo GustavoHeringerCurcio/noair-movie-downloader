@@ -620,6 +620,7 @@ export function DetailPage() {
           backdropPath: media.backdropPath,
           overview: media.overview,
           voteAverage: media.voteAverage,
+          imdbRating: media.imdbRating ?? null,
         });
 
         if (mediaType === 'tv') {

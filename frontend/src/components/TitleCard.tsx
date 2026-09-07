@@ -8,6 +8,7 @@ import { backdropUrl, fanartThumbUrl, hoverCardFor, logoUrl, posterUrl, trailerE
 import { durationLabel, hoverTags, seasonCountLabel } from '../lib/hoverCard';
 import { RatingBadge } from './RatingBadge';
 import { usePosterStyleStore } from '../store/posterStyleStore';
+import { usePosterImdbStore } from '../store/posterImdbStore';
 
 /** How long a card must stay hovered before the expanded card (D20) opens (D18). */
 const TRAILER_HOVER_DELAY_MS = 600;
@@ -148,6 +149,7 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   const resetKey = `${item.tmdbId}:${item.mediaType}`;
   const subjectKey = `${item.mediaType}:${item.tmdbId}`;
   const vertical = usePosterStyleStore((s) => s.style === 'vertical');
+  const showImdbBadge = usePosterImdbStore((s) => s.show);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -437,6 +439,15 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   const artModeClass = vertical ? 'title-card-vert' : 'title-card-horiz';
   const artStateClass = showLogoOverlay ? 'tc-logo-on' : noArt ? 'tc-noart' : '';
 
+  // IMDb badge on the poster (bottom-left): shows the cached score the listing
+  // carries, but only while the user hasn't turned it off and the backend
+  // actually knows a score — unknown titles never get an empty pill.
+  const imdbRating = item.imdbRating ?? null;
+  const imdbBadge =
+    showImdbBadge && imdbRating != null && Number.isFinite(imdbRating) && imdbRating > 0
+      ? imdbRating.toFixed(1)
+      : null;
+
   return (
     <>
       <div
@@ -509,6 +520,16 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
           <span className="tc-mark-title">{item.title}</span>
           {item.year != null && <span className="tc-mark-year">{item.year}</span>}
         </div>
+
+        {/* IMDb score badge (bottom-left over the poster art). */}
+        {imdbBadge != null && (
+          <span className="tc-imdb" aria-label={`IMDb rating ${imdbBadge}`}>
+            <span className="tc-imdb-mark" aria-hidden="true">
+              IMDb
+            </span>
+            <span className="tc-imdb-value">{imdbBadge}</span>
+          </span>
+        )}
 
         {!expanded && primary && (
           <div className="title-card-overlay">

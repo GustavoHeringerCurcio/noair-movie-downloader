@@ -111,6 +111,7 @@ export function WatchPage() {
       backdropPath: download.backdropPath,
       overview: '',
       voteAverage: 0,
+      imdbRating: download.imdbRating ?? null,
     });
   }, [download, recents, recordRecent]);
 

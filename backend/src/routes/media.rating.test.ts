@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../app.js';
 import { makeTestDeps } from '../../test/helpers.js';
 import type { ArtFilesRepository, ArtFileRow } from '../db/artFilesRepo.js';
-import type { MediaDetail } from '../types.js';
+import type { MediaDetail, MediaItem } from '../types.js';
 
 function movieDetail(overrides: Partial<MediaDetail> = {}): MediaDetail {
   return {
@@ -152,5 +152,92 @@ describe('T-004 on-demand reads never hit OMDb', () => {
     expect(hover.body.imdbRating).toBe(8.3);
 
     expect(fetchPoster).not.toHaveBeenCalled();
+  });
+});
+
+function mediaItem(tmdbId: number, mediaType: 'movie' | 'tv', title: string): MediaItem {
+  return {
+    tmdbId,
+    mediaType,
+    title,
+    year: null,
+    posterPath: null,
+    backdropPath: null,
+    overview: '',
+    voteAverage: 0,
+  };
+}
+
+describe('List payloads carry the cached IMDb rating (poster-badge feed)', () => {
+  it('GET /api/browse attaches each stored rating in one read', async () => {
+    const base = makeTestDeps();
+    const deps = makeTestDeps({
+      tmdb: {
+        ...base.tmdb,
+        browse: async () => [mediaItem(550, 'movie', 'Fight Club'), mediaItem(100, 'tv', 'Fallout')],
+      },
+      artFiles: repoWith([
+        posterRow(),
+        posterRow({ mediaType: 'tv', tmdbId: 100, filePath: 'tv_100_poster.jpg' }),
+      ]),
+    });
+    const res = await request(createApp(deps)).get('/api/browse?section=trending-week');
+    expect(res.status).toBe(200);
+    expect(res.body.items[0]).toMatchObject({ tmdbId: 550, imdbRating: 8.3 });
+    expect(res.body.items[1]).toMatchObject({ tmdbId: 100, imdbRating: 8.3 });
+  });
+
+  it('GET /api/browse maps an item with no stored row to imdbRating null', async () => {
+    const base = makeTestDeps();
+    const deps = makeTestDeps({
+      tmdb: {
+        ...base.tmdb,
+        browse: async () => [mediaItem(550, 'movie', 'Fight Club'), mediaItem(603, 'movie', 'The Matrix')],
+      },
+      artFiles: repoWith([posterRow()]),
+    });
+    const res = await request(createApp(deps)).get('/api/browse?section=best-movies');
+    expect(res.status).toBe(200);
+    expect(res.body.items[0].imdbRating).toBe(8.3);
+    expect(res.body.items[1].imdbRating).toBeNull();
+  });
+
+  it('GET /api/search attaches the cached rating to every result', async () => {
+    const base = makeTestDeps();
+    const deps = makeTestDeps({
+      tmdb: {
+        ...base.tmdb,
+        searchMulti: async () => [mediaItem(550, 'movie', 'Fight Club')],
+      },
+      artFiles: repoWith([posterRow()]),
+    });
+    const res = await request(createApp(deps)).get('/api/search?q=fight+club&type=all');
+    expect(res.status).toBe(200);
+    expect(res.body.items[0]).toMatchObject({ tmdbId: 550, imdbRating: 8.3 });
+  });
+
+  it('listings keep working when no art_files are wired (all ratings null)', async () => {
+    const base = makeTestDeps();
+    const deps = makeTestDeps({
+      tmdb: { ...base.tmdb, browse: async () => [mediaItem(550, 'movie', 'Fight Club')] },
+    });
+    const res = await request(createApp(deps)).get('/api/browse?section=best-movies');
+    expect(res.status).toBe(200);
+    expect(res.body.items[0].imdbRating).toBeNull();
+  });
+
+  it('a ratings read failure never breaks the listing (degrade to null)', async () => {
+    const base = makeTestDeps();
+    const failing = repoWith([posterRow()]);
+    failing.getMany = async () => {
+      throw new Error('db down');
+    };
+    const deps = makeTestDeps({
+      tmdb: { ...base.tmdb, browse: async () => [mediaItem(550, 'movie', 'Fight Club')] },
+      artFiles: failing,
+    });
+    const res = await request(createApp(deps)).get('/api/browse?section=best-movies');
+    expect(res.status).toBe(200);
+    expect(res.body.items[0].imdbRating).toBeNull();
   });
 });

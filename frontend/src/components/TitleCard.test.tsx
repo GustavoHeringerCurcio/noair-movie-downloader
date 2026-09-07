@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { TitleCard } from './TitleCard';
 import { hoverCardFor } from '../api';
 import { usePosterStyleStore } from '../store/posterStyleStore';
+import { usePosterImdbStore } from '../store/posterImdbStore';
 import type { HoverCardInfo, MediaItem } from '../types';
 
 vi.mock('../api', async (importOriginal) => {
@@ -23,6 +24,7 @@ const FULL: MediaItem = {
   backdropPath: '/backdrop.jpg',
   overview: '',
   voteAverage: 8.4,
+  imdbRating: 8.8,
 };
 
 const MOVIE_HOVER: HoverCardInfo = {
@@ -100,6 +102,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   usePosterStyleStore.setState({ style: 'horizontal' });
+  usePosterImdbStore.setState({ show: true });
 });
 
 describe('TitleCard artwork (T-002 horizontal-poster default)', () => {
@@ -191,6 +194,34 @@ describe('TitleCard artwork (T-002 vertical 2:3 mode)', () => {
     const card = document.querySelector('.title-card');
     expect(card?.className).toContain('title-card-vert');
     expect(document.querySelector('.title-card-mark')?.textContent).toContain('Inception');
+  });
+});
+
+describe('TitleCard IMDb poster badge', () => {
+  it('shows an IMDb mark + rating bottom-left when the item carries a cached score', () => {
+    renderCard({ ...FULL, imdbRating: 8.3 });
+    const pill = document.querySelector('.tc-imdb');
+    expect(pill).not.toBeNull();
+    expect(pill?.getAttribute('aria-label')).toBe('IMDb rating 8.3');
+    expect(pill?.querySelector('.tc-imdb-mark')?.textContent).toBe('IMDb');
+    expect(pill?.querySelector('.tc-imdb-value')?.textContent).toBe('8.3');
+  });
+
+  it('renders no pill when the user turns the setting off', () => {
+    usePosterImdbStore.setState({ show: false });
+    renderCard(FULL);
+    expect(document.querySelector('.tc-imdb')).toBeNull();
+  });
+
+  it('renders no pill (and no empty slot) when the item has no cached score', () => {
+    renderCard({ ...FULL, imdbRating: null });
+    expect(document.querySelector('.tc-imdb')).toBeNull();
+  });
+
+  it('shows the badge in the horizontal 16:9 poster mode too', () => {
+    usePosterStyleStore.setState({ style: 'horizontal' });
+    renderCard({ ...FULL, imdbRating: 9.0 });
+    expect(document.querySelector('.tc-imdb-value')?.textContent).toBe('9.0');
   });
 });
 

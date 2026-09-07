@@ -43,6 +43,7 @@ function toMediaItem(d: DownloadRecord): MediaItem {
     backdropPath: d.backdropPath ?? null,
     overview: '',
     voteAverage: 0,
+    imdbRating: d.imdbRating ?? null,
   };
 }
 

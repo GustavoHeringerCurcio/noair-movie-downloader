@@ -22,6 +22,9 @@ export interface MediaItem {
   backdropPath: string | null;
   overview: string;
   voteAverage: number;
+  /** True IMDb score stored on the `art_files` poster row (T-004). List routes
+   * attach it (never an OMDb call); absent while the row has no rating. */
+  imdbRating?: number | null;
 }
 
 export interface MediaDetail {
@@ -144,6 +147,9 @@ export interface DownloadRecord {
   audioLang?: AudioLang | null;
   /** Audio descriptor from the release title (`dub`/`dual`/`multi`). */
   audioMode?: AudioMode | null;
+  /** IMDb score stored on the subject's `art_files` poster row; attached to the
+   * feed by `downloadsRepo.list()` so My Downloads cards can show it. */
+  imdbRating?: number | null;
 }
 
 export interface CreateDownloadInput {

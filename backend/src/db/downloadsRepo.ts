@@ -112,6 +112,65 @@ export interface DownloadsRepository {
   remove(infoHash: string): Promise<void>;
 }
 
+function parseRating(value: string | null): number | null {
+  if (value === null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+interface ArtRatingRow {
+  media_type: string;
+  tmdb_id: number;
+  imdb_rating: string | null;
+}
+
+/**
+ * Attach each record's cached IMDb score (T-004) by reading its `art_files`
+ * poster row in one batched query. My Downloads poster cards show the score
+ * once the OMDb pipeline has resolved it; rows without one stay `null`. A DB
+ * hiccup here must never break the 2 s downloads feed, so it degrades silently.
+ */
+async function attachImdbRatings(records: DownloadRecord[], pool: pg.Pool): Promise<void> {
+  const subjects = records.filter(
+    (r): r is DownloadRecord & { tmdbId: number; mediaType: 'movie' | 'tv' } =>
+      r.tmdbId != null && (r.mediaType === 'movie' || r.mediaType === 'tv'),
+  );
+  if (subjects.length === 0) return;
+  const movieIds = subjects.filter((s) => s.mediaType === 'movie').map((s) => s.tmdbId);
+  const tvIds = subjects.filter((s) => s.mediaType === 'tv').map((s) => s.tmdbId);
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (movieIds.length > 0) {
+    params.push(movieIds);
+    clauses.push(`(media_type = 'movie' AND tmdb_id = ANY($${params.length}::int[]))`);
+  }
+  if (tvIds.length > 0) {
+    params.push(tvIds);
+    clauses.push(`(media_type = 'tv' AND tmdb_id = ANY($${params.length}::int[]))`);
+  }
+  let rows: ArtRatingRow[];
+  try {
+    const result = await pool.query<ArtRatingRow>(
+      `SELECT media_type, tmdb_id, imdb_rating
+       FROM art_files
+       WHERE kind = 'poster' AND (${clauses.join(' OR ')})`,
+      params,
+    );
+    rows = result.rows;
+  } catch (error) {
+    console.warn('[downloads] could not attach IMDb ratings', error);
+    return;
+  }
+  const ratingBySubject = new Map<string, number | null>();
+  for (const row of rows) {
+    ratingBySubject.set(`${row.media_type}:${row.tmdb_id}`, parseRating(row.imdb_rating));
+  }
+  for (const record of records) {
+    if (record.tmdbId == null || record.mediaType == null) continue;
+    record.imdbRating = ratingBySubject.get(`${record.mediaType}:${record.tmdbId}`) ?? null;
+  }
+}
+
 export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
   async function insert(input: CreateDownloadInput): Promise<DownloadRecord> {
     const result = await pool.query<DownloadRow>(
@@ -165,7 +224,9 @@ export function createDownloadsRepository(pool: pg.Pool): DownloadsRepository {
 
   async function list(): Promise<DownloadRecord[]> {
     const result = await pool.query<DownloadRow>('SELECT * FROM downloads ORDER BY created_at DESC');
-    return result.rows.map(rowToRecord);
+    const records = result.rows.map(rowToRecord);
+    await attachImdbRatings(records, pool);
+    return records;
   }
 
   async function update(infoHash: string, fields: DownloadUpdate): Promise<void> {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { DISCOVER_SECTIONS, type DiscoverSection } from '../services/tmdb.js';
 import { UpstreamError } from '../types.js';
+import { attachImdbRatings } from '../lib/mediaRatings.js';
 import type { AppDeps } from '../deps.js';
 
 function parseSection(value: unknown): DiscoverSection | null {
@@ -18,7 +19,7 @@ export function createBrowseRouter(deps: AppDeps): Router {
       return;
     }
     try {
-      const items = await deps.tmdb.browse(section);
+      const items = await attachImdbRatings(deps, await deps.tmdb.browse(section));
       res.json({ items });
     } catch (error) {
       if (error instanceof UpstreamError) {

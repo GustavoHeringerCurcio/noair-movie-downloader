@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { SearchType } from '../types.js';
 import { UpstreamError } from '../types.js';
+import { attachImdbRatings } from '../lib/mediaRatings.js';
 import type { AppDeps } from '../deps.js';
 
 export function createSearchRouter(deps: AppDeps): Router {
@@ -15,7 +16,7 @@ export function createSearchRouter(deps: AppDeps): Router {
     const rawType = typeof req.query.type === 'string' ? req.query.type : 'all';
     const type: SearchType = rawType === 'movie' || rawType === 'tv' ? rawType : 'all';
     try {
-      const items = await deps.tmdb.searchMulti(q, type);
+      const items = await attachImdbRatings(deps, await deps.tmdb.searchMulti(q, type));
       res.json({ items });
     } catch (error) {
       if (error instanceof UpstreamError) {

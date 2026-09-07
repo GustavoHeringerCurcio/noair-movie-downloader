@@ -4,6 +4,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useFriendlyPickStore, FRIENDLY_PICK_OPTIONS } from '@/store/friendlyPickStore';
 import { useToastStore } from '@/store/toastStore';
 import { usePosterStyleStore, type PosterStyle } from '@/store/posterStyleStore';
+import { usePosterImdbStore } from '@/store/posterImdbStore';
 import type { AudioLang, FriendlyPickMode } from '@/types';
 import {
   buildLinuxInstallerSh,
@@ -60,6 +61,8 @@ export function SettingsPage() {
   const toast = useToastStore((s) => s.toast);
   const posterStyle = usePosterStyleStore((s) => s.style);
   const setPosterStyle = usePosterStyleStore((s) => s.setStyle);
+  const showImdb = usePosterImdbStore((s) => s.show);
+  const setShowImdb = usePosterImdbStore((s) => s.setShow);
   const setupOs = detectOs();
   const setupChoices = playerChoicesFor(setupOs);
   const isLinuxSetup = setupOs === 'linux';
@@ -124,6 +127,12 @@ export function SettingsPage() {
     if (style === posterStyle) return;
     setPosterStyle(style);
     toast(`Poster style: ${POSTER_STYLE_OPTIONS.find((o) => o.id === style)?.label ?? style}`, 'info');
+  }
+
+  function changeShowImdb(next: boolean): void {
+    if (next === showImdb) return;
+    setShowImdb(next);
+    toast(next ? 'IMDb ratings: shown on posters' : 'IMDb ratings: hidden on posters', 'info');
   }
 
   async function changeAudio(next: AudioLang): Promise<void> {
@@ -327,6 +336,34 @@ export function SettingsPage() {
         </div>
         <p className="settings-note">
           Saved on this device only — each browser keeps its own preference.
+        </p>
+      </section>
+
+      <section className="settings-card">
+        <h2>IMDb ratings on posters</h2>
+        <p className="settings-note">
+          Show the title's true IMDb score as a small badge in the bottom-left corner of every
+          poster card. The score comes from the cached poster-pipeline data and only appears for
+          titles it has resolved — titles without a score never show an empty badge.
+        </p>
+        <label className="toggle-row">
+          <span className="toggle-label">Show IMDb rating badge on posters</span>
+          <span className="toggle-control">
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={showImdb}
+              onChange={(e) => changeShowImdb(e.target.checked)}
+              aria-label="Show IMDb rating badge on posters"
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+          </span>
+        </label>
+        <p className="settings-note">
+          Saved on this device only — each browser keeps its own preference. The IMDb chips on the
+          hover card and Detail page are unaffected.
         </p>
       </section>
 
