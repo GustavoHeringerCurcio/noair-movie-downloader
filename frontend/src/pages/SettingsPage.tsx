@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useToastStore } from '@/store/toastStore';
+import { usePosterStyleStore, type PosterStyle } from '@/store/posterStyleStore';
 import type { AudioLang } from '@/types';
 import {
   buildLinuxInstallerSh,
@@ -18,11 +19,25 @@ import { AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel } from '@/lib/audio';
 const CONFIG_KEYS: Array<{ key: string; description: string }> = [
   { key: 'TMDB_API_KEY', description: 'Metadata provider (TMDB)' },
   { key: 'OMDB_API_KEY', description: 'Portrait-poster provider (OMDb)' },
+  { key: 'FANART_API_KEY', description: 'Horizontal key-art provider (fanart.tv)' },
   { key: 'PROWLARR_URL', description: 'Torrent indexer aggregator base URL' },
   { key: 'PROWLARR_API_KEY', description: 'Prowlarr API key' },
   { key: 'QBITTORRENT_URL', description: 'qBittorrent Web UI URL' },
   { key: 'QBITTORRENT_USER / QBITTORRENT_PASS', description: 'qBittorrent credentials' },
   { key: 'DOWNLOAD_DIR', description: 'Shared download/stream volume' },
+];
+
+const POSTER_STYLE_OPTIONS: Array<{ id: PosterStyle; label: string; hint: string }> = [
+  {
+    id: 'horizontal',
+    label: 'Horizontal',
+    hint: 'Wide 16:9 poster cards with key-art thumbnails (default)',
+  },
+  {
+    id: 'vertical',
+    label: 'Vertical 2:3',
+    hint: 'Classic poster cards using TMDB poster art',
+  },
 ];
 
 function diagnostics(): string {
@@ -38,6 +53,8 @@ export function SettingsPage() {
   const loadSettings = useSettingsStore((s) => s.load);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
   const toast = useToastStore((s) => s.toast);
+  const posterStyle = usePosterStyleStore((s) => s.style);
+  const setPosterStyle = usePosterStyleStore((s) => s.setStyle);
   const setupOs = detectOs();
   const setupChoices = playerChoicesFor(setupOs);
   const isLinuxSetup = setupOs === 'linux';
@@ -64,6 +81,12 @@ export function SettingsPage() {
     setPlayer(id);
     savePlayerPreference(id);
     toast(`Local player: ${setupChoices.find((p) => p.id === id)?.label ?? id}`, 'info');
+  }
+
+  function changePosterStyle(style: PosterStyle): void {
+    if (style === posterStyle) return;
+    setPosterStyle(style);
+    toast(`Poster style: ${POSTER_STYLE_OPTIONS.find((o) => o.id === style)?.label ?? style}`, 'info');
   }
 
   async function changeAudio(next: AudioLang): Promise<void> {
@@ -155,6 +178,35 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-card">
+        <h2>Poster style</h2>
+        <p className="settings-note">
+          How every Home and Search card is framed. Horizontal (default) shows real 16:9 key-art
+          thumbnails — titles without one fall back to a backdrop with the studio logo overlaid.
+          Vertical 2:3 narrows and tallens the cards and uses the raw TMDB poster instead.
+        </p>
+        <div className="artwork-options" role="group" aria-label="Poster style">
+          {POSTER_STYLE_OPTIONS.map((option) => {
+            const active = posterStyle === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={active}
+                onClick={() => changePosterStyle(option.id)}
+              >
+                <span className="artwork-option-label">{option.label}</span>
+                <span className="artwork-option-hint">{option.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="settings-note">
+          Saved on this device only — each browser keeps its own preference.
+        </p>
+      </section>
+
+      <section className="settings-card">
         <h2>Audio language</h2>
         <p className="settings-note">
           Pick the audio your viewers expect. English is the default and shows every release.
@@ -225,7 +277,7 @@ export function SettingsPage() {
         </dl>
         <dl className="settings-row">
           <dt>Services</dt>
-          <dd>TMDB · OMDb · Prowlarr · qBittorrent · PostgreSQL</dd>
+          <dd>TMDB · OMDb · fanart.tv · Prowlarr · qBittorrent · PostgreSQL</dd>
         </dl>
       </section>
     </div>
