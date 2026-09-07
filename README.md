@@ -181,8 +181,25 @@ npm run dev:down       # stop everything
 PowerShell users can use the alias instead: `scripts/dev.ps1` supports the same
 subcommands (`up`, `start`, `rebuild`, `logs`, `down`).
 
-Production is untouched — `npm run prod` (`docker compose up -d --build`) still
-builds the real multi-stage images.
+### Command cheat-sheet
+
+Every npm script is a thin wrapper around the raw `docker compose` command. The
+rule of thumb: **`dev` variants add the `-f docker-compose.dev.yml` override
+file; `prod` is the plain base file** — exactly the classic
+`docker compose up -d --build`.
+
+| You type | Under the hood |
+|---|---|
+| `npm run dev` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build` |
+| `npm run dev:start` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` |
+| `npm run dev:rebuild` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml build --no-cache backend frontend` then `up -d` |
+| `npm run dev:logs` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f --tail=100 backend frontend` |
+| `npm run dev:down` | `docker compose -f docker-compose.yml -f docker-compose.dev.yml down` |
+| `npm run prod` | `docker compose up -d --build` |
+| `npm run prod:down` | `docker compose down` |
+
+Use `npm run dev`, `npm run dev:logs` and `npm run dev:down` for ~95% of work;
+`npm run prod` only for release-style checks of the real multi-stage images.
 
 ### Running natively (optional)
 
