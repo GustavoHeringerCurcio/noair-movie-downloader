@@ -3,10 +3,12 @@ import {
   cardPosterUrl,
   clearHoverCache,
   clearSourcesCache,
+  fanartThumbUrl,
   hoverCardFor,
   humanEta,
   humanSize,
   humanSpeed,
+  logoUrl,
   sources,
   trailerEmbedUrl,
 } from './api';
@@ -50,6 +52,18 @@ describe('cardPosterUrl (D21 OMDb portrait)', () => {
   it('points at the local art-volume poster route for a subject', () => {
     expect(cardPosterUrl('movie', 550)).toBe('/api/images/art/movie/550/poster');
     expect(cardPosterUrl('tv', 1396)).toBe('/api/images/art/tv/1396/poster');
+  });
+});
+
+describe('fanartThumbUrl / logoUrl (T-002 horizontal-poster art)', () => {
+  it('builds the fanart key-art thumb route under /api/images/fanart', () => {
+    expect(fanartThumbUrl('movie', 27205)).toBe('/api/images/fanart/movie/27205/thumb');
+    expect(fanartThumbUrl('tv', 100)).toBe('/api/images/fanart/tv/100/thumb');
+  });
+
+  it('builds the cached TMDB logo route under /api/images/art', () => {
+    expect(logoUrl('movie', 27205)).toBe('/api/images/art/movie/27205/logo');
+    expect(logoUrl('tv', 100)).toBe('/api/images/art/tv/100/logo');
   });
 });
 

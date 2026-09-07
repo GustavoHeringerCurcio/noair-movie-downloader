@@ -103,6 +103,7 @@ export function makeTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
       imdbId: async () => null,
       videos: async () => [],
       certification: async () => null,
+      logoPath: async () => null,
     },
     prowlarr: {
       search: async () => [],

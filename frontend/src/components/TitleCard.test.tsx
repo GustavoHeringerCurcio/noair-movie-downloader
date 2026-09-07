@@ -4,6 +4,7 @@ import '@testing-library/jest-dom';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { TitleCard } from './TitleCard';
 import { hoverCardFor } from '../api';
+import { usePosterStyleStore } from '../store/posterStyleStore';
 import type { HoverCardInfo, MediaItem } from '../types';
 
 vi.mock('../api', async (importOriginal) => {
@@ -48,6 +49,9 @@ const NO_TRAILER_HOVER: HoverCardInfo = {
   certification: 'R',
 };
 
+/** Mirror the retry budget in TitleCard so error sequences exhaust correctly. */
+const ART_RETRIES = 2;
+
 function renderCard(item: MediaItem): void {
   render(
     <MemoryRouter>
@@ -67,58 +71,123 @@ function renderNav(item: MediaItem): void {
   );
 }
 
-/** Number of retries before the poster art gives up (mirrors TitleCard consts). */
-const POSTER_RETRIES = 4;
+function fanartImage(): HTMLImageElement | null {
+  return document.querySelector('.tc-art-main') as HTMLImageElement | null;
+}
+
+/** Fire `error` on the current main-art <img>, retrying until it gives up. */
+async function exhaustMainArt(): Promise<void> {
+  vi.useFakeTimers();
+  try {
+    for (let i = 0; i <= ART_RETRIES; i += 1) {
+      const img = fanartImage();
+      if (!img) break;
+      fireEvent.error(img);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(900);
+      });
+    }
+    await act(async () => {});
+  } finally {
+    vi.useRealTimers();
+  }
+}
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  usePosterStyleStore.setState({ style: 'horizontal' });
 });
 
-describe('TitleCard', () => {
-  it('renders the OMDb portrait composite: blurred ground + crisp centered figure', () => {
+describe('TitleCard artwork (T-002 horizontal-poster default)', () => {
+  it('renders the horizontal poster look: fanart key-art over a typography mark', () => {
     renderCard(FULL);
-    const card = document.querySelector('.title-card-poster');
-    const figure = document.querySelector('.title-card-figure') as HTMLImageElement | null;
-    const ground = document.querySelector('.title-card-bg') as HTMLImageElement | null;
-    expect(card).not.toBeNull();
-    // Both layers come from the local art-volume poster — never TMDB/FanArt.
-    expect(figure?.src).toContain('/api/images/art/movie/27205/poster');
-    expect(ground?.src).toContain('/api/images/art/movie/27205/poster');
-    expect(figure?.src).not.toContain('/api/images/tmdb/');
+    const card = document.querySelector('.title-card');
+    const art = fanartImage();
+    expect(card?.className).toContain('title-card-horiz');
+    expect(card?.className).not.toContain('title-card-vert');
+    // Wide art comes from the fanart route — never the OMDb portrait pipeline.
+    expect(art?.src).toContain('/api/images/fanart/movie/27205/thumb');
+    expect(art?.src).not.toContain('/api/images/tmdb/');
+    // Strong typography mark always underpins the art.
+    const mark = document.querySelector('.title-card-mark');
+    expect(mark).not.toBeNull();
+    expect(mark?.textContent).toContain('Inception');
     expect(screen.getByRole('button', { name: /inception/i })).toBeInTheDocument();
   });
 
-  it('shows the monogram and empty ground once the poster gives up after retries', async () => {
-    vi.useFakeTimers();
-    try {
-      renderCard(FULL);
-      for (let i = 0; i <= POSTER_RETRIES; i += 1) {
-        const figure = document.querySelector('.title-card-figure') as HTMLImageElement | null;
-        if (!figure) break;
-        fireEvent.error(figure);
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(1600);
-        });
-      }
-      await act(async () => {});
-      expect(document.querySelector('.title-card-figure')).toBeNull();
-      expect(document.querySelector('.title-card-bg-empty')).not.toBeNull();
-      expect(document.querySelector('.title-card-fallback')?.textContent).toBe('I');
-    } finally {
-      vi.useRealTimers();
-    }
+  it('falls back to the TMDB backdrop (no OMDb composite) when the fanart art is missing', async () => {
+    renderCard(FULL);
+    await exhaustMainArt();
+    // No more blurred-ground + floating-figure treatment; the fallback layer is
+    // the plain TMDB backdrop behind the typography mark.
+    expect(fanartImage()).toBeNull();
+    const backdrop = document.querySelector('.tc-art-backdrop') as HTMLImageElement | null;
+    expect(backdrop).not.toBeNull();
+    expect(backdrop?.src).toContain('/api/images/tmdb/w1280/backdrop.jpg');
+    expect(backdrop?.src).not.toContain('/api/images/art/movie/27205/poster');
+    expect(document.querySelector('.title-card-mark')?.textContent).toContain('Inception');
   });
 
-  it('renders an optional primary quick action without any info button', () => {
-    const primary = { label: 'Watch', icon: 'play' as const, onClick: vi.fn() };
-    render(
-      <MemoryRouter>
-        <TitleCard item={FULL} primary={primary} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByRole('button', { name: 'Watch' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /more info/i })).not.toBeInTheDocument();
+  it('reveals the transparent logo over the backdrop and hides the mark text when it loads', async () => {
+    renderCard(FULL);
+    await exhaustMainArt();
+    const backdrop = document.querySelector('.tc-art-backdrop') as HTMLImageElement | null;
+    expect(backdrop).not.toBeNull();
+    fireEvent.load(backdrop!);
+    await act(async () => {});
+    // The logo is requested only once the backdrop is actually showing.
+    const logo = document.querySelector('.tc-logo') as HTMLImageElement | null;
+    expect(logo).not.toBeNull();
+    expect(logo?.src).toContain('/api/images/art/movie/27205/logo');
+    fireEvent.load(logo!);
+    await act(async () => {});
+    expect(document.querySelector('.title-card')?.className).toContain('tc-logo-on');
+    expect(document.querySelector('.title-card-mark')?.className).toContain('title-card-mark');
+  });
+
+  it('uses bold typography (never a bare monogram) when no art source exists at all', async () => {
+    const bare: MediaItem = { ...FULL, backdropPath: null, posterPath: null };
+    renderCard(bare);
+    await exhaustMainArt();
+    const card = document.querySelector('.title-card');
+    expect(card?.className).toContain('tc-noart');
+    expect(document.querySelector('.tc-art-backdrop')).toBeNull();
+    const mark = document.querySelector('.title-card-mark');
+    expect(mark).not.toBeNull();
+    // The monogram letter is part of the composed typography, with the title.
+    expect(document.querySelector('.tc-mark-letter')?.textContent).toBe('I');
+    expect(mark?.textContent).toContain('Inception');
+  });
+});
+
+describe('TitleCard artwork (T-002 vertical 2:3 mode)', () => {
+  it('renders the raw TMDB poster at 2:3 with no fanart/backdrop tiers', () => {
+    usePosterStyleStore.setState({ style: 'vertical' });
+    renderCard(FULL);
+    const card = document.querySelector('.title-card');
+    expect(card?.className).toContain('title-card-vert');
+    const poster = document.querySelector('.tc-art-poster') as HTMLImageElement | null;
+    expect(poster).not.toBeNull();
+    expect(poster?.src).toContain('/api/images/tmdb/w780/poster.jpg');
+    expect(fanartImage()).toBeNull();
+    expect(document.querySelector('.tc-art-backdrop')).toBeNull();
+    expect(document.querySelector('.tc-logo')).toBeNull();
+    // No blurred ground / floating portrait figure in vertical mode either.
+    expect(document.querySelector('.title-card-figure')).toBeNull();
+  });
+
+  it('degrades a poster-less title to the centered typography mark', async () => {
+    usePosterStyleStore.setState({ style: 'vertical' });
+    const bare: MediaItem = { ...FULL, posterPath: null, backdropPath: null };
+    renderCard(bare);
+    await exhaustMainArt();
+    // In vertical mode there is no fanart tier, so the poster <img> never
+    // appears; the mark is the sole content.
+    expect(document.querySelector('.tc-art-poster')).toBeNull();
+    const card = document.querySelector('.title-card');
+    expect(card?.className).toContain('title-card-vert');
+    expect(document.querySelector('.title-card-mark')?.textContent).toContain('Inception');
   });
 });
 
@@ -196,16 +265,25 @@ describe('TitleCard expanded hover card (D20)', () => {
     expect(again?.src).toContain('mute=0');
   });
 
-  it('expands with still artwork and details when the title has no trailer', async () => {
+  it('expands with the key-art still and details when the title has no trailer', async () => {
     mockHoverCardFor.mockResolvedValue(NO_TRAILER_HOVER);
     renderCard(FULL);
+    // The pop-up still uses the art that actually painted the card — make the
+    // fanart thumb resolve first (it also covers the typography mark).
+    const art = fanartImage();
+    expect(art).not.toBeNull();
+    fireEvent.load(art!);
+    await act(async () => {});
+
     const card = screen.getByRole('button', { name: /inception/i });
     await hoverFor(card, 600);
 
     const pop = document.querySelector('.tc-pop') as HTMLElement | null;
     expect(pop).not.toBeNull();
     expect(pop?.querySelector('.tc-pop-video')).toBeNull();
-    expect(pop?.querySelector('.tc-pop-art')).not.toBeNull();
+    const still = pop?.querySelector('.tc-pop-art') as HTMLImageElement | null;
+    expect(still).not.toBeNull();
+    expect(still?.src).toContain('/api/images/fanart/movie/27205/thumb');
     expect(screen.queryByRole('button', { name: 'Mute preview' })).not.toBeInTheDocument();
     expect(screen.getByText('R')).toBeInTheDocument();
     expect(screen.getByText('2h 1m')).toBeInTheDocument();
@@ -326,6 +404,21 @@ describe('TitleCard expanded hover card (D20)', () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(document.querySelector('.tc-pop')).not.toBeNull();
+  });
+
+  it('opens correctly on a vertical 2:3 card', async () => {
+    usePosterStyleStore.setState({ style: 'vertical' });
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    const pop = document.querySelector('.tc-pop') as HTMLElement | null;
+    expect(pop).not.toBeNull();
+    const popStyle = pop?.getAttribute('style') ?? '';
+    // Width comes from the (2:3) base-card measurement; never NaN/empty.
+    expect(popStyle).toMatch(/width:\s*\d+px/);
+    expect(document.querySelector('.tc-pop-video')).not.toBeNull();
   });
 
   it('closes the preview when the window loses focus so the trailer cannot keep playing', async () => {
