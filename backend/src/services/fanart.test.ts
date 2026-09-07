@@ -54,7 +54,7 @@ function tvResponse(): Response {
 describe('FanartClient.keyArt', () => {
   it('resolves the moviethumb URL for a movie (Part A wide art)', async () => {
     const fetchImpl = makeFetch([
-      { match: (url) => url.includes('/movie/27205'), respond: () => movieResponse() },
+      { match: (url) => url.includes('/movies/27205'), respond: () => movieResponse() },
     ]);
     const client = createFanartClient({ ...CONFIG, fetchImpl });
     await expect(client.keyArt('movie', 27205)).resolves.toEqual({
@@ -106,13 +106,15 @@ describe('FanartClient.keyArt', () => {
       {
         match: (url) => {
           seen.push(url);
-          return url.includes('/movie/27205');
+          return url.includes('/movies/27205');
         },
         respond: () => movieResponse(),
       },
     ]);
     const client = createFanartClient({ ...CONFIG, fetchImpl });
     await client.keyArt('movie', 27205);
-    expect(seen[0]).toContain('api_key=k');
+    // fanart.tv uses `/movies/{id}` (plural) — a `/movie/{id}` call 404s and
+    // would be recorded as "no art" for every movie (regression guard).
+    expect(seen[0]).toContain('/v3/movies/27205?api_key=k');
   });
 });

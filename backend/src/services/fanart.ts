@@ -67,7 +67,11 @@ export function createFanartClient(config: FanartClientConfig): FanartClient {
   const base = (config.baseUrl ?? 'https://webservice.fanart.tv/v3').replace(/\/+$/, '');
 
   async function keyArt(mediaType: MediaType, tmdbId: number): Promise<FanartKeyArtResult> {
-    const url = `${base}/${mediaType}/${tmdbId}?api_key=${encodeURIComponent(config.apiKey)}`;
+    // fanart.tv names the movie collection `/movies/{id}` (plural); the TV one is
+    // `/tv/{id}`. Using the raw `mediaType` value would hit `/movie/{id}` which
+    // 404s for every movie — recorded as "no art" forever (a classic gotcha).
+    const collection = mediaType === 'movie' ? 'movies' : 'tv';
+    const url = `${base}/${collection}/${tmdbId}?api_key=${encodeURIComponent(config.apiKey)}`;
     let res: Response;
     try {
       res = await fetchImpl(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
