@@ -8,13 +8,14 @@ Entry point for any agent working in this repo. Read this file first.
 
 ## Commands
 - Install deps: `cd backend && npm install` · `cd frontend && npm install`
-- Run app (prod images): `docker compose up -d --build`
-- Dev (hot reload — use this while building features): `scripts/dev.ps1` —
+- Run app (prod images): `npm run prod` (= `docker compose up -d --build`)
+- Dev (hot reload — use this while building features): `npm run dev` —
   runs infra as-is but replaces `backend`/`frontend` with dev containers
   (`tsx watch` + Vite HMR) whose `src` is bind-mounted, via
   `docker-compose.dev.yml`. Open http://localhost:5173. Source edits apply in
-  seconds; never rebuild. After adding an npm dependency run `scripts/dev.ps1 rebuild`.
-  Extra: `start` (no rebuild) · `logs` · `down`.
+  seconds; never rebuild. After adding an npm dependency run `npm run dev:rebuild`.
+  Extra (root `package.json`): `dev:start` (no rebuild) · `dev:logs` · `dev:down`.
+  PowerShell alias with the same subcommands: `scripts/dev.ps1`.
 - Test: `cd backend && npm test` · `cd frontend && npm test`
 - Lint: `npm run lint` (each package)
 - Typecheck: `npm run typecheck` (each package)

@@ -162,24 +162,27 @@ as-is, but `backend` and `frontend` are replaced by live-reloading dev servers
 browser at http://localhost:5173 in seconds — nothing ever needs a rebuild:
 
 ```
-.\scripts\dev.ps1            # start dev stack (builds cached dev images first time)
+npm run dev            # start dev stack (builds dev images first time)
 ```
 
-(Short for `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`.)
+(Equivalent to `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`.)
 
 While it runs: edit `backend/src` → `tsx watch` restarts the API on save
 (:3000 is also exposed on the host for curl); edit `frontend/src` → HMR updates
 the browser immediately.
 
 ```
-.\scripts\dev.ps1 start      # start again without rebuilding images
-.\scripts\dev.ps1 rebuild    # rebuild dev images — do this after adding an npm dependency
-.\scripts\dev.ps1 logs       # tail backend + frontend logs
-.\scripts\dev.ps1 down       # stop everything
+npm run dev:start      # start again without rebuilding images
+npm run dev:rebuild    # rebuild dev images — do this after adding an npm dependency
+npm run dev:logs       # tail backend + frontend logs
+npm run dev:down       # stop everything
 ```
 
-Production is untouched — plain `docker compose up -d --build` still builds the
-real multi-stage images.
+PowerShell users can use the alias instead: `scripts/dev.ps1` supports the same
+subcommands (`up`, `start`, `rebuild`, `logs`, `down`).
+
+Production is untouched — `npm run prod` (`docker compose up -d --build`) still
+builds the real multi-stage images.
 
 ### Running natively (optional)
 
