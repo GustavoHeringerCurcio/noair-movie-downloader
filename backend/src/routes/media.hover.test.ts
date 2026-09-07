@@ -86,6 +86,7 @@ describe('S16 GET /api/media/:id/hover', () => {
       runtime: 139,
       seasons: null,
       certification: 'R',
+      imdbRating: null,
     });
   });
 
@@ -103,7 +104,42 @@ describe('S16 GET /api/media/:id/hover', () => {
       runtime: null,
       seasons: 2,
       certification: 'TV-MA',
+      imdbRating: null,
     });
+  });
+
+  it('surfaces the cached IMDb score from the poster pipeline (movie and tv)', async () => {
+    const base = makeTestDeps();
+    const deps = makeTestDeps({
+      tmdb: {
+        ...base.tmdb,
+        details: async (_id, type) => (type === 'movie' ? movieDetail() : tvDetail()),
+        videos: async () => [],
+        certification: async () => null,
+      },
+      artFiles: {
+        async getMany(subjects) {
+          return subjects.map((s) => ({
+            mediaType: s.mediaType,
+            tmdbId: s.tmdbId,
+            kind: 'poster' as const,
+            originUrl: 'x',
+            filePath: s.mediaType === 'movie' ? 'm.png' : 't.png',
+            status: 'ok' as const,
+            fetchedAt: new Date().toISOString(),
+            imdbRating: s.mediaType === 'movie' ? 8.4 : 8.7,
+          }));
+        },
+        upsertMany: async () => {},
+        listPosterRowsMissingRating: async () => [],
+        updateImdbRatings: async () => {},
+      },
+    });
+    const app = createApp(deps);
+    const movie = await request(app).get('/api/media/550/hover?type=movie');
+    expect(movie.body.imdbRating).toBe(8.4);
+    const tv = await request(app).get('/api/media/100/hover?type=tv');
+    expect(tv.body.imdbRating).toBe(8.7);
   });
 
   it('degrades a trailer-less title to trailer:null with the card still populated', async () => {
@@ -112,6 +148,7 @@ describe('S16 GET /api/media/:id/hover', () => {
     expect(res.status).toBe(200);
     expect(res.body.trailer).toBeNull();
     expect(res.body.genres).toEqual(['Drama']);
+    expect(res.body.imdbRating).toBeNull();
   });
 
   it('keeps the card working when the certification lookup fails', async () => {

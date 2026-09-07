@@ -30,6 +30,7 @@ const MOVIE_HOVER: HoverCardInfo = {
   runtime: 148,
   seasons: null,
   certification: 'PG-13',
+  imdbRating: 8.8,
 };
 
 const TV_HOVER: HoverCardInfo = {
@@ -38,6 +39,7 @@ const TV_HOVER: HoverCardInfo = {
   runtime: null,
   seasons: 2,
   certification: 'TV-MA',
+  imdbRating: 8.7,
 };
 
 const NO_TRAILER_HOVER: HoverCardInfo = {
@@ -46,6 +48,7 @@ const NO_TRAILER_HOVER: HoverCardInfo = {
   runtime: 121,
   seasons: null,
   certification: 'R',
+  imdbRating: null,
 };
 
 function renderCard(item: MediaItem): void {
@@ -152,6 +155,8 @@ describe('TitleCard expanded hover card (D20)', () => {
     const pop = document.querySelector('.tc-pop') as HTMLElement | null;
     expect(pop).not.toBeNull();
     expect(pop?.querySelector('.tc-pop-title-text')?.textContent).toBe('Inception');
+    expect(pop?.querySelector('.tc-pop-meta .rating-badge')?.textContent).toContain('8.8');
+    expect(screen.getByRole('img', { name: 'IMDb rating 8.8' })).toBeInTheDocument();
     const video = pop?.querySelector('.tc-pop-video') as HTMLIFrameElement | null;
     expect(video?.src).toContain('youtube-nocookie.com/embed/abc');
     expect(video?.src).toContain('autoplay=1');
@@ -222,6 +227,21 @@ describe('TitleCard expanded hover card (D20)', () => {
 
     expect(screen.getByText('TV-MA')).toBeInTheDocument();
     expect(screen.getByText('2 Seasons')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'IMDb rating 8.7' })).toBeInTheDocument();
+  });
+
+  it('omits the rating chip entirely when no IMDb score is cached', async () => {
+    mockHoverCardFor.mockResolvedValue(NO_TRAILER_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    expect(document.querySelector('.tc-pop')).not.toBeNull();
+    expect(document.querySelector('.tc-pop-meta .rating-badge')).toBeNull();
+    expect(screen.queryByRole('img', { name: /imdb rating/i })).not.toBeInTheDocument();
+    // The rest of the meta row is untouched.
+    expect(screen.getByText('R')).toBeInTheDocument();
+    expect(screen.getByText('HD')).toBeInTheDocument();
   });
 
   it('keeps the card static when the hover payload cannot be resolved', async () => {

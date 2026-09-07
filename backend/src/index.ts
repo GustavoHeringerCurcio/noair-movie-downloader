@@ -27,16 +27,18 @@ async function main(): Promise<void> {
   const omdb = config.omdbApiKey ? createOmdbClient({ apiKey: config.omdbApiKey }) : null;
   const artFiles = createArtFilesRepository(pool);
 
-  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL. Throws
-  // on transient OMDb failures (unreachable / daily budget) so the cache never
-  // records "no poster" for an outage; returns null for a true no-poster title.
-  const resolvePosterOrigin = async (subject: ArtSubject): Promise<string | null> => {
-    if (!omdb) return null;
+  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL + IMDb
+  // score (same OMDb response). Throws on transient OMDb failures (unreachable
+  // / daily budget) so the cache never records "no poster" for an outage;
+  // returns posterUrl null for a true no-poster title. The rating piggybacks
+  // the poster write so on-demand reads never need their own OMDb call (T-004).
+  const resolvePosterOrigin = async (subject: ArtSubject): Promise<{ posterUrl: string | null; imdbRating: number | null }> => {
+    if (!omdb) return { posterUrl: null, imdbRating: null };
     const imdbId = await tmdb.imdbId(subject.tmdbId, subject.mediaType);
-    if (!imdbId) return null;
+    if (!imdbId) return { posterUrl: null, imdbRating: null };
     const result = await omdb.fetchPoster(imdbId);
     if (result.status === 'error') throw new Error(`OMDb transient failure for ${subject.mediaType}:${subject.tmdbId}`);
-    return result.status === 'ok' ? result.posterUrl : null;
+    return { posterUrl: result.status === 'ok' ? result.posterUrl : null, imdbRating: result.imdbRating };
   };
   const artCache = createArtCache({ repo: artFiles, artDir: config.artDir, resolveOrigin: resolvePosterOrigin });
 

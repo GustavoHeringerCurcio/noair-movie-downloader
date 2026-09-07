@@ -9,8 +9,10 @@ import type { ArtSubject } from '../types.js';
  * For a set of titles it makes sure a `poster` image (kind `poster`, sourced
  * from OMDb via `resolveOrigin`) exists on the `art` volume, downloading only
  * what is missing. `resolveOrigin` resolves the Amazon portrait URL
- * (IMDb id via TMDB → OMDb) and is expected to return `null` for titles with
- * no poster or when no OMDb key is configured.
+ * (IMDb id via TMDB → OMDb) and is expected to return `posterUrl: null` for
+ * titles with no poster or when no OMDb key is configured. The IMDb score
+ * (`imdbRating`) rides the same OMDb response and is persisted alongside the
+ * poster (T-004) — no extra network call.
  *
  * Only actual image downloads hit the network. Files are written atomically and
  * recorded in `art_files`; a transient download failure leaves no row so the
@@ -23,11 +25,19 @@ export interface ArtCache {
   warm(subjects: ArtSubject[]): Promise<number>;
 }
 
+/** What `resolveOrigin` learns from OMDb for a subject (poster + IMDb score in one call). */
+export interface PosterResolution {
+  /** Amazon portrait URL; null when the title has no poster (or no OMDb key is configured). */
+  posterUrl: string | null;
+  /** IMDb's own score from the same response; null when OMDb has none. */
+  imdbRating: number | null;
+}
+
 export interface ArtCacheConfig {
   repo: ArtFilesRepository;
   artDir: string;
-  /** Resolve the OMDb/Amazon portrait URL for a subject (null = no poster / no key). */
-  resolveOrigin: (subject: ArtSubject) => Promise<string | null>;
+  /** Resolve the OMDb/Amazon portrait + IMDb score for a subject. */
+  resolveOrigin: (subject: ArtSubject) => Promise<PosterResolution>;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
@@ -131,20 +141,22 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
         originUrl: string | null;
         filePath: string | null;
         status: 'ok' | 'empty';
+        imdbRating: number | null;
       }> = [];
 
       await mapWithConcurrency(toResolve, CONCURRENCY, async (subject) => {
         // `resolveOrigin` throws only for transient failures (OMDb unreachable /
         // daily budget). Those must NOT be recorded as "no poster" — skip and
-        // let a later pass retry. A `null` result means "definitively no
-        // poster" and is persisted so OMDb is not re-asked for a while.
-        let originUrl: string | null = null;
+        // let a later pass retry. A `posterUrl: null` result means "definitively
+        // no poster" and is persisted so OMDb is not re-asked for a while (the
+        // IMDb score still rides along when OMDb reported one).
+        let resolution: PosterResolution;
         try {
-          originUrl = await resolveOrigin(subject);
+          resolution = await resolveOrigin(subject);
         } catch {
           return;
         }
-        if (!originUrl) {
+        if (!resolution.posterUrl) {
           upserts.push({
             mediaType: subject.mediaType,
             tmdbId: subject.tmdbId,
@@ -152,19 +164,21 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
             originUrl: null,
             filePath: null,
             status: 'empty',
+            imdbRating: resolution.imdbRating,
           });
           return;
         }
-        const filePath = await downloadOne(subject, originUrl);
+        const filePath = await downloadOne(subject, resolution.posterUrl);
         if (filePath) {
           written += 1;
           upserts.push({
             mediaType: subject.mediaType,
             tmdbId: subject.tmdbId,
             kind: 'poster',
-            originUrl,
+            originUrl: resolution.posterUrl,
             filePath,
             status: 'ok',
+            imdbRating: resolution.imdbRating,
           });
         }
       });

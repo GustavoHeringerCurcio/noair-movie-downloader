@@ -50,3 +50,6 @@ CREATE TABLE IF NOT EXISTS art_files (
   fetched_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (media_type, tmdb_id, kind)
 );
+
+-- T-004: IMDb score captured from the same OMDb response as the poster.
+ALTER TABLE art_files ADD COLUMN IF NOT EXISTS imdb_rating numeric(3,1);

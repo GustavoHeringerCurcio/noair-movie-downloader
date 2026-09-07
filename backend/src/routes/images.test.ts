@@ -14,6 +14,24 @@ function repoWith(rows: ArtFileRow[]): ArtFilesRepository {
       return rows;
     },
     async upsertMany() {},
+    async listPosterRowsMissingRating() {
+      return [];
+    },
+    async updateImdbRatings() {},
+  };
+}
+
+function posterRow(overrides: Partial<ArtFileRow> = {}): ArtFileRow {
+  return {
+    mediaType: 'movie',
+    tmdbId: 550,
+    kind: 'poster',
+    originUrl: 'https://image.tmdb.org/t/p/w780/p.jpg',
+    filePath: 'movie_550_poster.png',
+    status: 'ok',
+    fetchedAt: new Date().toISOString(),
+    imdbRating: null,
+    ...overrides,
   };
 }
 
@@ -33,17 +51,7 @@ describe('GET /api/images/art/:mediaType/:tmdbId/:kind (S8b)', () => {
 
   it('serves a downloaded art file with image content type and immutable cache', async () => {
     await fs.writeFile(path.join(artDir, 'movie_550_poster.png'), Buffer.from([137, 80, 78, 71]));
-    deps.artFiles = repoWith([
-      {
-        mediaType: 'movie',
-        tmdbId: 550,
-        kind: 'poster',
-        originUrl: 'https://image.tmdb.org/t/p/w780/p.jpg',
-        filePath: 'movie_550_poster.png',
-        status: 'ok',
-        fetchedAt: new Date().toISOString(),
-      },
-    ]);
+    deps.artFiles = repoWith([posterRow()]);
     const res = await request(createApp(deps)).get('/api/images/art/movie/550/poster');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('image/png');
@@ -57,17 +65,7 @@ describe('GET /api/images/art/:mediaType/:tmdbId/:kind (S8b)', () => {
   });
 
   it('404s when the row exists but the file is gone from disk', async () => {
-    deps.artFiles = repoWith([
-      {
-        mediaType: 'movie',
-        tmdbId: 550,
-        kind: 'poster',
-        originUrl: 'x',
-        filePath: 'movie_550_poster.png',
-        status: 'ok',
-        fetchedAt: new Date().toISOString(),
-      },
-    ]);
+    deps.artFiles = repoWith([posterRow({ originUrl: 'x' })]);
     const res = await request(createApp(deps)).get('/api/images/art/movie/550/poster');
     expect(res.status).toBe(404);
   });
@@ -81,17 +79,7 @@ describe('GET /api/images/art/:mediaType/:tmdbId/:kind (S8b)', () => {
   });
 
   it('never serves a path-traversal file name from the DB', async () => {
-    deps.artFiles = repoWith([
-      {
-        mediaType: 'movie',
-        tmdbId: 550,
-        kind: 'poster',
-        originUrl: 'x',
-        filePath: '../secret.jpg',
-        status: 'ok',
-        fetchedAt: new Date().toISOString(),
-      },
-    ]);
+    deps.artFiles = repoWith([posterRow({ originUrl: 'x', filePath: '../secret.jpg' })]);
     const res = await request(createApp(deps)).get('/api/images/art/movie/550/poster');
     expect(res.status).toBe(404);
   });
