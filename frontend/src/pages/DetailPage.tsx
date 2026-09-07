@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import type {
   AudioLang,
-  FriendlyPickMode,
   MediaDetail,
   MediaType,
   Source,
@@ -36,6 +35,7 @@ import {
 } from '../api';
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
+import { RatingBadge } from '../components/RatingBadge';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
 import { chooseEpisodePick, chooseMoviePick, chooseSeasonPick, isWebExhibitable } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
@@ -86,24 +86,6 @@ function pickSummary(source: Source): string {
   if (source.indexer) bits.push(source.indexer);
   bits.push(`${source.seeders} seeds`);
   return bits.join(' · ');
-}
-
-/**
- * Small caption under the primary Download button naming the friendly pick. In
- * `web-playable` mode the caption says so ("Web-playable · …") when the pick is
- * a browser-exhibitable source, so the user understands why a smaller/older
- * source was chosen; a fallback to the plain most-seeded release keeps the
- * usual "Best match" wording.
- */
-function movieOfferHint(source: Source | null, mode: FriendlyPickMode): string | null {
-  if (!source) return null;
-  const bits: string[] = [];
-  const q = pickQuality(source);
-  if (q) bits.push(q);
-  bits.push(humanSize(source.sizeBytes));
-  bits.push(`${source.seeders} seeds`);
-  const lead = mode === 'web-playable' && isWebExhibitable(source) ? 'Web-playable' : 'Best match';
-  return bits.length > 0 ? `${lead} · ${bits.join(' · ')}` : `${lead} available`;
 }
 
 interface AdvancedSheetProps {
@@ -925,7 +907,7 @@ export function DetailPage() {
             <span>{detail.year ?? '—'}</span>
             <span>{detail.genres.join(' · ')}</span>
             {detail.runtime != null && <span>{detail.runtime} min</span>}
-            <span className="dh-meta-chip">★ {detail.voteAverage.toFixed(1)}</span>
+            <RatingBadge value={detail.imdbRating} />
             {mediaType === 'tv' && <span className="dh-meta-chip">{seasons.length} Seasons</span>}
           </div>
           <p className="dh-overview">{detail.overview}</p>
@@ -958,19 +940,16 @@ export function DetailPage() {
                 </button>
               ) : movieSources.length > 0 ? (
                 <>
-                  <div className="dh-offer-main">
-                    <button
-                      type="button"
-                      className="btn btn-white btn-lg"
-                      onClick={() => {
-                        const pick = movieFriendlyPick();
-                        if (pick) openConfirm('Download this movie', pick, null, null);
-                      }}
-                    >
-                      <ArrowDownToLine size={20} /> Download
-                    </button>
-                    <span className="dh-offer-hint">{movieOfferHint(movieFriendlyPick(), friendlyPickMode)}</span>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-white btn-lg"
+                    onClick={() => {
+                      const pick = movieFriendlyPick();
+                      if (pick) openConfirm('Download this movie', pick, null, null);
+                    }}
+                  >
+                    <ArrowDownToLine size={20} /> Download
+                  </button>
                   <button
                     type="button"
                     className="btn btn-ghost btn-lg"

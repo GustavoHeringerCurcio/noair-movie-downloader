@@ -232,6 +232,45 @@ describe('TmdbClient.seasonEpisodes', () => {
   });
 });
 
+describe('TmdbClient.logoPath', () => {
+  it('prefers an English or language-agnostic logo with the highest vote', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/movie/27205/images'),
+        respond: () =>
+          createResponse(200, {
+            id: 27205,
+            logos: [
+              { file_path: '/de.jpg', iso_639_1: 'de', vote_average: 7 },
+              { file_path: '/en2.jpg', iso_639_1: 'en', vote_average: 5 },
+              { file_path: '/en1.jpg', iso_639_1: 'en', vote_average: 9 },
+            ],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.logoPath(27205, 'movie')).resolves.toBe('/en1.jpg');
+  });
+
+  it('returns null when no logos exist (404 or empty)', async () => {
+    const notFound = makeFetch([{ match: () => true, respond: () => createResponse(404, {}) }]);
+    const client404 = createTmdbClient({ ...CONFIG, fetchImpl: notFound });
+    await expect(client404.logoPath(999999, 'movie')).resolves.toBeNull();
+
+    const empty = makeFetch([
+      { match: () => true, respond: () => createResponse(200, { id: 1, logos: [] }) },
+    ]);
+    const clientEmpty = createTmdbClient({ ...CONFIG, fetchImpl: empty });
+    await expect(clientEmpty.logoPath(1, 'movie')).resolves.toBeNull();
+  });
+
+  it('throws UpstreamError on non-404 upstream failures', async () => {
+    const fetchImpl = makeFetch([{ match: () => true, respond: () => createResponse(500, {}) }]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    await expect(client.logoPath(550, 'movie')).rejects.toBeInstanceOf(UpstreamError);
+  });
+});
+
 describe('TmdbClient.videos', () => {
   it('maps a movie videos payload (S15)', async () => {
     const fetchImpl = makeFetch([

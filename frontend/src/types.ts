@@ -68,6 +68,8 @@ export interface HoverCardInfo {
   seasons: number | null;
   /** US age rating (e.g. `R`, `PG-13`, `TV-MA`); null when TMDB has none. */
   certification: string | null;
+  /** True IMDb score from the poster pipeline (T-004); null when not cached yet. */
+  imdbRating: number | null;
 }
 
 export interface TvEpisode {
@@ -98,6 +100,8 @@ export interface MediaDetail {
   genres: string[];
   runtime: number | null;
   seasons?: TvSeasonSummary[] | null;
+  /** True IMDb score from the poster pipeline (T-004); null until the title is cached/backfilled. */
+  imdbRating: number | null;
 }
 
 export interface Source {

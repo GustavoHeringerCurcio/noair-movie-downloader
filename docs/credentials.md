@@ -8,6 +8,7 @@ This file is a **template**. Never paste real secrets here — real values live 
 |---------|------|-----------------|-----------------|
 | TMDB | API key (v3) | themoviedb.org → Settings → API (free account) | `TMDB_API_KEY` |
 | OMDb | API key (free) | omdbapi.com → API Key (mailed to you; ~1,000 req/day) | `OMDB_API_KEY` |
+| fanart.tv | API key (free) | fanart.tv → (login) → API → Personal API Key | `FANART_API_KEY` |
 | Prowlarr | API key | Prowlarr UI → Settings → General → API Key (auto-generated) | `PROWLARR_API_KEY` |
 | Prowlarr | Base URL | Compose-internal service name; only change if self-hosting elsewhere | `PROWLARR_URL` |
 | qBittorrent | Web UI username | First qBittorrent Web UI login | `QBITTORRENT_USER` |
@@ -16,7 +17,7 @@ This file is a **template**. Never paste real secrets here — real values live 
 | PostgreSQL | `DATABASE_URL` | Self-contained in docker-compose (user `app`, no external account) | `DATABASE_URL` |
 | Trackers (TPB, 1337x, …) | None — no keys | Configured in Prowlarr UI (Settings → Indexers), not in code | — |
 
-Only external account required: **free TMDB API key**. Optionally add a **free OMDb key** (`OMDB_API_KEY`) so the wide Netflix-style tiles get real portrait posters; without it the tiles show a monogram.
+Only external account required: **free TMDB API key**. Optionally add a **free OMDb key** (`OMDB_API_KEY`) so the Downloads page / Detail hero keep their portrait posters, and a **free fanart.tv key** (`FANART_API_KEY`) so the default horizontal Home/Search cards show real 16:9 key-art; without the fanart key those cards fall back to backdrop + logo / typography.
 
 ## Boot order (Prowlarr chicken-and-egg)
 
@@ -42,6 +43,6 @@ Two separate things:
 
 - Never commit `.env`. It is gitignored.
 - Never paste real keys into `docs/credentials.md` (committed). Use `docs/credentials.local.md` instead.
-- The TMDB key must never reach the browser — images are proxied via `/api/images/tmdb/*`.
+- The TMDB key must never reach the browser — images are proxied via `/api/images/tmdb/*` (same rule applies to the fanart.tv key: art is cached server-side and served from `/api/images/fanart/*`).
 - qBittorrent and Prowlarr are published on your LAN (decision D13). qBittorrent has its own login; **Prowlarr has no auth** — keep it on a trusted network.
 - If any key is ever leaked, rotate it (TMDB: revoke/regenerate in account settings; Prowlarr: regenerate API key).

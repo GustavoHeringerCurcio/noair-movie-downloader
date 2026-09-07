@@ -11,10 +11,12 @@ import { DetailPage } from './pages/DetailPage';
 import { WatchPage } from './pages/WatchPage';
 import { useDownloadsStore } from './store/downloadsStore';
 import { useSettingsStore } from './store/settingsStore';
+import { posterStyleClass, usePosterStyleStore } from './store/posterStyleStore';
 
 function Shell() {
   const connect = useDownloadsStore((s) => s.connect);
   const loadSettings = useSettingsStore((s) => s.load);
+  const posterStyle = usePosterStyleStore((s) => s.style);
 
   useEffect(() => {
     connect();
@@ -22,7 +24,7 @@ function Shell() {
   }, [connect, loadSettings]);
 
   return (
-    <div className="app">
+    <div className={`app ${posterStyleClass(posterStyle)}`}>
       <a className="skip-link" href="#main">
         Skip to content
       </a>

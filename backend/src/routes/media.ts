@@ -21,6 +21,22 @@ function padEpisode(episode: number): string {
   return String(episode).padStart(2, '0');
 }
 
+/**
+ * IMDb score for a subject as stored on its `art_files` poster row by the OMDb
+ * poster pipeline (T-004). Never triggers an OMDb call — a title the pipeline
+ * has not resolved (or one with no rating yet) simply reads `null`. A DB
+ * hiccup degrades to `null` so detail/hover never break over the rating.
+ */
+async function storedImdbRating(deps: AppDeps, mediaType: MediaType, tmdbId: number): Promise<number | null> {
+  if (!deps.artFiles) return null;
+  try {
+    const rows = await deps.artFiles.getMany([{ mediaType, tmdbId }]);
+    return rows.find((row) => row.kind === 'poster')?.imdbRating ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function expandWholeSeries(coverage: Coverage[] | null, sourceTitle: string, detailSeasons: Coverage[] | null): Coverage[] | null {
   if (coverage !== null) return coverage;
   if (!isWholeSeriesTitle(sourceTitle) || !detailSeasons || detailSeasons.length === 0) return coverage;
@@ -128,7 +144,8 @@ export function createMediaRouter(deps: AppDeps): Router {
     }
     try {
       const detail = await deps.tmdb.details(id, type);
-      res.json(detail);
+      const imdbRating = await storedImdbRating(deps, type, id);
+      res.json({ ...detail, imdbRating });
     } catch (error) {
       if (error instanceof UpstreamError) {
         res.status(error.status).json({ error: error.message });
@@ -217,12 +234,14 @@ export function createMediaRouter(deps: AppDeps): Router {
         deps.tmdb.videos(id, type).then(pickTrailer).catch(() => null),
         deps.tmdb.certification(id, type).catch(() => null),
       ]);
+      const imdbRating = await storedImdbRating(deps, type, id);
       res.json({
         trailer,
         genres: detail.genres,
         runtime: type === 'movie' ? detail.runtime : null,
         seasons: type === 'tv' ? (detail.seasons?.length ?? null) : null,
         certification,
+        imdbRating,
       });
     } catch (error) {
       if (error instanceof UpstreamError) {
