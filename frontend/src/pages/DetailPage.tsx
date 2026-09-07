@@ -35,6 +35,7 @@ import {
 } from '../api';
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
+import { ExternalPlayerLink } from '../components/ExternalPlayerLink';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
 import { chooseEpisodePick, chooseSeasonPick } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
@@ -414,13 +415,13 @@ function DownloadsHeroPanel({
           <button type="button" className="btn btn-white btn-lg" onClick={() => onWatch(act.infoHash)}>
             <Play size={20} fill="currentColor" /> Watch
           </button>
-          <a
+          <ExternalPlayerLink
             className="btn btn-outline btn-lg"
             href={externalPlayerUrl(act.infoHash)}
             title="Play in your local player (VLC / MPV) — requires one-time setup in Settings"
           >
             <MonitorPlay size={18} /> Player
-          </a>
+          </ExternalPlayerLink>
           <StateBadge state={act.state} />
           <button
             type="button"

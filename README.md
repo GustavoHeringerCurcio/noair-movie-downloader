@@ -113,15 +113,21 @@ decode (4K/HEVC, exotic audio) show an **"Open in your player"** button instead.
 launch desktop apps on their own, so the app uses a `movie://` link your machine must be told how to
 open. The setup is **platform-aware** — you get the right installer for the OS you're on.
 
-- Open **Settings → Local player**, pick your player (VLC / MPV; MPC-HC / PotPlayer on Windows), and
-  click **Download installer**.
-- **Windows** — run the downloaded `.cmd` once on this computer. It auto-locates the player
-  (preference first) and registers the `movie://` handler for your user.
+- Open **Settings → Local player**. The card explains exactly what the installer will do and what
+  output to expect (`Found: …` → `Verified: movie:// links now open …`). Pick your player (VLC / MPV;
+  MPC-HC / PotPlayer on Windows), then **Download installer** (or **Copy installer**).
+- **Windows** — run the downloaded `.cmd` once on this computer (double-click is fine). It auto-locates
+  the player (preference first), registers the `movie://` handler for your user under HKCU (no admin),
+  and prints the result.
 - **Linux** — run the downloaded `.sh` once in a terminal: `bash ~/Downloads/install-movie-player.sh`.
-  It auto-detects your installed player (`mpv`/`vlc`, including snap/flatpak), writes a small
-  wrapper + desktop entry, and registers the handler via `xdg-mime`.
-- The **Player** buttons on the Watch and Downloads pages then open the file directly in your local
-  player. Use the **Download uninstaller** button anytime to remove the handler.
+  It auto-detects your installed player (`vlc`/`mpv`, including flatpak), writes a small launcher +
+  desktop entry, registers the handler via `xdg-mime`, and verifies the registration.
+- Back in the app, mark **“I ran it — movie:// works”**. The **Player** buttons on the Watch,
+  Downloads and Detail pages then open the file directly in your local player. Until you confirm,
+  those buttons route you to Settings instead of failing silently.
+- Re-running the installer is harmless (it just overwrites its two files). To remove the handler,
+  download and run the matching **uninstaller**. Switching players in Settings only takes effect
+  after you re-run the installer once.
 
 Until it's registered, the **Download file** button is the fallback.
 

@@ -70,13 +70,25 @@ export function streamUrl(infoHash: string, file?: string): string {
 
 /**
  * Custom-scheme URL that hands an HTTP Range stream to a local player
- * (VLC/MPV/…) once the `movie://` handler is registered (see Settings → Local
- * player). The browser can never launch a native app on its own — this only
- * triggers when a protocol handler exists on the user's machine.
+ * (VLC/MPV/…) once the `movie` scheme handler is registered (see Settings →
+ * Local player). The browser can never launch a native app on its own — this
+ * only triggers when a protocol handler exists on the user's machine.
+ *
+ * The payload is the absolute `http(s)://` stream URL written as an *opaque*
+ * URI body (`movie:<url>`), NOT `movie://<url>`. Browsers re-serialize every
+ * link through their URI parser before dispatching it to the OS handler, and a
+ * custom scheme cannot nest an absolute `http://` URL in its authority:
+ * `movie://http://host/…` is canonicalized to `movie://http//host/…` (the inner
+ * scheme's colon is dropped because `http` is read as the `movie` host), so the
+ * player ends up receiving a schemeless relative path (`file:///…` errors).
+ * `movie:http://host/…` has no authority to re-parse and round-trips unchanged.
  */
+export function externalPlayerHref(origin: string, infoHash: string, file?: string): string {
+  return `movie:${origin}${streamUrl(infoHash, file)}`;
+}
+
 export function externalPlayerUrl(infoHash: string, file?: string): string {
-  const http = `${window.location.origin}${streamUrl(infoHash, file)}`;
-  return `movie://${http}`;
+  return externalPlayerHref(window.location.origin, infoHash, file);
 }
 
 export function playInfo(infoHash: string, file?: string): Promise<PlayInfo> {

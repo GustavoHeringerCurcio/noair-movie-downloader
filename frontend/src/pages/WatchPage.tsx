@@ -16,6 +16,7 @@ import {
 import type { PlayInfo, StreamFileInfo } from '../types';
 import { episodeKeyFromFilename, parseEpisodeToken } from '../lib/episode';
 import { ShakaPlayer } from '../components/ShakaPlayer';
+import { ExternalPlayerLink } from '../components/ExternalPlayerLink';
 
 function baseName(relative: string): string {
   return relative.split('/').pop() ?? relative;
@@ -352,13 +353,13 @@ export function WatchPage() {
         </p>
         <ol className="guide-steps">
           <li className="guide-step">Set up your local player once (Settings → Local player)</li>
-          <li className="guide-step">Click “Open in your player”</li>
+          <li className="guide-step">Click “Open in your player” — if setup isn’t confirmed yet, it opens Settings first</li>
           <li className="guide-step">Done</li>
         </ol>
         <div className="page-state" style={{ minHeight: 'auto', flexDirection: 'row' }}>
-          <a className="btn btn-white" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
+          <ExternalPlayerLink className="btn btn-white" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
             <MonitorPlay size={18} /> Open in your player
-          </a>
+          </ExternalPlayerLink>
           <a className="btn btn-outline" href={fileUrl(infoHash, selectedFile ?? undefined)}>
             <FileDown size={18} /> Download file
           </a>
@@ -380,13 +381,13 @@ export function WatchPage() {
           <span className="watch-file-name">{baseName(selectedFile ?? play.streamUrl)}</span>
         </div>
         <div className="watch-topbar-actions">
-          <a
+          <ExternalPlayerLink
             className="btn btn-outline btn-sm"
             href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}
             title="Play this file in your local player (VLC / MPV) — requires one-time setup in Settings"
           >
             <MonitorPlay size={15} /> Player
-          </a>
+          </ExternalPlayerLink>
           {files.length > 1 && (
             <button
               type="button"
@@ -441,9 +442,12 @@ export function WatchPage() {
                 <button type="button" className="btn btn-white btn-sm" onClick={retryHls}>
                   <RotateCw size={14} /> Retry
                 </button>
-                <a className="btn btn-outline btn-sm" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
+                <ExternalPlayerLink
+                  className="btn btn-outline btn-sm"
+                  href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}
+                >
                   <MonitorPlay size={15} /> Open in your player
-                </a>
+                </ExternalPlayerLink>
                 <a className="btn btn-outline btn-sm" href={fileUrl(infoHash, selectedFile ?? undefined)}>
                   <FileDown size={15} /> Download file
                 </a>

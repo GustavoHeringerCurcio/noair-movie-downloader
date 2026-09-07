@@ -94,10 +94,31 @@ export function orderedPlayerIds(preferred: string | null, supported: string[] =
   return [...supported];
 }
 
+/** The body of the PowerShell launcher the Windows installer writes to disk. */
+const WINDOWS_LAUNCHER_BODY = [
+  'param([string]$Uri)',
+  'if (-not $Uri) { exit 1 }',
+  // The OS hands this the full link (e.g. `movie:http://host/...`). Every
+  // browser re-serializes a link through its URI parser first, so accept the
+  // shapes that reach us and normalize back to a plain http(s):// URL.
+  '$url = $Uri',
+  '$url = $url -replace "^movie://", ""',
+  '$url = $url -replace "^movie:", ""',
+  'if ($url.StartsWith("//")) { $url = $url.Substring(2) }',
+  // Older builds embedded the URL as movie://http://host/...; parsers read
+  // "http" as the host and drop the colon (movie://http//host/...). Restore it.
+  '$url = $url -replace "^http//", "http://"',
+  '$url = $url -replace "^https//", "https://"',
+  'if ($url -notmatch "^https?://") { exit 1 }',
+  'Start-Process -FilePath "__EXE__" -ArgumentList @($url)',
+];
+
 /**
  * PowerShell source that locates a supported player (preference first), writes
- * a small `movie://` wrapper and registers it under HKCU. Avoids backtick
- * escapes by building the wrapper from an array of plain batch lines.
+ * a small PowerShell `movie://` launcher and registers it under HKCU as the
+ * default handler for the `movie` scheme. The registered command runs
+ * `powershell.exe -File` directly — never cmd.exe — so the stream URL travels
+ * to the launcher verbatim (a cmd wrapper would re-interpret `%XX` in the URL).
  */
 function powershellScript(ordered: string[]): string {
   const lines: string[] = [];
@@ -112,17 +133,24 @@ function powershellScript(ordered: string[]): string {
   lines.push('$exe = $null');
   lines.push('foreach ($c in $candidates) { if (Test-Path -LiteralPath $c.exe) { $exe = $c.exe; break } }');
   lines.push("if (-not $exe) { Write-Host 'No supported player found. Install one of: VLC / MPV / MPC-HC / PotPlayer, then run this again.' -ForegroundColor Red; exit 1 }");
+  lines.push("Write-Host ('Found: ' + $exe) -ForegroundColor Cyan");
   lines.push("$dir = Join-Path $env:LOCALAPPDATA 'MovieDownloader'");
   lines.push('New-Item -ItemType Directory -Force -Path $dir | Out-Null');
-  lines.push("$wrap = Join-Path $dir 'movie-open.cmd'");
-  lines.push("$batch = @( '@echo off', 'set \"arg=%1\"', 'set \"arg=%arg:*movie://=%\"', 'start \"\" \"__EXE__\" \"%arg%\"' )");
-  lines.push('$body = ([string]::Join([Environment]::NewLine, $batch)).Replace(\'__EXE__\', $exe)');
+  lines.push("$wrap = Join-Path $dir 'movie-open.ps1'");
+  lines.push('$launcherLines = @(');
+  for (const line of WINDOWS_LAUNCHER_BODY) {
+    lines.push(`  '${line}'`);
+  }
+  lines.push(')');
+  lines.push('$body = ([string]::Join([Environment]::NewLine, $launcherLines)).Replace(\'__EXE__\', $exe)');
   lines.push('Set-Content -Path $wrap -Value $body -Encoding ASCII');
   lines.push("$key = 'HKCU:\\Software\\Classes\\movie\\shell\\open\\command'");
   lines.push('New-Item -Path $key -Force | Out-Null');
-  lines.push('$regValue = \'"\' + $wrap + \'" "%1"\'');
-  lines.push("Set-ItemProperty -Path $key -Name '(default)' -Value $regValue");
-  lines.push('Write-Host ("Registered movie:// -> " + $exe) -ForegroundColor Green');
+  lines.push("$ps = Join-Path $PSHOME 'powershell.exe'");
+  lines.push("$cmd = '\"{0}\" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{1}\" \"%1\"' -f $ps, $wrap");
+  lines.push("Set-ItemProperty -Path $key -Name '(default)' -Value $cmd");
+  lines.push("$check = (Get-ItemProperty -Path $key -Name '(default)' -ErrorAction SilentlyContinue).'(default)'");
+  lines.push("if ($check) { Write-Host ('Registered movie:// -> ' + $exe) -ForegroundColor Green } else { Write-Host 'Registration check failed.' -ForegroundColor Red; exit 1 }");
   lines.push('Write-Host \'Done. The "Player" buttons in the app now open files in your local player.\'');
   return lines.join('\n');
 }
@@ -150,13 +178,15 @@ export function buildOpenerCmd(preferred: string | null): string {
   return `@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}\r\n`;
 }
 
-/** A .cmd that removes the registered handler again (registry key + wrapper). */
+/** A .cmd that removes the registered handler again (registry key + launchers). */
 export function buildUninstallerCmd(): string {
   const lines: string[] = [];
   lines.push("$key = 'HKCU:\\Software\\Classes\\movie'");
   lines.push('Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue');
-  lines.push("$wrap = Join-Path $env:LOCALAPPDATA 'MovieDownloader'");
-  lines.push('Remove-Item -Path (Join-Path $wrap \'movie-open.cmd\') -Force -ErrorAction SilentlyContinue');
+  lines.push("$dir = Join-Path $env:LOCALAPPDATA 'MovieDownloader'");
+  lines.push("Remove-Item -Path (Join-Path $dir 'movie-open.ps1') -Force -ErrorAction SilentlyContinue");
+  // Legacy from installers before the .ps1 launcher.
+  lines.push("Remove-Item -Path (Join-Path $dir 'movie-open.cmd') -Force -ErrorAction SilentlyContinue");
   lines.push("Write-Host 'Removed the movie:// handler.' -ForegroundColor Green");
   const script = lines.join('\n');
   const encoded = encodePsCommand(script);
@@ -166,17 +196,27 @@ export function buildUninstallerCmd(): string {
 /**
  * A .sh the user runs on their Linux machine to register the `movie://` scheme.
  * Locates the chosen player first (falls back to the other Linux-supported one),
- * auto-detecting what is already installed (`command -v`, snap-on-PATH, flatpak).
- * Then writes a `movie-open.sh` wrapper + a `movie-downloader.desktop` entry and
- * registers it as the default `x-scheme-handler/movie` via `xdg-mime`.
+ * auto-detecting what is already installed (`command -v`, flatpak). Then writes
+ * a `movie-open.sh` launcher + a `movie-downloader.desktop` entry and registers
+ * it as the default `x-scheme-handler/movie` via `xdg-mime`, verifying the
+ * registration stuck. Re-running it is harmless (it overwrites both files).
  */
 export function buildLinuxInstallerSh(preferred: string | null): string {
   const ordered = orderedPlayerIds(preferred, LINUX_ORDER);
   const lines: string[] = [];
   lines.push('#!/bin/sh');
-  lines.push('# Movie Downloader - one-time local-player setup (Linux).');
-  lines.push('# Registers the movie:// scheme so the "Player" buttons open files');
-  lines.push('# in your installed media player. Requires xdg-utils (Ubuntu ships it).');
+  lines.push('# noAir - one-time local-player setup (Linux).');
+  lines.push('#');
+  lines.push('# What this does (nothing hidden):');
+  lines.push('#   1. finds an installed player (your pick first: VLC, MPV)');
+  lines.push('#   2. writes a tiny launcher to ~/.local/share/movie-downloader/movie-open.sh');
+  lines.push('#   3. registers ~/.local/share/applications/movie-downloader.desktop as the');
+  lines.push('#      handler for movie:// links (xdg-mime x-scheme-handler/movie)');
+  lines.push('#   4. verifies the registration and prints the result');
+  lines.push('#');
+  lines.push('# It writes only the two files above and never touches your downloads.');
+  lines.push('# To undo: run the matching uninstaller, or:');
+  lines.push('#   rm ~/.local/share/applications/movie-downloader.desktop ~/.local/share/movie-downloader/movie-open.sh');
   lines.push('set -u');
   lines.push('');
   lines.push('launcher=');
@@ -206,7 +246,7 @@ export function buildLinuxInstallerSh(preferred: string | null): string {
   lines.push('  exit 1');
   lines.push('fi');
   lines.push('');
-  lines.push('echo "Using $player_name ($launcher)"');
+  lines.push('echo "Found: $player_name ($launcher)"');
   lines.push('');
   lines.push('dir="$HOME/.local/share/movie-downloader"');
   lines.push('appdir="$HOME/.local/share/applications"');
@@ -215,11 +255,31 @@ export function buildLinuxInstallerSh(preferred: string | null): string {
   lines.push('');
   lines.push('cat > "$dir/movie-open.sh" <<\'EOF\'');
   lines.push('#!/bin/sh');
-  lines.push('url=${1#movie://}');
-  lines.push('[ -n "$url" ] || exit 1');
+  lines.push('# noAir movie:// launcher. The desktop runs this with the full link as $1.');
+  lines.push('# Every browser re-serializes a link through its URI parser before handing');
+  lines.push('# it to the OS, so accept the shapes that reach us and normalize to http(s)://.');
+  lines.push('url=$1');
+  lines.push('case "$url" in');
+  lines.push('  movie://*) url=${url#movie://} ;;');
+  lines.push('  movie:*) url=${url#movie:} ;;');
+  lines.push('esac');
+  lines.push('case "$url" in');
+  lines.push('  //*) url=${url#//} ;;');
+  lines.push('esac');
+  lines.push('# Older builds embedded the stream URL as movie://http://host/...; URI parsers');
+  lines.push('# read "http" as the host and drop the colon (movie://http//host/...). Restore it.');
+  lines.push('case "$url" in');
+  lines.push('  http//*) url="http://${url#http//}" ;;');
+  lines.push('  https//*) url="https://${url#https//}" ;;');
+  lines.push('esac');
+  lines.push('case "$url" in');
+  lines.push('  http://*|https://*) ;;');
+  lines.push('  *) echo "movie-open: not an http(s) URL: $url" >&2; exit 1 ;;');
+  lines.push('esac');
   lines.push('nohup __LAUNCHER__ "$url" >/dev/null 2>&1 &');
   lines.push('EOF');
-  lines.push('sed -i "s|__LAUNCHER__|$launcher|" "$dir/movie-open.sh"');
+  lines.push('launcher_escaped=$(printf \'%s\' "$launcher" | sed \'s/&/\\\\&/g\')');
+  lines.push('sed -i "s|__LAUNCHER__|$launcher_escaped|" "$dir/movie-open.sh"');
   lines.push('chmod +x "$dir/movie-open.sh"');
   lines.push('');
   lines.push('desktop="$appdir/movie-downloader.desktop"');
@@ -229,26 +289,39 @@ export function buildLinuxInstallerSh(preferred: string | null): string {
   lines.push('Version=1.0');
   lines.push('Name=Movie Downloader player');
   lines.push('Comment=Open movie:// links from Movie Downloader');
-  lines.push('Exec=$dir/movie-open.sh %u');
+  lines.push('Exec="$dir/movie-open.sh" %u');
   lines.push('Terminal=false');
   lines.push('NoDisplay=true');
   lines.push('MimeType=x-scheme-handler/movie;');
   lines.push('EOF');
+  lines.push('chmod +x "$desktop"');
   lines.push('');
   lines.push('xdg-mime default movie-downloader.desktop x-scheme-handler/movie >/dev/null 2>&1 || echo "Could not set the default handler; pick Movie Downloader player for movie:// in your desktop settings." >&2');
   lines.push('if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$appdir" >/dev/null 2>&1 || true; fi');
   lines.push('');
-  lines.push('echo "Registered movie:// -> $player_name ($launcher)"');
-  lines.push('echo "Done. The Player buttons in the app now open files in your local player."');
+  // The default handler association xdg-mime just wrote is the source of truth;
+  // `xdg-mime query` can be unreliable (it resolves the .desktop through
+  // `command -v`, which /bin/sh cannot do for absolute Exec paths), so accept
+  // either signal.
+  lines.push('registered=$(xdg-mime query default x-scheme-handler/movie 2>/dev/null || true)');
+  lines.push('if [ "$registered" = "movie-downloader.desktop" ] || grep -qs \'^x-scheme-handler/movie=movie-downloader.desktop\' "$HOME/.config/mimeapps.list" 2>/dev/null; then');
+  lines.push('  echo "Verified: movie:// links now open $player_name."');
+  lines.push('else');
+  lines.push('  echo "Note: could not confirm the handler is the default yet." >&2');
+  lines.push('  echo "Check with: xdg-mime query default x-scheme-handler/movie" >&2');
+  lines.push('  echo "On GNOME you may need to log out and back in once after a first install." >&2');
+  lines.push('fi');
+  lines.push('echo "Done. The Player buttons in the app now open files in $player_name."');
   lines.push('');
   return lines.join('\n');
 }
 
-/** A .sh that removes the registered handler again (wrapper + desktop entry + mimeapps default). */
+/** A .sh that removes the registered handler again (launcher + desktop entry + mimeapps default). */
 export function buildLinuxUninstallerSh(): string {
   const lines: string[] = [];
   lines.push('#!/bin/sh');
-  lines.push('# Movie Downloader - remove the movie:// handler (Linux).');
+  lines.push('# noAir - remove the movie:// handler (Linux).');
+  lines.push('# Deletes the launcher, the .desktop entry and the default association.');
   lines.push('set -u');
   lines.push('');
   lines.push('appdir="$HOME/.local/share/applications"');
@@ -260,9 +333,37 @@ export function buildLinuxUninstallerSh(): string {
   lines.push("if [ -f \"$mimeapps\" ]; then sed -i '/x-scheme-handler\\/movie=/d' \"$mimeapps\"; fi");
   lines.push('if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$appdir" >/dev/null 2>&1 || true; fi');
   lines.push('');
-  lines.push("echo 'Removed the movie:// handler.'");
+  lines.push('remaining=$(xdg-mime query default x-scheme-handler/movie 2>/dev/null || true)');
+  lines.push('if [ -z "$remaining" ] && ! grep -qs \'^x-scheme-handler/movie=\' "$HOME/.config/mimeapps.list" 2>/dev/null; then');
+  lines.push('  echo "Removed the movie:// handler."');
+  lines.push('else');
+  lines.push('  echo "movie:// still resolves to ${remaining:-a handler} — remove it in your default-app settings." >&2');
+  lines.push('fi');
   lines.push('');
   return lines.join('\n');
+}
+
+/** localStorage key: the user confirmed the movie:// handler is registered. */
+export const SETUP_DONE_KEY = 'movie-downloader.opener-setup-done';
+
+/** True once the user confirms in Settings that they ran the installer. */
+export function isOpenerSetupDone(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SETUP_DONE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markOpenerSetupDone(done: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (done) window.localStorage.setItem(SETUP_DONE_KEY, '1');
+    else window.localStorage.removeItem(SETUP_DONE_KEY);
+  } catch {
+    // storage may be unavailable (private mode) — the setup state is a hint.
+  }
 }
 
 export function readPlayerPreference(): string | null {
@@ -282,4 +383,23 @@ export function savePlayerPreference(id: string): void {
   } catch {
     // storage may be unavailable (private mode) — the setting is just a hint.
   }
+}
+
+/**
+ * Normalizes whatever string reaches a `movie` scheme handler into a plain
+ * http(s):// URL (or null when it can't be one). Handles the shapes seen in
+ * the wild: `movie:http://…`, `movie://http://…` and the browser-canonicalized
+ * `movie://http//…` (the nested scheme's colon is dropped when the URI parser
+ * reads `http` as the `movie` authority's host). The launchers emitted for
+ * Linux (POSIX sh) and Windows (PowerShell) implement this exact logic inline,
+ * so a change here must be mirrored there.
+ */
+export function normalizeMovieHandoffUrl(raw: string): string | null {
+  let url = raw;
+  if (url.startsWith('movie://')) url = url.slice('movie://'.length);
+  else if (url.startsWith('movie:')) url = url.slice('movie:'.length);
+  if (url.startsWith('//')) url = url.slice(2);
+  if (url.startsWith('http//')) url = `http://${url.slice('http//'.length)}`;
+  else if (url.startsWith('https//')) url = `https://${url.slice('https//'.length)}`;
+  return url.startsWith('http://') || url.startsWith('https://') ? url : null;
 }

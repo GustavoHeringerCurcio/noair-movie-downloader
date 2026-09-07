@@ -16,6 +16,7 @@ import {
 import { StateBadge } from '../components/StateBadge';
 import { DownloadQualityChips } from '../components/DownloadQualityChips';
 import { EmptyState } from '../components/EmptyState';
+import { ExternalPlayerLink } from '../components/ExternalPlayerLink';
 import { movieGroupKey, versionLabel } from '../lib/versions';
 import type { DownloadRecord } from '../types';
 
@@ -222,13 +223,13 @@ export function DownloadsPage() {
                     <Play size={15} fill="currentColor" /> Watch
                   </button>
                   {d.streamable && (
-                    <a
+                    <ExternalPlayerLink
                       className="btn btn-outline btn-sm"
                       href={externalPlayerUrl(d.infoHash)}
                       title="Open in your local player (VLC / MPV) — requires one-time setup in Settings"
                     >
                       <MonitorPlay size={14} /> Player
-                    </a>
+                    </ExternalPlayerLink>
                   )}
                   {d.state === 'paused' ? (
                     <button type="button" className="btn btn-outline btn-sm" onClick={() => handleResume(d)}>
