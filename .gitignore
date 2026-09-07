@@ -9,3 +9,4 @@ prowlarr-config/
 *.log
 .opencode/
 .playwright-mcp/
+.worktrees/
