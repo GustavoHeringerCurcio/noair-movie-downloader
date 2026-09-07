@@ -3,16 +3,16 @@ import { persist } from 'zustand/middleware';
 
 /**
  * Poster orientation for every Home/Search rail card (T-002):
- * - `horizontal` (default) — the 16:9 horizontal-poster look (fanart key-art
+ * - `vertical` (default) — classic 2:3 poster cards using raw TMDB poster art.
+ * - `horizontal` — the 16:9 horizontal-poster look (fanart key-art
  *   thumb → TMDB backdrop + logo / typography fallback).
- * - `vertical` — classic 2:3 poster cards using raw TMDB poster art.
  *
  * Persisted to localStorage (matching the player-preference pattern, D19
  * versionStore) so the choice survives reloads on the device.
  */
 export type PosterStyle = 'horizontal' | 'vertical';
 
-export const DEFAULT_POSTER_STYLE: PosterStyle = 'horizontal';
+export const DEFAULT_POSTER_STYLE: PosterStyle = 'vertical';
 
 interface PosterStyleState {
   style: PosterStyle;

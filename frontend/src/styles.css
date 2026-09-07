@@ -35,7 +35,8 @@
   --nav-h: 68px;
   --gutter: 4%;
   --card-w: clamp(160px, 16.5vw, 300px);
-  /* Vertical 2:3 poster mode (T-002): narrower, taller cards. */
+  /* Vertical 2:3 poster width (T-002, the default view): narrower, taller
+     cards; `.posters-vertical` swaps `--card-w` over to this. */
   --card-w-vert: clamp(128px, 10.5vw, 190px);
   --radius-card: 10px;
   --radius-poster: 6px;
@@ -783,9 +784,11 @@ ul {
 }
 
 /* --------------------------------------------------------------------------
-   Title card (T-002): horizontal-poster look by default, 2:3 poster mode opt-in.
-   Art stack (bottom → top): typography mark → TMDB backdrop → transparent
-   studio logo → fanart.tv key-art thumb (horizontal) or TMDB poster (vertical).
+   Title card (T-002): vertical 2:3 posters by default; the horizontal-poster
+   look is opt-in (`.posters-vertical` is dropped from the app shell when the
+   user picks Horizontal). Art stack (bottom → top): typography mark → TMDB
+   backdrop → transparent studio logo → fanart.tv key-art thumb (horizontal)
+   or TMDB poster (vertical).
    -------------------------------------------------------------------------- */
 .title-card {
   position: relative;
@@ -797,7 +800,9 @@ ul {
   border: 1px solid transparent;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-radius 0.18s ease;
 }
-/* Vertical 2:3 poster mode (T-002): narrower cards grown to poster ratio. */
+/* Vertical 2:3 poster cards (T-002, default view): narrower cards grown to
+   poster ratio. Removing `.posters-vertical` (Horizontal selected) returns the
+   base 16:9 wide cards below. */
 .posters-vertical {
   --card-w: var(--card-w-vert);
 }

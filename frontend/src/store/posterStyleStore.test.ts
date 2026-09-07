@@ -6,20 +6,20 @@ describe('posterStyleStore (T-002 vertical-poster toggle)', () => {
     vi.resetModules();
   });
 
-  it('defaults to horizontal posters', async () => {
+  it('defaults to vertical 2:3 posters', async () => {
     const { usePosterStyleStore, DEFAULT_POSTER_STYLE } = await import('./posterStyleStore');
-    expect(DEFAULT_POSTER_STYLE).toBe('horizontal');
-    expect(usePosterStyleStore.getState().style).toBe('horizontal');
+    expect(DEFAULT_POSTER_STYLE).toBe('vertical');
+    expect(usePosterStyleStore.getState().style).toBe('vertical');
   });
 
-  it('persists the vertical choice across a reload (localStorage pattern)', async () => {
+  it('persists the horizontal choice across a reload (localStorage pattern)', async () => {
     const first = await import('./posterStyleStore');
-    first.usePosterStyleStore.getState().setStyle('vertical');
-    expect(first.usePosterStyleStore.getState().style).toBe('vertical');
+    first.usePosterStyleStore.getState().setStyle('horizontal');
+    expect(first.usePosterStyleStore.getState().style).toBe('horizontal');
 
     vi.resetModules();
     const reloaded = await import('./posterStyleStore');
-    expect(reloaded.usePosterStyleStore.getState().style).toBe('vertical');
+    expect(reloaded.usePosterStyleStore.getState().style).toBe('horizontal');
   });
 
   it('maps vertical to the app shell CSS class and horizontal to none', async () => {
