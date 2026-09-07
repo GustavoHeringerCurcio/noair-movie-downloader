@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../app.js';
 import { makeDownloadRecord, makeTestDeps } from '../../test/helpers.js';
 import { UpstreamError } from '../types.js';
-import type { MediaDetail } from '../types.js';
+import type { MediaDetail, Source } from '../types.js';
 
 const DETAIL: MediaDetail = {
   tmdbId: 27205,
@@ -255,7 +255,7 @@ const TV_DETAIL: MediaDetail = {
   ],
 };
 
-function tvSource(title: string, coverage: unknown) {
+function tvSource(title: string, coverage: unknown, resolution: Source['resolution'] = '1080p') {
   return {
     indexerId: 1,
     indexer: 'YTS',
@@ -266,7 +266,7 @@ function tvSource(title: string, coverage: unknown) {
     infoHash: Buffer.from(title).toString('hex').slice(0, 40) || 'a'.repeat(40),
     magnetUri: 'magnet:?xt=urn:btih:' + 'a'.repeat(40),
     ageHours: null,
-    resolution: '1080p',
+    resolution,
     source: 'WEB-DL',
     codec: 'x264',
     hdr: false,
@@ -358,6 +358,123 @@ describe('TV contextual sources (S3 params + gating)', () => {
     const app = createApp(makeTestDeps());
     expect((await request(app).get('/api/media/27205/sources?type=movie&season=1')).status).toBe(400);
     expect((await request(app).get('/api/media/94997/sources?type=tv&episode=1')).status).toBe(400);
+  });
+});
+
+describe('GET /api/media/:id/sources (quality cap)', () => {
+  const mk = (title: string, resolution: Source['resolution']): Source => ({
+    indexerId: 1,
+    indexer: 'YTS',
+    title,
+    sizeBytes: 0,
+    seeders: 0,
+    leechers: 0,
+    infoHash: (Buffer.from(title + resolution).toString('hex') + 'a'.repeat(40)).slice(0, 40),
+    magnetUri: 'magnet:?xt=urn:btih:' + 'a'.repeat(40),
+    ageHours: null,
+    resolution,
+    source: 'WEB-DL',
+    codec: 'x264',
+    hdr: false,
+    isDolbyVision: false,
+    group: null,
+    cleanTitle: 'inception',
+    audioCodec: null,
+    coverage: null,
+  });
+
+  it('caps movie results at 1080p by default (drops 2160p)', async () => {
+    const deps = makeTestDeps({
+      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
+      prowlarr: {
+        search: async () => [
+          mk('Inception.2010.2160p.WEB-DL', '2160p'),
+          mk('Inception.2010.1080p.WEB-DL', '1080p'),
+          mk('Inception.2010.720p.WEB-DL', '720p'),
+          mk('Inception.2010.480p.WEB-DL', '480p'),
+          mk('Inception.2010.UNKNOWN.WEB-DL', null),
+        ],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    const titles = res.body.sources.map((s: { title: string }) => s.title);
+    expect(titles).toEqual([
+      'Inception.2010.1080p.WEB-DL',
+      'Inception.2010.720p.WEB-DL',
+      'Inception.2010.480p.WEB-DL',
+      'Inception.2010.UNKNOWN.WEB-DL',
+    ]);
+  });
+
+  it('returns every release when the per-request cap is raised to 2160p', async () => {
+    const deps = makeTestDeps({
+      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
+      prowlarr: {
+        search: async () => [
+          mk('Inception.2010.2160p.WEB-DL', '2160p'),
+          mk('Inception.2010.1080p.WEB-DL', '1080p'),
+        ],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie&maxResolution=2160p');
+    expect(res.status).toBe(200);
+    const titles = res.body.sources.map((s: { title: string }) => s.title);
+    expect(titles).toEqual(['Inception.2010.2160p.WEB-DL', 'Inception.2010.1080p.WEB-DL']);
+  });
+
+  it('respects a stored site-wide cap (720p) even without a per-request param', async () => {
+    const deps = makeTestDeps({
+      settings: {
+        get: async (key: string) => (key === 'maxResolution' ? { maxResolution: '720p' } : null),
+        set: async () => {},
+      },
+      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
+      prowlarr: {
+        search: async () => [
+          mk('Inception.2010.2160p.WEB-DL', '2160p'),
+          mk('Inception.2010.1080p.WEB-DL', '1080p'),
+          mk('Inception.2010.720p.WEB-DL', '720p'),
+        ],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    const titles = res.body.sources.map((s: { title: string }) => s.title);
+    expect(titles).toEqual(['Inception.2010.720p.WEB-DL']);
+  });
+
+  it('caps TV season results too', async () => {
+    const deps = makeTestDeps({
+      tmdb: { ...makeTestDeps().tmdb, details: async () => TV_DETAIL },
+      prowlarr: {
+        search: async () => [
+          tvSource('Fallout.S01.COMPLETE.2160p.WEB-DL', [{ season: 1, episodes: null }], '2160p'),
+          tvSource('Fallout.S01.COMPLETE.1080p.WEB-DL', [{ season: 1, episodes: null }]),
+        ],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/94997/sources?type=tv&season=1');
+    expect(res.status).toBe(200);
+    const titles = res.body.sources.map((s: { title: string }) => s.title);
+    expect(titles).toEqual(['Fallout.S01.COMPLETE.1080p.WEB-DL']);
+  });
+
+  it('shows an empty list (not 4K releases) when every release is over the cap', async () => {
+    const deps = makeTestDeps({
+      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
+      prowlarr: {
+        search: async () => [mk('Inception.2010.REMUX.2160p', '2160p')],
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    expect(res.body.sources).toEqual([]);
   });
 });
 

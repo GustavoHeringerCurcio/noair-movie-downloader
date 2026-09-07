@@ -5,11 +5,21 @@ export type DiscoverSection = 'trending-week' | 'best-movies' | 'best-tv';
 /** Primary audio languages we can act on. `en` is the implicit default/original. */
 export type AudioLang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
 
+/**
+ * Quality ceiling for source searches (movies and TV), a shared site setting
+ * like the audio language. `2160p` means "no ceiling" (every release shows).
+ */
+export type MaxResolution = '2160p' | '1080p' | '720p';
+
 /** Audio descriptor read from a release title. */
 export type AudioMode = 'dub' | 'dual' | 'multi';
 
 export interface LanguageSettings {
   audio: AudioLang;
+}
+
+export interface QualitySettings {
+  maxResolution: MaxResolution;
 }
 
 export interface SourcesResponse {

@@ -4,6 +4,7 @@ import type {
   DiscoverSection,
   DownloadRecord,
   HoverCardInfo,
+  MaxResolution,
   MediaDetail,
   MediaItem,
   MediaType,
@@ -59,6 +60,7 @@ export function logoUrl(mediaType: MediaType, tmdbId: number): string {
 
 export interface SiteSettings {
   language: { audio: AudioLang };
+  quality: { maxResolution: MaxResolution };
 }
 
 export function fetchSettings(): Promise<SiteSettings> {
@@ -69,6 +71,13 @@ export function saveAudioLanguage(audio: AudioLang): Promise<SiteSettings> {
   return request<SiteSettings>('/api/settings', {
     method: 'PUT',
     body: JSON.stringify({ language: { audio } }),
+  });
+}
+
+export function saveMaxResolution(maxResolution: MaxResolution): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ quality: { maxResolution } }),
   });
 }
 
@@ -218,24 +227,29 @@ const sourcesCache = new Map<string, { promise: Promise<SourcesResponse>; expire
 
 /**
  * Best-source search (S3). In-flight requests are deduped and successful
- * results cached ~10 min per context (`type:id:season:episode:audio`) so the
- * confirm sheet stays instant and re-visiting a title never re-asks Prowlarr.
- * HTTP failures are never cached, so Retry always hits the network again.
+ * results cached ~10 min per context (`type:id:season:episode:audio:maxResolution`)
+ * so the confirm sheet stays instant and re-visiting a title never re-asks
+ * Prowlarr. HTTP failures are never cached, so Retry always hits the network
+ * again. `maxResolution` asks the backend to cap releases (site setting, default
+ * 1080p) — it's part of the cache key so raising the ceiling really re-searches.
  */
 export function sources(
   id: number,
   type: MediaType,
-  context?: { season?: number; episode?: number; audio?: AudioLang },
+  context?: { season?: number; episode?: number; audio?: AudioLang; maxResolution?: MaxResolution },
 ): Promise<SourcesResponse> {
   const params = new URLSearchParams({ type });
   if (context?.audio != null) {
     params.set('audio', context.audio);
   }
+  if (context?.maxResolution != null) {
+    params.set('maxResolution', context.maxResolution);
+  }
   if (context?.season != null) {
     params.set('season', String(context.season));
     if (context.episode != null) params.set('episode', String(context.episode));
   }
-  const cacheKey = `${type}:${id}:${context?.season ?? ''}:${context?.episode ?? ''}:${context?.audio ?? ''}`;
+  const cacheKey = `${type}:${id}:${context?.season ?? ''}:${context?.episode ?? ''}:${context?.audio ?? ''}:${context?.maxResolution ?? ''}`;
   const hit = sourcesCache.get(cacheKey);
   if (hit && hit.expires > Date.now()) return hit.promise;
   const promise = request<SourcesResponse>(`/api/media/${id}/sources?${params.toString()}`);

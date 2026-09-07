@@ -17,11 +17,11 @@ function depsWithMemorySettings(): { deps: ReturnType<typeof makeTestDeps>; stat
 }
 
 describe('GET /api/settings', () => {
-  it('returns the default audio preference when nothing is stored', async () => {
+  it('returns the default audio + quality preferences when nothing is stored', async () => {
     const app = createApp(makeTestDeps());
     const res = await request(app).get('/api/settings');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ language: { audio: 'en' } });
+    expect(res.body).toEqual({ language: { audio: 'en' }, quality: { maxResolution: '1080p' } });
   });
 });
 
@@ -32,7 +32,25 @@ describe('PUT /api/settings', () => {
     const res = await request(app).put('/api/settings').send({ language: { audio: 'pt' } });
     expect(res.status).toBe(200);
     expect(res.body.language).toEqual({ audio: 'pt' });
+    expect(res.body.quality.maxResolution).toBe('1080p');
     expect(state.audioLanguage).toEqual({ audio: 'pt' });
+  });
+
+  it('persists a 720p quality ceiling', async () => {
+    const { deps, state } = depsWithMemorySettings();
+    const app = createApp(deps);
+    const res = await request(app).put('/api/settings').send({ quality: { maxResolution: '720p' } });
+    expect(res.status).toBe(200);
+    expect(res.body.quality).toEqual({ maxResolution: '720p' });
+    expect(res.body.language).toEqual({ audio: 'en' });
+    expect(state.maxResolution).toEqual({ maxResolution: '720p' });
+  });
+
+  it('rejects an invalid quality ceiling', async () => {
+    const app = createApp(makeTestDeps());
+    const res = await request(app).put('/api/settings').send({ quality: { maxResolution: '4k' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('quality.maxResolution');
   });
 
   it('reads the stored Portuguese preference back on GET', async () => {
@@ -45,6 +63,18 @@ describe('PUT /api/settings', () => {
     const app = createApp(deps);
     const res = await request(app).get('/api/settings');
     expect(res.body.language).toEqual({ audio: 'pt' });
+  });
+
+  it('reads the stored 720p quality ceiling back on GET', async () => {
+    const deps = makeTestDeps({
+      settings: {
+        get: async (key: string) => (key === 'maxResolution' ? { maxResolution: '720p' } : null),
+        set: async () => {},
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/settings');
+    expect(res.body.quality).toEqual({ maxResolution: '720p' });
   });
 
   it('rejects unknown audio codes', async () => {

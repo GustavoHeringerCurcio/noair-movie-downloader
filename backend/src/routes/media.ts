@@ -4,6 +4,13 @@ import { UpstreamError } from '../types.js';
 import { filterSourcesToMedia } from '../lib/releaseFilter.js';
 import { coverageCovers, isWholeSeriesTitle, seasonQueryToken } from '../lib/releaseParser.js';
 import { audioProfile, isAudioLang, loadAudioPreference, titleMatchesAudio } from '../lib/language.js';
+import {
+  DEFAULT_MAX_RESOLUTION,
+  filterSourcesByMaxResolution,
+  isMaxResolution,
+  loadMaxResolutionPreference,
+  type MaxResolution,
+} from '../lib/quality.js';
 import { pickTrailer } from '../lib/trailer.js';
 import type { AppDeps } from '../deps.js';
 
@@ -281,12 +288,20 @@ export function createMediaRouter(deps: AppDeps): Router {
       pref = 'en';
     }
     const strict = pref !== 'en';
+    // Per-request quality ceiling; falls back to the stored site-wide setting
+    // (default 1080p) so no release heavier than the cap ever reaches the UI.
+    const cap = isMaxResolution(req.query.maxResolution)
+      ? req.query.maxResolution
+      : await loadMaxResolutionPreference(deps).catch(() => DEFAULT_MAX_RESOLUTION);
     try {
       const detail = await deps.tmdb.details(id, type);
       const query = buildQuery(detail.title, detail.year, season, episode);
       const category: 2000 | 5000 = type === 'movie' ? 2000 : 5000;
       const all = await deps.prowlarr.search(query, category);
-      const filtered = filterSourcesToMedia(all, { title: detail.title, year: detail.year });
+      const filtered = filterSourcesByMaxResolution(
+        filterSourcesToMedia(all, { title: detail.title, year: detail.year }),
+        cap,
+      );
 
       let sources = filtered;
       if (type === 'tv' && season !== null) {
@@ -313,6 +328,7 @@ export function createMediaRouter(deps: AppDeps): Router {
           episode,
           pref,
           langById,
+          cap,
         });
       }
       if (matches.length > 0) {
@@ -353,6 +369,7 @@ interface LanguageSearchContext {
   episode: number | null;
   pref: AudioLang;
   langById: Map<number, string>;
+  cap: MaxResolution;
 }
 
 /**
@@ -363,7 +380,7 @@ interface LanguageSearchContext {
  * assumed to be a match; only pt-BR trackers guarantee the audio.
  */
 async function targetedLanguageSearch(ctx: LanguageSearchContext): Promise<Source[]> {
-  const { deps, detail, category, season, episode, pref, langById } = ctx;
+  const { deps, detail, category, season, episode, pref, langById, cap } = ctx;
   const targetIds = [...langById.entries()]
     .filter(([, lang]) => isTargetIndexer(lang, pref))
     .map(([id]) => id);
@@ -388,7 +405,10 @@ async function targetedLanguageSearch(ctx: LanguageSearchContext): Promise<Sourc
 
   try {
     const extra = await deps.prowlarr.search(query, category, { indexerIds: targetIds });
-    let extraSources = filterSourcesToMedia(extra, { title: filterTitle, year: filterYear });
+    let extraSources = filterSourcesByMaxResolution(
+      filterSourcesToMedia(extra, { title: filterTitle, year: filterYear }),
+      cap,
+    );
     if (detail.mediaType === 'tv' && season !== null) {
       extraSources = gateTvSources(extraSources, detail, season, episode);
     }

@@ -7,7 +7,8 @@ import { usePosterStyleStore, type PosterStyle } from '@/store/posterStyleStore'
 import { usePosterImdbStore } from '@/store/posterImdbStore';
 import { useTranscode4kStore } from '@/store/transcode4kStore';
 import { remoteStatus, type RemoteStatus } from '@/api';
-import type { AudioLang, FriendlyPickMode } from '@/types';
+import type { AudioLang, FriendlyPickMode, MaxResolution } from '@/types';
+import { MAX_RESOLUTION_OPTIONS, maxResolutionLabel } from '@/lib/quality';
 import {
   buildLinuxInstallerSh,
   buildLinuxUninstallerSh,
@@ -53,10 +54,12 @@ function diagnostics(): string {
 export function SettingsPage() {
   const connected = useDownloadsStore((s) => s.connected);
   const audio = useSettingsStore((s) => s.audio);
+  const maxResolution = useSettingsStore((s) => s.maxResolution);
   const ready = useSettingsStore((s) => s.ready);
   const saving = useSettingsStore((s) => s.saving);
   const loadSettings = useSettingsStore((s) => s.load);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
+  const saveMaxResolution = useSettingsStore((s) => s.saveMaxResolution);
   const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
   const setFriendlyPickMode = useFriendlyPickStore((s) => s.setMode);
   const toast = useToastStore((s) => s.toast);
@@ -164,6 +167,16 @@ export function SettingsPage() {
     try {
       await saveAudio(next);
       toast(`Audio language: ${audioLanguageLabel(next)}`, 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  async function changeMaxResolution(next: MaxResolution): Promise<void> {
+    if (next === maxResolution || saving) return;
+    try {
+      await saveMaxResolution(next);
+      toast(`Download quality: up to ${maxResolutionLabel(next)}`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Save failed', 'error');
     }
@@ -436,6 +449,37 @@ export function SettingsPage() {
             );
           })}
         </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>Download quality</h2>
+        <p className="settings-note">
+          The highest release quality the app shows — and auto-picks — when you search for a movie
+          or show. It defaults to <strong>1080p</strong>, so 4K/UHD releases (which are far heavier
+          and rarely look better on most screens) stay hidden until you raise the ceiling here.
+          Releases are filtered on every search, for movies and shows alike.
+        </p>
+        <div className="artwork-options" role="group" aria-label="Download quality">
+          {MAX_RESOLUTION_OPTIONS.map((option) => {
+            const active = maxResolution === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={active}
+                disabled={!ready}
+                onClick={() => void changeMaxResolution(option.value)}
+              >
+                <span className="artwork-option-label">{option.label}</span>
+                <span className="artwork-option-hint">{option.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="settings-note">
+          Saved on the server and shared by every device — the same way the audio language works.
+        </p>
       </section>
 
       <section className="settings-card">

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { DownloadsPage } from './DownloadsPage';
@@ -208,5 +208,36 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /mark as not connected/i }));
     expect(screen.getByText('Not connected yet')).toBeInTheDocument();
     expect(isOpenerSetupDone()).toBe(false);
+  });
+
+  it('offers Download quality ceilings with 1080p selected by default (white on, black off)', () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+
+    const group = screen.getByRole('group', { name: 'Download quality' });
+    const option = (label: string) =>
+      within(group)
+        .getAllByRole('button')
+        .find((b) => b.textContent?.trim().startsWith(label));
+
+    const fhd = option('1080p');
+    const hd = option('720p');
+    const uhd = option('4K UHD');
+
+    expect(fhd).toBeInTheDocument();
+    expect(hd).toBeInTheDocument();
+    expect(uhd).toBeInTheDocument();
+
+    // The default ceiling (1080p) renders as the white/active option; the
+    // lighter and heavier ceilings stay black/outlined until selected.
+    expect(fhd).toHaveClass('btn-white');
+    expect(fhd).toHaveAttribute('aria-pressed', 'true');
+    expect(hd).toHaveClass('btn-outline');
+    expect(hd).toHaveAttribute('aria-pressed', 'false');
+    expect(uhd).toHaveClass('btn-outline');
+    expect(uhd).toHaveAttribute('aria-pressed', 'false');
   });
 });

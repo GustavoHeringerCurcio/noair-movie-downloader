@@ -219,4 +219,24 @@ describe('sources (S3 cached best-source search)', () => {
     expect(res.sources).toEqual([]);
     expect(calls).toBe(2);
   });
+
+  it('sends the quality ceiling as a maxResolution query param', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sources: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sources(550, 'movie', { audio: 'en', maxResolution: '2160p' });
+    const url = String((fetchMock.mock.calls[0] as unknown[])[0]);
+    expect(url).toContain('/api/media/550/sources?');
+    expect(url).toContain('type=movie');
+    expect(url).toContain('audio=en');
+    expect(url).toContain('maxResolution=2160p');
+  });
+
+  it('keeps distinct cache entries per quality ceiling', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sources: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sources(550, 'movie', { audio: 'en', maxResolution: '1080p' });
+    await sources(550, 'movie', { audio: 'en', maxResolution: '2160p' });
+    await sources(550, 'movie', { audio: 'en', maxResolution: '1080p' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
