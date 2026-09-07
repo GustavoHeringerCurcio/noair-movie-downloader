@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type {
   AudioLang,
+  FriendlyPickMode,
   MediaDetail,
   MediaType,
   Source,
@@ -36,12 +37,13 @@ import {
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
-import { chooseEpisodePick, chooseSeasonPick } from '../lib/coverage';
+import { chooseEpisodePick, chooseMoviePick, chooseSeasonPick, isWebExhibitable } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { useAudioLanguage } from '../store/settingsStore';
+import { useFriendlyPickStore } from '../store/friendlyPickStore';
 import { useVersionStore, versionKey } from '../store/versionStore';
 import {
   bestPlayable,
@@ -86,15 +88,22 @@ function pickSummary(source: Source): string {
   return bits.join(' · ');
 }
 
-/** Small caption under the primary Download button naming the friendly pick. */
-function movieOfferHint(source: Source | null): string | null {
+/**
+ * Small caption under the primary Download button naming the friendly pick. In
+ * `web-playable` mode the caption says so ("Web-playable · …") when the pick is
+ * a browser-exhibitable source, so the user understands why a smaller/older
+ * source was chosen; a fallback to the plain most-seeded release keeps the
+ * usual "Best match" wording.
+ */
+function movieOfferHint(source: Source | null, mode: FriendlyPickMode): string | null {
   if (!source) return null;
   const bits: string[] = [];
   const q = pickQuality(source);
   if (q) bits.push(q);
   bits.push(humanSize(source.sizeBytes));
   bits.push(`${source.seeders} seeds`);
-  return bits.length > 0 ? `Best match · ${bits.join(' · ')}` : 'Best match available';
+  const lead = mode === 'web-playable' && isWebExhibitable(source) ? 'Web-playable' : 'Best match';
+  return bits.length > 0 ? `${lead} · ${bits.join(' · ')}` : `${lead} available`;
 }
 
 interface AdvancedSheetProps {
@@ -541,6 +550,7 @@ export function DetailPage() {
   const toast = useToastStore((s) => s.toast);
   const recordRecent = useRecentsStore((s) => s.record);
   const audio = useAudioLanguage();
+  const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
 
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -760,12 +770,12 @@ export function DetailPage() {
   }
 
   function movieFriendlyPick(): Source | null {
-    return movieSources.length > 0 ? movieSources[0]! : null;
+    return chooseMoviePick(movieSources, friendlyPickMode);
   }
 
   function seasonFullPick(): Source | null {
     if (activeSeason == null) return null;
-    return chooseSeasonPick(seasonSources, activeSeason);
+    return chooseSeasonPick(seasonSources, activeSeason, friendlyPickMode);
   }
 
   // Episode -> action derivation
@@ -785,7 +795,7 @@ export function DetailPage() {
     own: DownloadRecord | null;
   } {
     const own = titleDownloads.find((d) => d.seasonNumber === episode.seasonNumber && d.episodeNumber === episode.episodeNumber) ?? null;
-    const source = chooseEpisodePick(seasonSources, episode.seasonNumber, episode.episodeNumber);
+    const source = chooseEpisodePick(seasonSources, episode.seasonNumber, episode.episodeNumber, friendlyPickMode);
     if (own) return { kind: 'own', download: own, source: null, own };
     if (seasonPackDownload) return { kind: 'pack', download: seasonPackDownload, source: null, own: null };
     if (source) return { kind: 'download', download: null, source, own: null };
@@ -959,7 +969,7 @@ export function DetailPage() {
                     >
                       <ArrowDownToLine size={20} /> Download
                     </button>
-                    <span className="dh-offer-hint">{movieOfferHint(movieFriendlyPick())}</span>
+                    <span className="dh-offer-hint">{movieOfferHint(movieFriendlyPick(), friendlyPickMode)}</span>
                   </div>
                   <button
                     type="button"
@@ -1214,6 +1224,9 @@ export function DetailPage() {
               <div>
                 <div className="pick-title">{confirm.source.title}</div>
                 <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {friendlyPickMode === 'web-playable' && isWebExhibitable(confirm.source) && (
+                    <span className="chip">Web-playable</span>
+                  )}
                   {audioChipLabel(confirm.source) && (
                     <span className="chip chip-audio">{audioChipLabel(confirm.source)}</span>
                   )}
