@@ -86,17 +86,6 @@ function pickSummary(source: Source): string {
   return bits.join(' · ');
 }
 
-/** Small caption under the primary Download button naming the friendly pick. */
-function movieOfferHint(source: Source | null): string | null {
-  if (!source) return null;
-  const bits: string[] = [];
-  const q = pickQuality(source);
-  if (q) bits.push(q);
-  bits.push(humanSize(source.sizeBytes));
-  bits.push(`${source.seeders} seeds`);
-  return bits.length > 0 ? `Best match · ${bits.join(' · ')}` : 'Best match available';
-}
-
 interface AdvancedSheetProps {
   open: boolean;
   title: string;
@@ -948,19 +937,16 @@ export function DetailPage() {
                 </button>
               ) : movieSources.length > 0 ? (
                 <>
-                  <div className="dh-offer-main">
-                    <button
-                      type="button"
-                      className="btn btn-white btn-lg"
-                      onClick={() => {
-                        const pick = movieFriendlyPick();
-                        if (pick) openConfirm('Download this movie', pick, null, null);
-                      }}
-                    >
-                      <ArrowDownToLine size={20} /> Download
-                    </button>
-                    <span className="dh-offer-hint">{movieOfferHint(movieFriendlyPick())}</span>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-white btn-lg"
+                    onClick={() => {
+                      const pick = movieFriendlyPick();
+                      if (pick) openConfirm('Download this movie', pick, null, null);
+                    }}
+                  >
+                    <ArrowDownToLine size={20} /> Download
+                  </button>
                   <button
                     type="button"
                     className="btn btn-ghost btn-lg"
