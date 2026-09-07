@@ -139,27 +139,41 @@ describe('SettingsPage', () => {
     expect(screen.getByText('OMDB_API_KEY')).toBeInTheDocument();
   });
 
-  it('explains the local-player setup, offers the installer and tracks the confirmation', () => {
+  it('offers friendly player links, a single connect button and an informational status pill', () => {
+    // jsdom's user-agent varies by host OS; force a Linux UA so the platform
+    // branch under test is deterministic on any machine.
+    Object.defineProperty(window.navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120',
+      configurable: true,
+    });
     render(
       <MemoryRouter>
         <SettingsPage />
       </MemoryRouter>,
     );
 
-    // jsdom reports a Linux UA → the Linux explainer is shown.
+    // The card explains itself in one line, then points new users at official sites.
     expect(screen.getByText('Local player')).toBeInTheDocument();
-    expect(screen.getByText(/What the Linux installer does/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /download installer/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /download uninstaller/i })).toBeInTheDocument();
-    expect(screen.getByText('Not registered yet')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /VLC/ })).toHaveAttribute('href', 'https://www.videolan.org/vlc/');
+    expect(screen.getByRole('link', { name: /MPV/ })).toHaveAttribute('href', 'https://mpv.io/installation/');
+    // Linux only lists Linux-supported players (no Windows-only MPC-HC / PotPlayer).
+    expect(screen.queryByRole('link', { name: /MPC-HC/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /PotPlayer/ })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /i ran it/i }));
-    expect(screen.getByText(/movie:\/\/ registered/i)).toBeInTheDocument();
+    // The one-time connector is a single friendly button; the uninstaller lives
+    // inside the collapsed technical details (jsdom keeps it in the DOM either way).
+    expect(screen.getByRole('button', { name: /download setup file/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/What this file does/i));
+    expect(screen.getByRole('button', { name: /download uninstaller/i })).toBeInTheDocument();
+    expect(screen.getByText('Not connected yet')).toBeInTheDocument();
+
+    // Confirming only informs the status pill (and hides Player hints) — it never gates.
+    fireEvent.click(screen.getByRole('button', { name: /I’ve run the file/i }));
+    expect(screen.getByText(/Player buttons open your player/i)).toBeInTheDocument();
     expect(isOpenerSetupDone()).toBe(true);
 
-    // Undo keeps the Player buttons honest.
-    fireEvent.click(screen.getByRole('button', { name: /mark as not set up/i }));
-    expect(screen.getByText('Not registered yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /mark as not connected/i }));
+    expect(screen.getByText('Not connected yet')).toBeInTheDocument();
     expect(isOpenerSetupDone()).toBe(false);
   });
 });

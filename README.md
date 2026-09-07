@@ -106,25 +106,26 @@ Requires **Docker + Docker Compose**.
 
 </details>
 
-## Open in your player (one-time setup)
+## Open in your player
 
 Downloads play in the browser as soon as the file is complete. Codecs the browser can't decode
-(4K/HEVC, exotic audio) show an **"Open in your player"** button instead. Browsers can't launch
-desktop apps on their own, so the app registers a `movie://` handler for you — the setup is
-**platform-aware**, so you get the right installer for the OS you're on.
+(4K/HEVC, exotic audio) show an **"Open in your player"** button instead — and you can hand any
+file to your own player (VLC, MPV, MPC-HC, PotPlayer) from Watch, Downloads or a title's page.
 
-- Open **Settings → Local player**, pick your player (VLC / MPV; MPC-HC / PotPlayer on Windows) and
-  download the installer.
-- **Windows** — run the downloaded `.cmd` once (double-click is fine). It auto-locates the player,
-  registers the `movie://` handler for your user under HKCU (no admin) and prints the result.
-- **Linux** — run the downloaded `.sh` once: `bash ~/Downloads/install-movie-player.sh`. It
-  auto-detects your player (`vlc`/`mpv`, incl. flatpak), registers the handler via `xdg-mime` and
-  verifies it.
-- Mark **"I ran it — movie:// works"** in Settings. Until then, the **Player** buttons on the Watch,
-  Downloads and Detail pages route you to Settings instead of failing silently.
+Browsers can't launch desktop apps on their own, so the first time you use this on a computer the
+app needs one tiny setup file (Settings → Local player):
 
-Re-running the installer is harmless. Switch players by re-running it once. To remove the handler,
-run the matching uninstaller.
+- **Don't have a player yet?** Settings → Local player → **Get a player** links the official
+  download pages (VLC is the easiest for most people). Nothing there installs anything by itself.
+- **Connect your player** — download the setup file and double-click it once:
+  - **Windows** — the downloaded `.cmd` auto-locates your player, registers the `movie://` link for
+    your user (no admin) and prints what it found.
+  - **Linux** — run the downloaded `.sh` once: `bash ~/Downloads/install-movie-player.sh`. It
+    auto-detects your player (`vlc`/`mpv`, incl. flatpak) and registers the link.
+
+The **Player** buttons always try to open your player — the setup just makes that work, and the
+status shown in Settings is informational only. Re-running the file is harmless (it simply
+overwrites the launcher). To remove the link, use the uninstaller in Settings.
 
 ## Development
 

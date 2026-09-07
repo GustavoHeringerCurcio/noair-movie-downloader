@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { WatchPage } from './WatchPage';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
+import { useToastStore } from '../store/toastStore';
 import { shakaDouble } from '../components/ShakaPlayer.double';
 import { SETUP_DONE_KEY } from '../lib/openerInstaller';
 import type { DownloadRecord } from '../types';
@@ -98,6 +99,7 @@ beforeEach(() => {
   shakaDouble.reset();
   useDownloadsStore.setState({ downloads: [makeDownload()], connected: true });
   useRecentsStore.setState({ recents: [] });
+  useToastStore.setState({ toasts: [] });
 });
 
 afterEach(() => {
@@ -300,7 +302,7 @@ describe('WatchPage HLS playback', () => {
     expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
   });
 
-  it('routes the Player action to Settings (never a silent hand-off) until setup is confirmed', async () => {
+  it('always hands the file to the OS handler — no routing to Settings, gentle hint when not connected', async () => {
     stubHls([{ phase: 'failed', progress: 0, error: 'disk full' }]);
     render(
       <MemoryRouter initialEntries={[`/watch/${HASH}`]}>
@@ -312,10 +314,30 @@ describe('WatchPage HLS playback', () => {
     );
 
     await screen.findByText(/couldn’t prepare a browser-playable copy/i);
-    expect(screen.queryByRole('link', { name: /open in your player/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /open in your player/i }));
 
-    expect(await screen.findByText('settings-page')).toBeInTheDocument();
+    // The action is a real movie: link whether or not setup is confirmed — it
+    // never routes the user to Settings and never blocks the hand-off.
+    const playerLink = screen.getByRole('link', { name: /open in your player/i });
+    expect(playerLink.getAttribute('href')).toMatch(/^movie:http:\/\/localhost:3000\/api\/stream\//);
+
+    fireEvent.click(playerLink);
+
+    expect(screen.queryByText('settings-page')).not.toBeInTheDocument();
+    useToastStore.setState({ toasts: [] });
+    fireEvent.click(screen.getByRole('link', { name: /open in your player/i }));
+    const hint = useToastStore.getState().toasts.find((t) => t.message.includes('Connect it once'));
+    expect(hint).toBeTruthy();
+  });
+
+  it('shows no setup hint once the local player is connected', async () => {
+    window.localStorage.setItem(SETUP_DONE_KEY, '1'); // Player links open silently once setup is confirmed
+    stubHls([{ phase: 'failed', progress: 0, error: 'disk full' }]);
+    renderWatch();
+
+    await screen.findByText(/couldn’t prepare a browser-playable copy/i);
+    fireEvent.click(screen.getByRole('link', { name: /open in your player/i }));
+
+    expect(useToastStore.getState().toasts.some((t) => t.message.includes('Connect it once'))).toBe(false);
   });
 
   it('surfaces a Shaka startup failure into the failure overlay', async () => {

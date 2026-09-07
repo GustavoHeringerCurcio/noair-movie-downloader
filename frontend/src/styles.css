@@ -2277,18 +2277,100 @@ ul {
   outline: 2px solid var(--white);
   outline-offset: 2px;
 }
-.setup-box {
-  margin-top: 14px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-weak);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
 }
-.setup-title {
-  margin: 0 0 8px;
+.player-heading {
+  margin: 14px 0 6px;
   font-size: 14px;
   font-weight: 600;
   color: var(--white);
+}
+.player-heading:first-of-type {
+  margin-top: 12px;
+}
+.player-heading-note {
+  color: var(--text-3);
+  font-weight: 400;
+  font-size: 12.5px;
+}
+.player-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.player-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-weak);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.player-card:hover {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+.player-card-rec {
+  border-color: var(--border-strong);
+}
+.player-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.player-card-label {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--white);
+}
+.player-card-tag {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  color: var(--white);
+  white-space: nowrap;
+}
+.player-card-hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.player-card-link {
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--white);
+}
+.setup-details {
+  margin-top: 14px;
+  border: 1px solid var(--border-weak);
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.setup-details summary {
+  cursor: pointer;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+.setup-details .settings-note,
+.setup-details .setup-list {
+  margin-top: 8px;
+}
+.setup-details .settings-actions {
+  margin-bottom: 2px;
 }
 .setup-list {
   margin: 0 0 8px;

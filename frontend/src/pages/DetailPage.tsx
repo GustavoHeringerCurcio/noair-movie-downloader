@@ -409,7 +409,7 @@ function DownloadsHeroPanel({
           <ExternalPlayerLink
             className="btn btn-outline btn-lg"
             href={externalPlayerUrl(act.infoHash)}
-            title="Play in your local player (VLC / MPV) — requires one-time setup in Settings"
+            title="Play in your local player (VLC / MPV, …)"
           >
             <MonitorPlay size={18} /> Player
           </ExternalPlayerLink>

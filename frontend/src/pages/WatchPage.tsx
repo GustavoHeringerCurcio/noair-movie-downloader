@@ -350,13 +350,8 @@ export function WatchPage() {
           {codecLabel
             ? `This release uses ${codecLabel} video, which this browser can't decode in a web player.`
             : "This release can't be decoded in the browser."}{' '}
-          Play it bit-perfect in your own player (VLC, MPV, …) instead:
+          Play it in your own player (VLC, MPV, …) instead — open one below and it plays directly.
         </p>
-        <ol className="guide-steps">
-          <li className="guide-step">Set up your local player once (Settings → Local player)</li>
-          <li className="guide-step">Click “Open in your player” — if setup isn’t confirmed yet, it opens Settings first</li>
-          <li className="guide-step">Done</li>
-        </ol>
         <div className="page-state" style={{ minHeight: 'auto', flexDirection: 'row' }}>
           <ExternalPlayerLink className="btn btn-white" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
             <MonitorPlay size={18} /> Open in your player
@@ -385,7 +380,7 @@ export function WatchPage() {
           <ExternalPlayerLink
             className="btn btn-outline btn-sm"
             href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}
-            title="Play this file in your local player (VLC / MPV) — requires one-time setup in Settings"
+            title="Play this file in your local player (VLC / MPV, …)"
           >
             <MonitorPlay size={15} /> Player
           </ExternalPlayerLink>

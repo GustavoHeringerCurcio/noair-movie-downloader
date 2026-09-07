@@ -226,7 +226,7 @@ export function DownloadsPage() {
                     <ExternalPlayerLink
                       className="btn btn-outline btn-sm"
                       href={externalPlayerUrl(d.infoHash)}
-                      title="Open in your local player (VLC / MPV) — requires one-time setup in Settings"
+                      title="Open in your local player (VLC / MPV, …)"
                     >
                       <MonitorPlay size={14} /> Player
                     </ExternalPlayerLink>

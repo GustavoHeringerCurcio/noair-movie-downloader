@@ -4,13 +4,38 @@ export interface PlayerChoice {
   id: string;
   label: string;
   hint: string;
+  /** Official download page, opened in a new tab (the friendly "Get a player" path). */
+  siteUrl: string;
+  /** Shown as the gentle first recommendation for new users. */
+  recommended?: boolean;
 }
 
 export const PLAYER_CHOICES: PlayerChoice[] = [
-  { id: 'vlc', label: 'VLC', hint: 'The most common choice — plays everything' },
-  { id: 'mpv', label: 'MPV', hint: 'Minimal, scriptable, great playback quality' },
-  { id: 'mpc-hc', label: 'MPC-HC', hint: 'Classic Windows player (incl. K-Lite Codec Pack)' },
-  { id: 'potplayer', label: 'PotPlayer', hint: 'Feature-rich Windows player' },
+  {
+    id: 'vlc',
+    label: 'VLC',
+    hint: 'Plays everything — the easiest choice for most people',
+    siteUrl: 'https://www.videolan.org/vlc/',
+    recommended: true,
+  },
+  {
+    id: 'mpv',
+    label: 'MPV',
+    hint: 'Lightweight and scriptable, great playback quality',
+    siteUrl: 'https://mpv.io/installation/',
+  },
+  {
+    id: 'mpc-hc',
+    label: 'MPC-HC',
+    hint: 'Classic Windows player (also included in K-Lite Codec Pack)',
+    siteUrl: 'https://github.com/clsid2/mpc-hc/releases',
+  },
+  {
+    id: 'potplayer',
+    label: 'PotPlayer',
+    hint: 'Feature-rich Windows player',
+    siteUrl: 'https://potplayer.daum.net/',
+  },
 ];
 
 export const DEFAULT_PLAYER_ORDER: string[] = PLAYER_CHOICES.map((p) => p.id);
