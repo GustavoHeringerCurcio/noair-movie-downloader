@@ -11,9 +11,9 @@ function createMemoryArtFilesRepo(seed: ArtFileRow[] = []): ArtFilesRepository {
   for (const row of seed) rows.set(`${row.mediaType}:${row.tmdbId}:${row.kind}`, row);
   return {
     async getMany(subjects) {
-      return subjects
-        .flatMap((s) => [rows.get(`${s.mediaType}:${s.tmdbId}:poster`)])
-        .filter((row): row is ArtFileRow => row != null);
+      return subjects.flatMap((s) =>
+        Array.from(rows.values()).filter((r) => r.mediaType === s.mediaType && r.tmdbId === s.tmdbId),
+      );
     },
     async upsertMany(newRows) {
       for (const row of newRows) {
@@ -146,5 +146,67 @@ describe('artCache', () => {
     expect(written).toBe(0);
     const rows = await repo.getMany([SUBJECT]);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('artCache with a custom kind (T-002 fanart thumb / logo)', () => {
+  let artDir: string;
+  let repo: ArtFilesRepository;
+  let urls: string[] = [];
+
+  beforeEach(async () => {
+    artDir = await fs.mkdtemp(path.join(os.tmpdir(), 'artcache-kind-'));
+    urls = [];
+  });
+
+  afterEach(async () => {
+    await fs.rm(artDir, { recursive: true, force: true });
+  });
+
+  function cache(kind: 'thumb' | 'logo', resolveOrigin: (s: ArtSubject) => Promise<string | null>) {
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      urls.push(url);
+      return artResponse('image/png');
+    }) as typeof fetch;
+    return createArtCache({ repo, artDir, kind, resolveOrigin, fetchImpl });
+  }
+
+  it('downloads and names the file for the configured kind (thumb)', async () => {
+    repo = createMemoryArtFilesRepo();
+    const written = await cache('thumb', async () => 'https://assets.fanart.tv/fanart/x.jpg').warm([SUBJECT]);
+    expect(written).toBe(1);
+    expect(urls).toEqual(['https://assets.fanart.tv/fanart/x.jpg']);
+    const files = await fs.readdir(artDir);
+    expect(files[0]).toBe('movie_550_thumb.png');
+    const rows = await repo.getMany([SUBJECT]);
+    expect(rows[0]?.kind).toBe('thumb');
+  });
+
+  it('records empty under the configured kind (logo), not poster', async () => {
+    repo = createMemoryArtFilesRepo();
+    const written = await cache('logo', async () => null).warm([SUBJECT]);
+    expect(written).toBe(0);
+    const rows = await repo.getMany([SUBJECT]);
+    expect(rows).toEqual([expect.objectContaining({ kind: 'logo', status: 'empty' })]);
+  });
+
+  it('does not treat a cached poster row as a cached logo', async () => {
+    repo = createMemoryArtFilesRepo([
+      {
+        mediaType: 'movie',
+        tmdbId: 550,
+        kind: 'poster',
+        originUrl: 'https://x/poster.jpg',
+        filePath: 'movie_550_poster.jpg',
+        status: 'ok',
+        fetchedAt: new Date().toISOString(),
+      },
+    ]);
+    await fs.writeFile(path.join(artDir, 'movie_550_poster.jpg'), Buffer.from([1, 2, 3]));
+    const written = await cache('thumb', async () => 'https://assets.fanart.tv/fanart/y.jpg').warm([SUBJECT]);
+    expect(written).toBe(1);
+    const files = await fs.readdir(artDir);
+    expect(files.sort()).toEqual(['movie_550_poster.jpg', 'movie_550_thumb.png']);
   });
 });

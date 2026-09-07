@@ -73,6 +73,7 @@ services:
     environment:
       TMDB_API_KEY: ${TMDB_API_KEY:?set TMDB_API_KEY in .env}
       OMDB_API_KEY: ${OMDB_API_KEY:-}
+      FANART_API_KEY: ${FANART_API_KEY:-}
       PROWLARR_URL: http://prowlarr:9696
       PROWLARR_API_KEY: ${PROWLARR_API_KEY:?set PROWLARR_API_KEY in .env}
       QBITTORRENT_URL: http://qbittorrent:8080
