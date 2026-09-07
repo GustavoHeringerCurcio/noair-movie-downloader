@@ -1,0 +1,57 @@
+# Local development override.
+#
+# Run the whole stack with live-reloading app containers instead of the
+# production images:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#   # or just: scripts\dev.ps1 up
+#
+# backend  -> `tsx watch` (auto-restart on save), port 3000 exposed to the host
+# frontend -> Vite dev server with HMR, listening on container port 80 so the
+#             existing "5173:80" mapping is reused (http://localhost:5173).
+#             VITE_PROXY_TARGET points the Vite /api + /socket.io proxy at the
+#             backend on the compose network.
+#
+# Production is untouched: plain `docker compose up -d --build` still builds
+# the real multi-stage images.
+#
+# Node modules are baked into the dev images by `npm ci` (Linux-native). Only
+# source and config files are bind-mounted — never the repo root — so a Windows
+# node_modules can never shadow the container install. If you add an npm
+# dependency, rebuild the dev images (scripts\dev.ps1 rebuild).
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    image: movie-downloader-backend-dev
+    command: ["npm", "run", "dev"]
+    environment:
+      # Poll instead of relying on fs events when editing from a Windows host.
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/tsconfig.json:/app/tsconfig.json
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    image: movie-downloader-frontend-dev
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
+    environment:
+      VITE_PROXY_TARGET: http://backend:3000
+      # Poll so Vite sees edits to the bind-mounted Windows-hosted source
+      # (Docker Desktop does not always deliver fs events into the container).
+      VITE_USE_POLLING: "true"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
