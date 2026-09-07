@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createArtCache, type PosterResolution } from './artCache.js';
+import { createArtCache } from './artCache.js';
 import type { ArtFilesRepository, ArtFileRow } from '../db/artFilesRepo.js';
 import type { ArtSubject } from '../types.js';
 
@@ -11,9 +11,9 @@ function createMemoryArtFilesRepo(seed: ArtFileRow[] = []): ArtFilesRepository {
   for (const row of seed) rows.set(`${row.mediaType}:${row.tmdbId}:${row.kind}`, row);
   return {
     async getMany(subjects) {
-      return subjects
-        .flatMap((s) => [rows.get(`${s.mediaType}:${s.tmdbId}:poster`)])
-        .filter((row): row is ArtFileRow => row != null);
+      return subjects.flatMap((s) =>
+        Array.from(rows.values()).filter((r) => r.mediaType === s.mediaType && r.tmdbId === s.tmdbId),
+      );
     },
     async upsertMany(newRows) {
       for (const row of newRows) {
@@ -66,7 +66,7 @@ describe('artCache', () => {
     await fs.rm(artDir, { recursive: true, force: true });
   });
 
-  function cache(resolveOrigin: (subject: ArtSubject) => Promise<PosterResolution>) {
+  function cache(resolveOrigin: (subject: ArtSubject) => Promise<string | null>) {
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       urls.push(url);
@@ -77,9 +77,9 @@ describe('artCache', () => {
 
   const omdbPoster = 'https://m.media-amazon.com/images/M/poster.jpg';
 
-  it('downloads the OMDb portrait poster and records it with the IMDb rating', async () => {
+  it('downloads the OMDb portrait poster and records it', async () => {
     repo = createMemoryArtFilesRepo();
-    const written = await cache(async () => ({ posterUrl: omdbPoster, imdbRating: 8.3 })).warm([SUBJECT]);
+    const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(1);
     expect(urls).toEqual([omdbPoster]);
     const file = await fs.readdir(artDir);
@@ -88,17 +88,15 @@ describe('artCache', () => {
     const rows = await repo.getMany([SUBJECT]);
     expect(rows[0]?.kind).toBe('poster');
     expect(rows[0]?.originUrl).toBe(omdbPoster);
-    expect(rows[0]?.imdbRating).toBe(8.3);
   });
 
-  it('records empty (no poster) with the rating still stored when OMDb reported one', async () => {
+  it('records empty (no poster) when OMDb reports none', async () => {
     repo = createMemoryArtFilesRepo();
-    const written = await cache(async () => ({ posterUrl: null, imdbRating: 7.5 })).warm([SUBJECT]);
+    const written = await cache(async () => null).warm([SUBJECT]);
     expect(written).toBe(0);
     expect(urls).toHaveLength(0);
     const rows = await repo.getMany([SUBJECT]);
     expect(rows[0]?.status).toBe('empty');
-    expect(rows[0]?.imdbRating).toBe(7.5);
   });
 
   it('does not re-ask OMDb for an empty row recorded recently', async () => {
@@ -108,7 +106,7 @@ describe('artCache', () => {
     let calls = 0;
     const written = await cache(async () => {
       calls += 1;
-      return { posterUrl: omdbPoster, imdbRating: 8.3 };
+      return omdbPoster;
     }).warm([SUBJECT]);
     expect(written).toBe(0);
     expect(calls).toBe(0);
@@ -116,10 +114,10 @@ describe('artCache', () => {
 
   it('skips files already downloaded and on disk', async () => {
     repo = createMemoryArtFilesRepo([
-      posterRow({ originUrl: omdbPoster, filePath: 'movie_550_poster.jpg', status: 'ok', imdbRating: 8.3 }),
+      posterRow({ originUrl: omdbPoster, filePath: 'movie_550_poster.jpg', status: 'ok', imdbRating: null }),
     ]);
     await fs.writeFile(path.join(artDir, 'movie_550_poster.jpg'), Buffer.from([1, 2, 3]));
-    const written = await cache(async () => ({ posterUrl: omdbPoster, imdbRating: 8.3 })).warm([SUBJECT]);
+    const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(0);
     expect(urls).toHaveLength(0);
   });
@@ -128,7 +126,7 @@ describe('artCache', () => {
     repo = createMemoryArtFilesRepo([
       posterRow({ originUrl: omdbPoster, filePath: 'movie_550_poster.jpg', status: 'ok', imdbRating: null }),
     ]);
-    const written = await cache(async () => ({ posterUrl: omdbPoster, imdbRating: 8.8 })).warm([SUBJECT]);
+    const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(1);
     expect(urls).toEqual([omdbPoster]);
   });
@@ -147,5 +145,68 @@ describe('artCache', () => {
     expect(written).toBe(0);
     const rows = await repo.getMany([SUBJECT]);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('artCache with a custom kind (T-002 fanart thumb / logo)', () => {
+  let artDir: string;
+  let repo: ArtFilesRepository;
+  let urls: string[] = [];
+
+  beforeEach(async () => {
+    artDir = await fs.mkdtemp(path.join(os.tmpdir(), 'artcache-kind-'));
+    urls = [];
+  });
+
+  afterEach(async () => {
+    await fs.rm(artDir, { recursive: true, force: true });
+  });
+
+  function cache(kind: 'thumb' | 'logo', resolveOrigin: (s: ArtSubject) => Promise<string | null>) {
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      urls.push(url);
+      return artResponse('image/png');
+    }) as typeof fetch;
+    return createArtCache({ repo, artDir, kind, resolveOrigin, fetchImpl });
+  }
+
+  it('downloads and names the file for the configured kind (thumb)', async () => {
+    repo = createMemoryArtFilesRepo();
+    const written = await cache('thumb', async () => 'https://assets.fanart.tv/fanart/x.jpg').warm([SUBJECT]);
+    expect(written).toBe(1);
+    expect(urls).toEqual(['https://assets.fanart.tv/fanart/x.jpg']);
+    const files = await fs.readdir(artDir);
+    expect(files[0]).toBe('movie_550_thumb.png');
+    const rows = await repo.getMany([SUBJECT]);
+    expect(rows[0]?.kind).toBe('thumb');
+  });
+
+  it('records empty under the configured kind (logo), not poster', async () => {
+    repo = createMemoryArtFilesRepo();
+    const written = await cache('logo', async () => null).warm([SUBJECT]);
+    expect(written).toBe(0);
+    const rows = await repo.getMany([SUBJECT]);
+    expect(rows).toEqual([expect.objectContaining({ kind: 'logo', status: 'empty' })]);
+  });
+
+  it('does not treat a cached poster row as a cached logo', async () => {
+    repo = createMemoryArtFilesRepo([
+      {
+        mediaType: 'movie',
+        tmdbId: 550,
+        kind: 'poster',
+        originUrl: 'https://x/poster.jpg',
+        filePath: 'movie_550_poster.jpg',
+        status: 'ok',
+        fetchedAt: new Date().toISOString(),
+        imdbRating: null,
+      },
+    ]);
+    await fs.writeFile(path.join(artDir, 'movie_550_poster.jpg'), Buffer.from([1, 2, 3]));
+    const written = await cache('thumb', async () => 'https://assets.fanart.tv/fanart/y.jpg').warm([SUBJECT]);
+    expect(written).toBe(1);
+    const files = await fs.readdir(artDir);
+    expect(files.sort()).toEqual(['movie_550_poster.jpg', 'movie_550_thumb.png']);
   });
 });

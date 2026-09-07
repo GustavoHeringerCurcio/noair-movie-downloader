@@ -4,9 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowDownToLine, Play, Plus, Download, ChevronDown, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import type { HoverCardInfo, MediaItem } from '../types';
-import { cardPosterUrl, hoverCardFor, trailerEmbedUrl } from '../api';
+import { backdropUrl, fanartThumbUrl, hoverCardFor, logoUrl, posterUrl, trailerEmbedUrl } from '../api';
 import { durationLabel, hoverTags, seasonCountLabel } from '../lib/hoverCard';
 import { RatingBadge } from './RatingBadge';
+import { usePosterStyleStore } from '../store/posterStyleStore';
 
 /** How long a card must stay hovered before the expanded card (D20) opens (D18). */
 const TRAILER_HOVER_DELAY_MS = 600;
@@ -15,13 +16,14 @@ const POP_SCALE = 1.7;
 /** Small close grace so the pointer can move from the card onto the pop-up. */
 const POP_CLOSE_GRACE_MS = 200;
 /**
- * How many times a card retries its poster before showing the monogram. The
- * image route warms a title on first request (TMDB→IMDb→OMDb→download), which
- * can take longer than an <img> fetch failure budget on a cold cache — so the
- * card retries a few times with a pause instead of giving up instantly.
+ * Art-image retry budget. The image routes warm a title on first request
+ * (fanart.tv fetch / download, TMDB logo lookup, …) which can take longer than
+ * an <img> fetch-failure budget on a cold cache — so each art tier retries a
+ * couple of times with a short pause before the card commits to its fallback.
+ * Kept short so genuinely art-less titles reach their fallback fast.
  */
-const POSTER_RETRIES = 4;
-const POSTER_RETRY_DELAY_MS = 1500;
+const ART_RETRIES = 2;
+const ART_RETRY_DELAY_MS = 800;
 
 /**
  * Global single-player guarantee: at most one expanded preview may stream at a
@@ -68,6 +70,60 @@ interface PopGeometry {
   mediaHeight: number;
 }
 
+/**
+ * One lazily-loading art layer with a bounded retry budget. While `visible` an
+ * <img> should be in the DOM (it requests the route and paints when loaded);
+ * `loaded` flips on a successful load, `givenUp` means the tier is definitively
+ * absent (no source, or retries exhausted) and the card may commit to the next
+ * fallback. A failed attempt unmounts the image right away so the fallback
+ * beneath never sits behind a broken icon.
+ */
+interface ArtImage {
+  src: string | null;
+  visible: boolean;
+  loaded: boolean;
+  givenUp: boolean;
+  reloadKey: string;
+  onLoad: () => void;
+  onError: () => void;
+}
+
+function useArtImage(src: string | null, resetKey: string, retries: number, retryDelayMs: number): ArtImage {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setAttempt(0);
+    setFailed(false);
+    setLoaded(false);
+  }, [resetKey, src]);
+
+  useEffect(() => {
+    if (!src || !failed || attempt >= retries) return;
+    const timer = window.setTimeout(() => {
+      setAttempt((a) => a + 1);
+      setFailed(false);
+      setLoaded(false);
+    }, retryDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [src, failed, attempt, retries, retryDelayMs, resetKey]);
+
+  if (src == null) {
+    return { src: null, visible: false, loaded: false, givenUp: true, reloadKey: resetKey, onLoad: () => {}, onError: () => {} };
+  }
+  const givenUp = failed && attempt >= retries;
+  return {
+    src,
+    visible: !failed && !givenUp,
+    loaded,
+    givenUp,
+    reloadKey: `${resetKey}:${attempt}`,
+    onLoad: () => setLoaded(true),
+    onError: () => setFailed(true),
+  };
+}
+
 function openDetail(item: MediaItem): string {
   return `/media/${item.tmdbId}?type=${item.mediaType}`;
 }
@@ -85,45 +141,13 @@ function glyphFor(type?: 'download' | 'play' | 'down'): JSX.Element {
   }
 }
 
-/**
- * Load the OMDb-backed poster for a subject, retrying a few times before giving
- * up (the backend image route warms a title on first request). Each retry is a
- * keyed remount so the browser re-issues the fetch. When the poster finally
- * exists the same URL is used for both the blurred ground and the crisp figure,
- * so a single successful fetch resolves the whole tile.
- */
-function usePosterArt(src: string, resetKey: string): { src: string | null; onError: () => void; reloadKey: string } {
-  const [attempt, setAttempt] = useState(0);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setAttempt(0);
-    setFailed(false);
-  }, [resetKey]);
-
-  useEffect(() => {
-    if (!failed || attempt >= POSTER_RETRIES) return;
-    const timer = window.setTimeout(() => {
-      setAttempt((a) => a + 1);
-      setFailed(false);
-    }, POSTER_RETRY_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [failed, attempt, resetKey]);
-
-  const givenUp = failed && attempt >= POSTER_RETRIES;
-  return {
-    src: givenUp ? null : src,
-    onError: () => setFailed(true),
-    reloadKey: `${resetKey}:${attempt}`,
-  };
-}
-
 export function TitleCard({ item, progress, primary, variants, onVariantSelect }: TitleCardProps) {
   const navigate = useNavigate();
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
   const resetKey = `${item.tmdbId}:${item.mediaType}`;
   const subjectKey = `${item.mediaType}:${item.tmdbId}`;
+  const vertical = usePosterStyleStore((s) => s.style === 'vertical');
 
   const cardRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -202,6 +226,8 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   // then size the pop-up to it: 1.7× wide, centered horizontally. This first pass
   // uses a provisional top; the layout effect below re-centers it vertically so
   // the card grows equally above and below the hovered cell (Netflix overlap).
+  // A 2:3 (vertical) base card is narrower, so the pop-up keeps a wider minimum
+  // than the 16:9 card does — the details column must never feel cramped.
   useEffect(() => {
     if (!expanded) {
       setGeometry(null);
@@ -211,7 +237,8 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const vw = window.innerWidth;
-    const width = Math.max(200, Math.min(Math.round(rect.width * POP_SCALE), vw - 24));
+    const minW = vertical ? 248 : 200;
+    const width = Math.min(Math.max(minW, Math.round(rect.width * POP_SCALE)), vw - 24);
     const mediaHeight = Math.round((width * 9) / 16);
     const maxLeft = Math.max(12, vw - width - 12);
     const left = Math.min(Math.max(12, Math.round(rect.left + rect.width / 2 - width / 2)), maxLeft);
@@ -220,7 +247,7 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
         ? prev
         : { left, top: Math.max(72, Math.round(rect.top)), width, mediaHeight },
     );
-  }, [expanded, subjectKey]);
+  }, [expanded, subjectKey, vertical]);
 
   // Balance the pop-up vertically once its real height is known (the details
   // column is content-sized). Runs before paint so the card never jumps; re-runs
@@ -248,11 +275,57 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
 
   const showTrailer = info?.trailer != null;
 
-  const poster = usePosterArt(cardPosterUrl(item.mediaType, item.tmdbId), resetKey);
-  const posterSrc = poster.src;
+  // ------------------------------------------------------------------------
+  // Artwork (T-002). Default = horizontal 16:9 poster look: fanart.tv key-art
+  // thumb (the "real horizontal poster"), falling back to TMDB backdrop with
+  // the transparent studio logo overlaid, else strong typography. Vertical
+  // (opt-in) = raw TMDB 2:3 poster with the same typography fallback.
+  // ------------------------------------------------------------------------
+  const fanart = useArtImage(
+    vertical ? null : fanartThumbUrl(item.mediaType, item.tmdbId),
+    resetKey,
+    ART_RETRIES,
+    ART_RETRY_DELAY_MS,
+  );
+  const backdrop = useArtImage(
+    vertical ? null : backdropUrl(item.backdropPath),
+    resetKey,
+    ART_RETRIES,
+    ART_RETRY_DELAY_MS,
+  );
+  const logo = useArtImage(
+    vertical ? null : logoUrl(item.mediaType, item.tmdbId),
+    resetKey,
+    ART_RETRIES,
+    ART_RETRY_DELAY_MS,
+  );
+  const poster = useArtImage(
+    vertical && item.posterPath ? posterUrl(item.posterPath, 'w780') : null,
+    resetKey,
+    ART_RETRIES,
+    ART_RETRY_DELAY_MS,
+  );
 
-  // Artwork for the pop-up's media half while there is no trailer (or none at all).
-  const popArtUrl = posterSrc;
+  // The transparent logo overlay is requested only once the backdrop is
+  // actually showing (fanart gave up); until it loads (or if it never does) the
+  // mark's strong typography carries the card over the backdrop.
+  const logoActive = !vertical && fanart.givenUp && backdrop.loaded && logo.visible && logo.src != null;
+  const showLogoOverlay = logoActive && logo.loaded;
+  const noArt = vertical ? poster.givenUp : fanart.givenUp && backdrop.givenUp;
+  const posterOrientedStill = vertical;
+
+  // Artwork for the pop-up's media half while there is no trailer (or none at
+  // all): wide art first (backdrop for a true Netflix still, else the loaded
+  // key-art), the vertical poster only as the last resort (it is portrait).
+  const popArtSrc = vertical
+    ? poster.loaded
+      ? poster.src
+      : null
+    : backdrop.loaded
+      ? backdrop.src
+      : fanart.loaded
+        ? fanart.src
+        : null;
 
   function goDetail(): void {
     navigate(openDetail(item));
@@ -359,12 +432,16 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   const metaLabel =
     item.mediaType === 'tv' ? seasonCountLabel(info?.seasons ?? null) : durationLabel(info?.runtime ?? null);
   const tags = hoverTags(info?.genres ?? []);
+  const initial = item.title.charAt(0).toUpperCase();
+
+  const artModeClass = vertical ? 'title-card-vert' : 'title-card-horiz';
+  const artStateClass = showLogoOverlay ? 'tc-logo-on' : noArt ? 'tc-noart' : '';
 
   return (
     <>
       <div
         ref={cardRef}
-        className={`title-card title-card-poster ${expanded ? 'tc-pop-open' : ''}`}
+        className={`title-card ${artModeClass} ${expanded ? 'tc-pop-open' : ''} ${artStateClass}`.trim()}
         role="button"
         tabIndex={0}
         aria-label={`${title} — open details`}
@@ -376,25 +453,62 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
         }}
         onMouseLeave={scheduleClose}
       >
-        {posterSrc ? (
+        {/* T-002 art stack. The typographic mark is the base layer; each art
+            tier paints over it as it resolves, so the card always reads as a
+            poster and never as a bare empty box. */}
+        {!vertical && fanart.visible && fanart.src && (
           <img
-            key={`${poster.reloadKey}:bg`}
-            className="title-card-bg"
-            src={posterSrc}
+            key={`fanart:${fanart.reloadKey}`}
+            className="title-card-art tc-art-main"
+            src={fanart.src}
             alt=""
             aria-hidden="true"
+            onLoad={fanart.onLoad}
+            onError={fanart.onError}
+          />
+        )}
+        {!vertical && fanart.givenUp && backdrop.visible && backdrop.src && (
+          <img
+            key={`backdrop:${backdrop.reloadKey}`}
+            className="title-card-art tc-art-backdrop"
+            src={backdrop.src}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            onLoad={backdrop.onLoad}
+            onError={backdrop.onError}
+          />
+        )}
+        {logoActive && logo.src && (
+          <img
+            key={`logo:${logo.reloadKey}`}
+            className="tc-logo"
+            src={logo.src}
+            alt=""
+            aria-hidden="true"
+            onLoad={logo.onLoad}
+            onError={logo.onError}
+          />
+        )}
+        {vertical && poster.visible && poster.src && (
+          <img
+            key={`poster:${poster.reloadKey}`}
+            className="title-card-art tc-art-poster"
+            src={poster.src}
+            alt=""
+            aria-hidden="true"
+            onLoad={poster.onLoad}
             onError={poster.onError}
           />
-        ) : (
-          <div className="title-card-bg-empty" aria-hidden="true" />
         )}
-        {posterSrc ? (
-          <img key={`${poster.reloadKey}:fg`} className="title-card-figure" src={posterSrc} alt="" loading="lazy" onError={poster.onError} />
-        ) : (
-          <div className="title-card-fallback" aria-hidden="true">
-            {item.title.charAt(0).toUpperCase()}
-          </div>
-        )}
+
+        {/* Typography mark — the strong-title treatment that keeps any card
+            without resolved art looking like an intentional poster. */}
+        <div className="title-card-mark" aria-hidden="true">
+          <span className="tc-mark-letter">{initial}</span>
+          <span className="tc-mark-title">{item.title}</span>
+          {item.year != null && <span className="tc-mark-year">{item.year}</span>}
+        </div>
 
         {!expanded && primary && (
           <div className="title-card-overlay">
@@ -458,11 +572,17 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                   tabIndex={-1}
                   allow="autoplay; encrypted-media; picture-in-picture"
                 />
-              ) : popArtUrl ? (
-                <img key={`${poster.reloadKey}:pop`} className="tc-pop-art" src={popArtUrl} alt="" loading="lazy" onError={poster.onError} />
+              ) : popArtSrc ? (
+                <img
+                  key={`popstill:${popArtSrc}`}
+                  className={`tc-pop-art ${posterOrientedStill ? 'tc-pop-art-poster' : ''}`}
+                  src={popArtSrc}
+                  alt=""
+                  loading="lazy"
+                />
               ) : (
                 <div className="tc-pop-fallback" aria-hidden="true">
-                  {item.title.charAt(0).toUpperCase()}
+                  {initial}
                 </div>
               )}
               <div className="tc-pop-scrim" aria-hidden="true" />

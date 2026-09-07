@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS art_files (
   media_type text NOT NULL CHECK (media_type IN ('movie', 'tv')),
   tmdb_id integer NOT NULL,
-  kind text NOT NULL CHECK (kind IN ('poster', 'background', 'logo')),
+  kind text NOT NULL,
   origin_url text,
   file_path text,
   status text NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'empty')),
@@ -53,3 +53,9 @@ CREATE TABLE IF NOT EXISTS art_files (
 
 -- T-004: IMDb score captured from the same OMDb response as the poster.
 ALTER TABLE art_files ADD COLUMN IF NOT EXISTS imdb_rating numeric(3,1);
+
+-- T-002 adds a `thumb` kind for fanart.tv key-art; recreate the kind check so
+-- upgraded installs (which created the table with the D21-era constraint) and
+-- fresh ones both accept poster/background/logo/thumb.
+ALTER TABLE art_files DROP CONSTRAINT IF EXISTS art_files_kind_check;
+ALTER TABLE art_files ADD CONSTRAINT art_files_kind_check CHECK (kind IN ('poster', 'background', 'logo', 'thumb'));

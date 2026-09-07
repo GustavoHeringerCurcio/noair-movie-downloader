@@ -78,16 +78,22 @@ Prefix: all REST routes are served under `/api`. Errors use `{ error: string }` 
 
 ### S8 `GET /api/images/tmdb/*path`
 - Auth: none
-- Behavior: proxies `https://image.tmdb.org/t/p/{w500|w780|w1280}/<path>` server-side (`w500`/`w780` posters, `w1280` backdrops). Never exposes the TMDB key. `path` must match `^[a-zA-Z0-9/_.-]+$` (reject anything else with `400`).
+- Behavior: proxies `https://image.tmdb.org/t/p/{w500|w780|w1280}/<path>` server-side (`w500`/`w780` posters — the vertical 2:3 poster cards use `w780` — `w1280` backdrops). Never exposes the TMDB key. `path` must match `^[a-zA-Z0-9/_.-]+$` (reject anything else with `400`).
 - Response: `200` image bytes; `502` TMDB unreachable.
 
 ### S8b `GET /api/images/art/:mediaType/:tmdbId/:kind`
-- Auth: none. Serves the portrait poster the pipeline (§4.8) downloaded to the `art` volume (D21).
-- Request: params `mediaType: "movie" | "tv"`, `tmdbId: int`, `kind: "poster"` (only `poster` exists).
+- Auth: none. Serves artwork files the pipelines (§4.6/§4.7) downloaded to the `art` volume.
+- Request: params `mediaType: "movie" | "tv"`, `tmdbId: int`, `kind: "poster" | "logo"`.
+  - `poster` — the OMDb portrait (D21), used by the Downloads-page rows and the Detail-hero blurred ground.
+  - `logo` — the TMDB transparent studio logo (T-002), overlaid on the backdrop in the horizontal-poster fallback.
 - Behavior: looks up the matching `art_files` row, resolves `file_path` inside `ART_DIR` (path comes from the DB — never from the request; containment-checked), and streams the file with `Content-Type` from its extension and `Cache-Control: public, max-age=31536000, immutable`.
-- Response: `200` image bytes; `404` unknown subject or file missing from disk.
-- Warm-on-miss: when no usable row exists the route asks the poster pipeline (§4.8) to warm the subject once (synchronously) before responding — so a card's first render resolves its own poster without waiting for the warm loop. Titles with no poster are recorded `empty` and answered `404` fast until the retry window elapses.
-- Fallback contract: the frontend treats this route as the **only** card/hero art source; a `404`/`onError` shows the monogram placeholder (it never falls back to TMDB/FanArt imagery).
+- Response: `200` image bytes; `404` unknown subject/kind or file missing from disk (the frontend then falls back to the next art tier).
+- Warm-on-miss: when no usable row exists the route asks the matching pipeline (§4.6/§4.7) to warm the subject once (synchronously) before responding — so a card's first render resolves its own art without waiting for a warm loop. Titles with no such artwork are recorded `empty` and answered `404` fast until the retry window elapses.
+
+### S8c `GET /api/images/fanart/:mediaType/:tmdbId/thumb`
+- Auth: none. Serves the fanart.tv 16:9 key-art thumb (`moviethumb` for movies / `tvthumb` for TV) the backend cached on the `art` volume (T-002, kind `thumb`) — the **primary wide art of the horizontal poster card**.
+- Behavior: identical to S8b — `art_files` lookup, `ART_DIR` containment, immutable cache headers, **warm-on-miss** (one fanart.tv fetch + download max per subject). The fanart.tv key never reaches the browser.
+- Response: `200` image bytes; `404` the title has no fanart thumb (recorded `empty`) or no `FANART_API_KEY` is configured — the card falls back to backdrop + logo / typography.
 
 ### S9 Socket.IO events
 - Namespace: default (`/`).
@@ -186,23 +192,23 @@ Database: PostgreSQL 16. Schema is created on backend boot (idempotent). Driver:
 
 - Migration strategy: run `docs/../backend/src/db/schema.sql` on every boot inside a transaction (`CREATE TABLE IF NOT EXISTS`); no versioned migrations in v1. The schema file must **also** run idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` statements for any column added after first release (`backdrop_path`, `season_number`, `episode_number`, `audio_lang`, `audio_mode`, `art_files.imdb_rating`) so existing named volumes upgrade on boot.
 
-### Table: `art_files` (D21 — portrait `poster` only)
+### Table: `art_files` (D21 poster + D22 `thumb`/`logo`)
 | Column | Type | Required | Notes |
 |--------|------|----------|-------|
 | `media_type` | text | yes | `movie` \| `tv`; PK part |
 | `tmdb_id` | int | yes | PK part |
-| `kind` | text | yes | `poster` (the schema constraint keeps legacy `background`/`logo` values; new writes are `poster` only); PK part |
-| `origin_url` | text | no | OMDb/Amazon URL the file was downloaded from |
+| `kind` | text | yes | `poster` (OMDb, D21) · `thumb` (fanart key-art, S8c) · `logo` (TMDB transparent logo, S8b); PK part. The schema check keeps the legacy `background` value readable and adds `thumb` via an idempotent `ALTER` on boot |
+| `origin_url` | text | no | upstream URL the file was downloaded from (OMDb/Amazon, fanart.tv, TMDB) |
 | `file_path` | text | no | file name relative to `ART_DIR` |
-| `status` | text NOT NULL DEFAULT 'ok' | yes | `ok` \| `empty` (no poster found) |
+| `status` | text NOT NULL DEFAULT 'ok' | yes | `ok` \| `empty` (no artwork of this kind found) |
 | `fetched_at` | timestamptz NOT NULL DEFAULT now() | yes | |
 | `imdb_rating` | numeric(3,1) | no | true IMDb score (`imdbRating`) captured from the **same OMDb response** as the poster (T-004); `null` until the poster pipeline/backfill has resolved the title. One decimal; `NULL` for "N/A" scores. |
 
-- `ART_DIR` is a named compose volume (like `/downloads`, `/packages`) mounted at the backend's configured `ART_DIR` (default `/art`). Files are named `{mediaType}_{tmdbId}_poster.{ext}`.
+- `ART_DIR` is a named compose volume (like `/downloads`, `/packages`) mounted at the backend's configured `ART_DIR` (default `/art`). Files are named `{mediaType}_{tmdbId}_{kind}.{ext}`.
 
 ## 3. UI / CLI
 
-Visual language (D15 + D21): **strict black & white, Netflix-style**. Fixed top header 68px that is transparent at the top of the page and fades to a black gradient (then solid `#000`) on scroll. Layout is full-bleed (no centered max-width column); content gutters are `4%`. Cards are **wide 16:9 tiles built in-app from the OMDb portrait poster** (§4.6): the portrait is the crisp figure at full tile height over its own blurred ground — the only card art source; rails bleed to the viewport edge so the rightmost card is clipped mid-card to invite horizontal scroll; a sustained hover expands the card into the **D20 pop-up** (video/art top + details column). All colors are grayscale tokens (`--bg #000`, surfaces, `#fff/#e5e5e5/#b3b3b3/#808080`); state chips/progress/seeders map to luminance, never hue.
+Visual language (D15 + D21 + T-002): **strict black & white, Netflix-style**. Fixed top header 68px that is transparent at the top of the page and fades to a black gradient (then solid `#000`) on scroll. Layout is full-bleed (no centered max-width column); content gutters are `4%`. Home/Search rail cards default to the **horizontal-poster look (D22)** — 16:9 tiles whose wide art is the fanart.tv key-art thumb (§4.7, S8c); titles without one fall back to the TMDB backdrop with the transparent studio logo overlaid, else to a strong-typography treatment (a typography mark is always present so no card ever renders as a bare empty box). A Settings toggle switches every Home/Search card to **Vertical 2:3** (raw TMDB poster, exact `aspect-ratio: 2/3`, `object-fit: cover`, no blurred ground). Rails bleed to the viewport edge so the rightmost card is clipped mid-card to invite horizontal scroll; a sustained hover expands the card into the **D20 pop-up** (video/art top + details column) in both modes. All colors are grayscale tokens (`--bg #000`, surfaces, `#fff/#e5e5e5/#b3b3b3/#808080`); state chips/progress/seeders map to luminance, never hue.
 
 Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/downloads`, `/settings`.
 
@@ -214,12 +220,12 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 
 ### Screen: Home (`/`)
 - Sections top→bottom: **Hero** (static brand GIF, grayscaled via CSS; fallback TMDB `w1280` backdrop → black gradient) → **My Downloads** (named so because resume positions are deferred, D15) → **Recently Viewed** → **Trending This Week** → **Best Movies** → **Best Series**.
-- Rail card = `TitleCard` (16:9 landscape backdrop; **expanded pop-up card (D20)** on sustained hover; white progress bar when downloading).
+- Rail card = `TitleCard` (horizontal-poster 16:9 by default, **Vertical 2:3** when the Settings poster style says so; **expanded pop-up card (D20)** on sustained hover; white progress bar when downloading). Art resolves progressively: a typography mark renders instantly, the fanart key-art thumb paints over it when loaded, and a title with no thumb falls back to backdrop + transparent logo (or stays on the strong typography mark).
 - My Downloads sources `DownloadRecord` (progress + quality chip when known); Recently Viewed sources the recents store.
 
 ### Screen: Search overlay (all pages)
 - Trigger: header search icon. Fixed `#000` overlay, `role="dialog"`, focus trap, Esc/× closes, focus restored to trigger.
-- Big input (debounced 300ms → S1), `All | Movies | TV` segmented control, landscape-card result grid.
+- Big input (debounced 300ms → S1), `All | Movies | TV` segmented control, card result grid. Results are the same `TitleCard`s as Home (default horizontal 16:9, or Vertical 2:3 per the poster-style setting) laid out in a wrapping grid whose column count follows the active card width.
 - Empty: "No results for '<q>'".
 - **Result selection**: activating a result (click/Enter) navigates to `/media/:id?type=…`; the overlay closes on any route change committed beneath it (so the destination is never hidden behind the full-screen layer). Closing resets query/results; no auto-save of the typed term into recent searches.
 
@@ -249,7 +255,7 @@ Routes: `/` (Home), `/media/:id?type=` (Detail), `/watch/:infoHash` (Player), `/
 
 ### Pages: Downloads (`/downloads`) and Settings (`/settings`)
 - Downloads rows: 2:3 poster thumb (from the art volume), title (+ `S0NE0M` label when `seasonNumber/episodeNumber` set), grayscale quality + audio chip, progress bar, speed/ETA, actions **Watch · Player (S7 native, `movie://`) · Pause/Resume · Download file (S10) · Remove** (confirm → S6 `?deleteFiles=true`). Watch/Player are disabled until `streamable` (a fully-downloaded file exists). **Multiple copies of one movie are grouped under a single header** (`Movie · N versions`); each grouped row is labeled with its **version** (`audio · quality`, e.g. `PT · Dub · 1080p WEB-DL x264`) so copies that differ only by language or quality are distinguishable instead of looking like duplicates.
-- Settings: existing System/Configuration/About cards + **Audio language** card + **Local player** card — platform-aware (`detectOs`): choose VLC/MPV/MPC-HC/PotPlayer on Windows, VLC/MPV on Linux (localStorage hint, `readPlayerPreference`); download the matching installer/uninstaller — `.cmd` (PowerShell, registers `movie://` under HKCU) on Windows, `.sh` (writes `movie-open.sh` + a `x-scheme-handler/movie` `.desktop` entry, registers via `xdg-mime`, auto-detects installed player via `command -v`/snap/flatpak) on Linux. No artwork settings exist (D21): cards have exactly one look and one source.
+- Settings: existing System/Configuration/About cards + **Poster style** card + **Audio language** card + **Local player** card. **Poster style** (T-002) picks how every Home/Search card is framed — **Horizontal** (default, 16:9 key-art look) or **Vertical 2:3** (raw TMDB poster cards); it is a public UI preference persisted to `localStorage` (`movie-downloader:poster-style`) per device, like the player preference. Local player card is platform-aware (`detectOs`): choose VLC/MPV/MPC-HC/PotPlayer on Windows, VLC/MPV on Linux (localStorage hint, `readPlayerPreference`); download the matching installer/uninstaller — `.cmd` (PowerShell, registers `movie://` under HKCU) on Windows, `.sh` (writes `movie-open.sh` + a `x-scheme-handler/movie` `.desktop` entry, registers via `xdg-mime`, auto-detects installed player via `command -v`/snap/flatpak) on Linux.
 - Data for both: Socket.IO `downloads:initial` / `downloads:update` → Zustand store.
 
 ### Grayscale state mapping (replaces §4.2 colors)
@@ -271,10 +277,11 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 ### 4.1 TMDB
 - Base URL: `https://api.themoviedb.org/3`
 - Auth: `api_key` query param (v3), key from `TMDB_API_KEY`.
-- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`; `GET /tv/{id}/season/{n}` (S12); `GET /{movie|tv}/{id}/videos` (S15).
+- Endpoints: `GET /search/multi?query=<q>&language=en-US`; `GET /movie/{id}`; `GET /tv/{id}`; `GET /tv/{id}/season/{n}` (S12); `GET /{movie|tv}/{id}/videos` (S15); `GET /{movie|tv}/{id}/images` (T-002 — transparent `logos` for the poster fallback).
 - TV seasons: from `GET /tv/{id}` map `seasons` to `TvSeasonSummary[]`, dropping `season_number === 0` and `episode_count <= 0` (S2). Episodes from `/tv/{id}/season/{n}` map `still_path` → `stillPath`, `runtime`, `air_date` → `airDate`.
 - Videos (S15): map `GET /{movie|tv}/{id}/videos` results to `{ site, key, kind, official, language, publishedAt }` — `site` kept verbatim (`"YouTube"`/`"Vimeo"`), `key` = the platform video id (YouTube key is directly embeddable; no YouTube Data API needed), `iso_639_1` → `language` (empty → `null`), `published_at` → `publishedAt` (empty → `null`). Ranking lives in the pure `lib/trailer.ts`, not in the TMDB client.
-- Images: `https://image.tmdb.org/t/p/{w500|w1280}/{path}` (proxied, S8).
+- Logos (T-002): `TmdbClient.logoPath(id, type)` maps `GET /{movie|tv}/{id}/images` `logos` through the pure picker `pickBestLogoPath` (`services/tmdb.ts`) — English/language-agnostic first, then highest `vote_average`, ignoring entries without a `file_path`. Returns a `file_path` like `/abc123.png` or `null` (404/empty). The picked file is what the S8b `logo` cache downloads (`/original` size).
+- Images: `https://image.tmdb.org/t/p/{w500|w780|w1280}/{path}` (proxied, S8); transparent logos are downloaded at `/original` by the S8b `logo` cache (§4.7).
 - Timeouts: 10s connect/read. Retries: 2, exponential backoff (0.5s, 1s).
 - Error mapping: non-2xx or network → throw `UpstreamError` → routes respond `502`.
 - Quirks: TV dates → `first_air_date`; movies → `release_date`. Normalize both to `year` (int) or null.
@@ -352,14 +359,22 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
   - `isFullSeason(coverage, season)` — any entry with `episodes === null`.
 - Downloaded-torrent file matching: the S13 file-list endpoint tags every `StreamFileInfo` with `seasonNumber`/`episodeNumber` parsed server-side from the file basename via the same `SxxExx` regex — the UI reads tags for `/watch?episode=` auto-select and episode→file mapping. No client-side parser duplication; a minimal `frontend/src/lib/episode.ts` fallback is allowed only when a file has no server tag.
 
-### 4.6 Portrait-poster pipeline (OMDb → local `art` volume) — D21
-- Problem researched: no free API exposes *wide* per-title studio art except TMDB backdrops and FanArt.tv (Netflix's own title-card art is proprietary). Decision: **build the wide tile in-app from a legal portrait one-sheet**. Portrait source = **OMDb** (Amazon-hosted, keyed by IMDb id).
-- Config: optional `OMDB_API_KEY` in `.env`. Absent → art disabled (cards/heroes show the monogram placeholder). Free tier is **1,000 requests/day**; `services/omdb.ts` enforces a conservative daily budget (~850) and treats a budget miss as a transient error, never as "no poster".
-- Resolution chain (`lib/warmArt.ts` + image route, one time per title): TMDB `GET /{movie|tv}/{id}/external_ids` (`tmdb.imdbId`) → OMDb `GET /?apikey=…&i=tt…` → Amazon `Poster` URL → downloaded once to `ART_DIR` (`art_files`, kind `poster` only) → served by **S8b**.
-- `art_files` stores only `poster`; `media_art`, Fanart.tv, TMDB art proxies are **not** card sources (the S8 TMDB proxy remains only for TV episode stills).
-- **IMDb rating piggyback (T-004)**: the OMDb response already consumed for the poster also carries `imdbRating`; it is stored on the same `art_files` upsert (`imdb_rating numeric(3,1)`, one decimal, `NULL` for `"N/A"`) for both `ok` and `empty`-poster rows — **no extra OMDb call**. S2/S16 read it from the row (never on-demand). A one-time backfill pass (`warmArt.backfillMissingRatings`) re-resolves stored poster rows missing a rating inside the same daily OMDb budget: it stalls when the day's slice is exhausted and resumes on a later pass.
-- Warm loop covers browse rails + downloads at boot and every `ART_WARM_INTERVAL_MS`; the S8b route additionally **warms on first miss** so a freshly-rendered title (search result, download row) resolves its own poster without waiting for the loop. Titles with no poster are recorded `empty` (7-day retry window) so OMDb is not re-asked.
-- Enrichment removed: search/browse/detail/downloads payloads no longer carry an `art` object; the frontend renders exactly one composite tile from `/api/images/art/:mediaType/:tmdbId/poster` and falls back to a monogram on 404/error (never TMDB/FanArt imagery). Detail-hero uses the same portrait as a blurred full-bleed ground.
+### 4.6 Portrait-poster pipeline (OMDb → local `art` volume) — D21, Downloads + Detail hero only
+- Problem researched (D17/D21 history): no free API exposes *wide* per-title studio art except TMDB backdrops and FanArt.tv (Netflix's own title-card art is proprietary). D21 built the wide tile in-app from a legal portrait one-sheet and made it the rail-card art source; **T-002 supersedes that card use** (Home/Search rail cards now use the horizontal-poster/vertical-poster art of §4.7/D22). This pipeline now feeds only the **Downloads-page 2:3 row thumbnails** and the **Detail-hero blurred ground**.
+- Portrait source = **OMDb** (Amazon-hosted, keyed by IMDb id).
+- Config: optional `OMDB_API_KEY` in `.env`. Absent → those thumbnails/heroes show the monogram placeholder. Free tier is **1,000 requests/day**; `services/omdb.ts` enforces a conservative daily budget (~850) and treats a budget miss as a transient error, never as "no poster".
+- Resolution chain (`lib/warmArt.ts` + image route, one time per title): TMDB `GET /{movie|tv}/{id}/external_ids` (`tmdb.imdbId`) → OMDb `GET /?apikey=…&i=tt…` → Amazon `Poster` URL → downloaded once to `ART_DIR` (`art_files`, kind `poster`) → served by **S8b**.
+- **IMDb rating (T-004)**: the OMDb response already consumed for the poster also carries `imdbRating`; it is stored on the `art_files` poster row (`imdb_rating numeric(3,1)`, one decimal, `NULL` for `"N/A"`). **S2**/detail and **S16**/hover read it from the row (never an on-demand OMDb call). Rows warmed before the field existed — and freshly-warmed rows — are backfilled by `warmArt.backfillMissingRatings` (runs with each warm tick) inside the shared daily OMDb budget: it stalls when the day's slice is exhausted and resumes on a later pass.
+- Warm loop covers browse rails + downloads at boot and every `ART_WARM_INTERVAL_MS`; the S8b route additionally **warms on first miss**. Titles with no poster are recorded `empty` (7-day retry window) so OMDb is not re-asked.
+- Enrichment: search/browse/detail/downloads payloads carry no `art` object (unchanged); DownloadsPage and the Detail hero render the portrait from `/api/images/art/:mediaType/:tmdbId/poster` directly and fall back to a monogram on 404/error.
+
+### 4.7 Horizontal key-art + logo pipeline (fanart.tv + TMDB logos) — D22/T-002
+- Problem: the default Home/Search card must read as a real **horizontal poster**, but no free API serves per-title *wide* one-sheets except fanart.tv's community "thumbnails" — landscape key-art **with the title baked in** (`moviethumb` for movies, `tvthumb` for TV — both 16:9). No real horizontal poster exists on OMDb/TMDB, so the fanart thumb is the deliberate wide-art source ("jerry-rig", per author).
+- Config: optional `FANART_API_KEY` in `.env` (fanart.tv → login → API → Personal API Key). Absent → every card renders the fallback (backdrop + logo / typography). Requests go to `https://webservice.fanart.tv/v3/{movie|tv}/{tmdbId}?api_key=…`.
+- Client (`services/fanart.ts`): `keyArt(mediaType, tmdbId)` → `{ status: "ok"|"empty"|"error", url }`. Picker `pickBestThumbUrl` ranks entries by (English first, then most `likes`). `404` → `empty` (storable); bad key/5xx/network → `error` (never stored as "no art").
+- Cache: an `artCache` instance (`lib/artCache.ts`, generalized with a `kind` param — `poster`|`thumb`|`logo`) downloads each thumb once to `ART_DIR` under `art_files` kind `thumb`, file `{mediaType}_{tmdbId}_thumb.{ext}`; served by **S8c** `/api/images/fanart/:mediaType/:tmdbId/thumb` (warm-on-miss, immutable cache headers, empty rows cached 7 days). The fanart.tv key never reaches the browser.
+- Logo cache: `TmdbClient.logoPath` (§4.1) → downloaded once to kind `logo`, file `{mediaType}_{tmdbId}_logo.{ext}` at `/original` size from `image.tmdb.org`; served by **S8b** `/api/images/art/:mediaType/:tmdbId/logo`. The transparent PNG is the CSS overlay on the backdrop in the horizontal fallback; coverage is patchy, so typography is the common final fallback.
+- Card contract (frontend `TitleCard`): a **typography mark** (bold title + year over a bottom scrim; centered monogram+tile only when *no* art source exists) is always the base layer. Above it: TMDB backdrop → transparent logo → fanart thumb, each requested only when the tier below is actually needed. The hover pop-up (D20) still art prefers the backdrop, then the loaded key-art. The OMDb portrait composite is **never** used on Home/Search cards.
 
 ## 5. Canonical naming (single source of truth)
 | Term | Canonical name |
@@ -384,11 +399,15 @@ Monochrome chips only: `queued` #808080 outline, `fetching-metadata` #b3b3b3, `d
 | Landscape image path stored on downloads | `backdropPath` |
 | Episode-deep-link param on Watch | `/watch/:infoHash?episode=SxxExx` |
 | Portrait poster file set (D21) | table `art_files`; disk root `ART_DIR` |
-| Art file kind (S8b) | `poster` (only) |
-| Local artwork route | `/api/images/art/:mediaType/:tmdbId/poster` |
+| Art file kinds (S8b/S8c) | `poster` (OMDb) · `thumb` (fanart key-art) · `logo` (TMDB) |
+| Local artwork route | `/api/images/art/:mediaType/:tmdbId/:kind` (`poster`\|`logo`) |
+| fanart key-art route | `/api/images/fanart/:mediaType/:tmdbId/thumb` (S8c) |
 | Portrait-poster provider | OMDb (Amazon-hosted; `OMDB_API_KEY` optional) |
 | IMDb rating payload field | `imdbRating` (`number \| null`, one decimal) on S2/S16 (T-004) |
 | IMDb rating DB column | `art_files.imdb_rating numeric(3,1)` |
+| Horizontal key-art provider | fanart.tv `moviethumb`/`tvthumb` (`FANART_API_KEY` optional) |
+| Transparent-logo provider | TMDB `/images` `logos` (via existing `TMDB_API_KEY`) |
+| Poster-style preference (T-002) | `localStorage` key `movie-downloader:poster-style` (`horizontal`\|`vertical`; default `horizontal`) |
 | Trailer pick (S15) | `Trailer = { provider, videoId, name }` (`provider`: `youtube` \| `vimeo`) |
 | Trailer lookup route | `GET /api/media/:id/trailer` |
 | Expanded hover-card payload (S16) | `HoverCardInfo = { trailer, genres, runtime, seasons, certification }` |

@@ -10,6 +10,7 @@ import { createArtCache } from './lib/artCache.js';
 import { startArtWarmLoop } from './lib/warmArt.js';
 import { createTmdbClient } from './services/tmdb.js';
 import { createOmdbClient } from './services/omdb.js';
+import { createFanartClient } from './services/fanart.js';
 import { createProwlarrClient } from './services/prowlarr.js';
 import { createProwlarrAdminClient, type ProwlarrAdminClient } from './services/prowlarrAdmin.js';
 import { createQbittorrentClient } from './services/qbittorrent.js';
@@ -27,20 +28,52 @@ async function main(): Promise<void> {
   const omdb = config.omdbApiKey ? createOmdbClient({ apiKey: config.omdbApiKey }) : null;
   const artFiles = createArtFilesRepository(pool);
 
-  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL + IMDb
-  // score (same OMDb response). Throws on transient OMDb failures (unreachable
-  // / daily budget) so the cache never records "no poster" for an outage;
-  // returns posterUrl null for a true no-poster title. The rating piggybacks
-  // the poster write so on-demand reads never need their own OMDb call (T-004).
-  const resolvePosterOrigin = async (subject: ArtSubject): Promise<{ posterUrl: string | null; imdbRating: number | null }> => {
-    if (!omdb) return { posterUrl: null, imdbRating: null };
+  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL. Throws on
+  // transient OMDb failures (unreachable / daily budget) so the cache never
+  // records "no poster" for an outage; returns null for a true no-poster title.
+  // The IMDb score (T-004) is captured separately by the warmArt backfill pass,
+  // which re-resolves poster rows missing a rating inside the same OMDb budget.
+  const resolvePosterOrigin = async (subject: ArtSubject): Promise<string | null> => {
+    if (!omdb) return null;
     const imdbId = await tmdb.imdbId(subject.tmdbId, subject.mediaType);
-    if (!imdbId) return { posterUrl: null, imdbRating: null };
+    if (!imdbId) return null;
     const result = await omdb.fetchPoster(imdbId);
     if (result.status === 'error') throw new Error(`OMDb transient failure for ${subject.mediaType}:${subject.tmdbId}`);
-    return { posterUrl: result.status === 'ok' ? result.posterUrl : null, imdbRating: result.imdbRating };
+    return result.status === 'ok' ? result.posterUrl : null;
   };
   const artCache = createArtCache({ repo: artFiles, artDir: config.artDir, resolveOrigin: resolvePosterOrigin });
+
+  // Wide key-art (T-002): fanart.tv `moviethumb`/`tvthumb` → cached on the art
+  // volume (kind `thumb`) and served from /api/images/fanart/*. Throws on
+  // transient fanart failures (unreachable/bad key) so those are never cached
+  // as "no art"; a definitive no-thumb title records `empty`.
+  const fanart = config.fanartApiKey ? createFanartClient({ apiKey: config.fanartApiKey }) : null;
+  const resolveThumbOrigin = async (subject: ArtSubject): Promise<string | null> => {
+    if (!fanart) return null;
+    const result = await fanart.keyArt(subject.mediaType, subject.tmdbId);
+    if (result.status === 'error') throw new Error(`fanart.tv transient failure for ${subject.mediaType}:${subject.tmdbId}`);
+    return result.status === 'ok' ? result.url : null;
+  };
+  const fanartCache = createArtCache({
+    repo: artFiles,
+    artDir: config.artDir,
+    kind: 'thumb',
+    resolveOrigin: resolveThumbOrigin,
+  });
+
+  // Transparent studio logo (T-002): TMDB `/images` `logos` → cached on the art
+  // volume (kind `logo`) for the backdrop+logo card overlay. TMDB transient
+  // errors propagate so they are never recorded as "no logo".
+  const resolveLogoOrigin = async (subject: ArtSubject): Promise<string | null> => {
+    const logoPath = await tmdb.logoPath(subject.tmdbId, subject.mediaType);
+    return logoPath ? `${config.tmdbImageBaseUrl}/original${logoPath}` : null;
+  };
+  const logoCache = createArtCache({
+    repo: artFiles,
+    artDir: config.artDir,
+    kind: 'logo',
+    resolveOrigin: resolveLogoOrigin,
+  });
 
   const deps: AppDeps = {
     config,
@@ -57,9 +90,12 @@ async function main(): Promise<void> {
     downloads: createDownloadsRepository(pool),
     settings: createSettingsRepository(pool),
     omdb,
+    fanart,
     prowlarrAdmin: createProwlarrAdminClient({ baseUrl: config.prowlarrUrl, apiKey: config.prowlarrApiKey }),
     artFiles,
     artCache,
+    fanartCache,
+    logoCache,
   };
 
   if (config.prowlarrBootstrapIndexers) {

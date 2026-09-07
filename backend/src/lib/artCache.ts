@@ -1,43 +1,36 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ArtFilesRepository } from '../db/artFilesRepo.js';
+import type { ArtFilesRepository, ArtKind } from '../db/artFilesRepo.js';
 import type { ArtSubject } from '../types.js';
 
 /**
- * Portrait-poster download pipeline (D21).
+ * Artwork download pipeline (poster pipeline D21, extended to any `kind` by
+ * T-002).
  *
- * For a set of titles it makes sure a `poster` image (kind `poster`, sourced
- * from OMDb via `resolveOrigin`) exists on the `art` volume, downloading only
- * what is missing. `resolveOrigin` resolves the Amazon portrait URL
- * (IMDb id via TMDB → OMDb) and is expected to return `posterUrl: null` for
- * titles with no poster or when no OMDb key is configured. The IMDb score
- * (`imdbRating`) rides the same OMDb response and is persisted alongside the
- * poster (T-004) — no extra network call.
+ * For a set of titles it makes sure one artwork file exists on the `art`
+ * volume, downloading only what is missing. `resolveOrigin` resolves the
+ * upstream URL for the configured `kind` (`poster` from OMDb, `thumb` from
+ * fanart.tv, `logo` from TMDB) and is expected to return `null` for titles
+ * with no such art or when no key is configured.
  *
  * Only actual image downloads hit the network. Files are written atomically and
  * recorded in `art_files`; a transient download failure leaves no row so the
- * next pass retries it. Titles resolved as having no poster are recorded as
- * `status='empty'` so the pass (and the image route) does not re-ask OMDb for
- * them until `EMPTY_RETRY_MS` elapses.
+ * next pass retries it. Titles resolved as having no artwork are recorded as
+ * `status='empty'` so the pass (and the image routes) do not re-ask the
+ * provider for them until `EMPTY_RETRY_MS` elapses.
  */
 export interface ArtCache {
-  /** Download any missing poster files for the subjects. Returns the number of files written. */
+  /** Download any missing artwork files for the subjects. Returns the number of files written. */
   warm(subjects: ArtSubject[]): Promise<number>;
-}
-
-/** What `resolveOrigin` learns from OMDb for a subject (poster + IMDb score in one call). */
-export interface PosterResolution {
-  /** Amazon portrait URL; null when the title has no poster (or no OMDb key is configured). */
-  posterUrl: string | null;
-  /** IMDb's own score from the same response; null when OMDb has none. */
-  imdbRating: number | null;
 }
 
 export interface ArtCacheConfig {
   repo: ArtFilesRepository;
   artDir: string;
-  /** Resolve the OMDb/Amazon portrait + IMDb score for a subject. */
-  resolveOrigin: (subject: ArtSubject) => Promise<PosterResolution>;
+  /** Which `art_files` kind this cache writes/serves (`poster` by default). */
+  kind?: ArtKind;
+  /** Resolve the upstream artwork URL for a subject (null = no art / no key). */
+  resolveOrigin: (subject: ArtSubject) => Promise<string | null>;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
@@ -78,6 +71,7 @@ async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
 
 export function createArtCache(config: ArtCacheConfig): ArtCache {
   const { repo, artDir, resolveOrigin } = config;
+  const kind: ArtKind = config.kind ?? 'poster';
   const fetchImpl = config.fetchImpl ?? fetch;
   const nowMs = config.now ?? Date.now;
 
@@ -96,9 +90,11 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
       if (!res.ok) return null;
       const contentType = res.headers.get('content-type');
       const ext = extForContentType(contentType);
-      const fileName = `${subject.mediaType}_${subject.tmdbId}_poster.${ext}`;
+      const fileName = `${subject.mediaType}_${subject.tmdbId}_${kind}.${ext}`;
       const finalPath = path.join(artDir, fileName);
-      const tmpPath = `${finalPath}.tmp`;
+      // Unique temp name so concurrent warms of the same subject (two rails
+      // rendering the same title at once) never interleave on one .tmp file.
+      const tmpPath = `${finalPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
       const buffer = Buffer.from(await res.arrayBuffer());
       await fs.mkdir(artDir, { recursive: true });
       await fs.writeFile(tmpPath, buffer);
@@ -116,7 +112,7 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
       if (list.length === 0) return 0;
 
       const rows = await repo.getMany(list);
-      const bySubject = new Map(rows.filter((r) => r.kind === 'poster').map((r) => [subjectKey(r), r]));
+      const bySubject = new Map(rows.filter((r) => r.kind === kind).map((r) => [subjectKey(r), r]));
 
       const toResolve: ArtSubject[] = [];
       for (const subject of list) {
@@ -137,48 +133,48 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
       const upserts: Array<{
         mediaType: ArtSubject['mediaType'];
         tmdbId: number;
-        kind: 'poster';
+        kind: ArtKind;
         originUrl: string | null;
         filePath: string | null;
         status: 'ok' | 'empty';
-        imdbRating: number | null;
+        imdbRating: null;
       }> = [];
 
       await mapWithConcurrency(toResolve, CONCURRENCY, async (subject) => {
-        // `resolveOrigin` throws only for transient failures (OMDb unreachable /
-        // daily budget). Those must NOT be recorded as "no poster" — skip and
-        // let a later pass retry. A `posterUrl: null` result means "definitively
-        // no poster" and is persisted so OMDb is not re-asked for a while (the
-        // IMDb score still rides along when OMDb reported one).
-        let resolution: PosterResolution;
+        // `resolveOrigin` throws only for transient failures (provider
+        // unreachable / budget exhausted). Those must NOT be recorded as
+        // "no art" — skip and let a later pass retry. A `null` result means
+        // "definitively no artwork" and is persisted so the provider is not
+        // re-asked for a while.
+        let originUrl: string | null = null;
         try {
-          resolution = await resolveOrigin(subject);
+          originUrl = await resolveOrigin(subject);
         } catch {
           return;
         }
-        if (!resolution.posterUrl) {
+        if (!originUrl) {
           upserts.push({
             mediaType: subject.mediaType,
             tmdbId: subject.tmdbId,
-            kind: 'poster',
+            kind,
             originUrl: null,
             filePath: null,
             status: 'empty',
-            imdbRating: resolution.imdbRating,
+            imdbRating: null,
           });
           return;
         }
-        const filePath = await downloadOne(subject, resolution.posterUrl);
+        const filePath = await downloadOne(subject, originUrl);
         if (filePath) {
           written += 1;
           upserts.push({
             mediaType: subject.mediaType,
             tmdbId: subject.tmdbId,
-            kind: 'poster',
-            originUrl: resolution.posterUrl,
+            kind,
+            originUrl,
             filePath,
             status: 'ok',
-            imdbRating: resolution.imdbRating,
+            imdbRating: null,
           });
         }
       });

@@ -48,6 +48,24 @@ export function cardPosterUrl(mediaType: MediaType, tmdbId: number): string {
   return `/api/images/art/${mediaType}/${tmdbId}/poster`;
 }
 
+/**
+ * 16:9 key-art thumbnail the backend cached from fanart.tv `moviethumb`/
+ * `tvthumb` (T-002, S8c) — the primary wide art of the horizontal poster card.
+ * The route warms on first miss; a 404 means the title has no fanart thumb and
+ * the card falls back to backdrop + logo / typography.
+ */
+export function fanartThumbUrl(mediaType: MediaType, tmdbId: number): string {
+  return `/api/images/fanart/${mediaType}/${tmdbId}/thumb`;
+}
+
+/**
+ * Transparent studio logo the backend cached from TMDB `/images` `logos`
+ * (T-002, S8b) — overlaid on the backdrop in the horizontal fallback composite.
+ */
+export function logoUrl(mediaType: MediaType, tmdbId: number): string {
+  return `/api/images/art/${mediaType}/${tmdbId}/logo`;
+}
+
 export interface SiteSettings {
   language: { audio: AudioLang };
 }

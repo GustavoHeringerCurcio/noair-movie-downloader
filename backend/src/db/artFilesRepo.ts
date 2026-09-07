@@ -1,8 +1,13 @@
 import type pg from 'pg';
 import type { ArtSubject, MediaType } from '../types.js';
 
-/** What the poster pipeline stores on disk for a title (OMDb portrait, D21). */
-export type ArtKind = 'poster';
+/**
+ * What the art pipeline stores on disk for a title:
+ * - `poster` — OMDb portrait poster (D21, served by S8b)
+ * - `thumb` — fanart.tv 16:9 key-art thumbnail (T-002, served by S8c)
+ * - `logo` — TMDB transparent logo (T-002, served by S8b)
+ */
+export type ArtKind = 'poster' | 'thumb' | 'logo';
 
 export type ArtFileStatus = 'ok' | 'empty';
 
