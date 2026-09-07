@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, Pause, Trash2, FileDown, Download, MonitorPlay } from 'lucide-react';
 import { useDownloadsStore } from '../store/downloadsStore';
@@ -9,7 +9,7 @@ import {
   resumeDownload,
   externalPlayerUrl,
   fileUrl,
-  cardPosterUrl,
+  posterUrl,
   humanSpeed,
   humanEta,
 } from '../api';
@@ -38,6 +38,29 @@ function titleLabel(d: DownloadRecord): string {
 /** Key of a standalone title (movie; TV stays one row per season/episode). */
 function movieTitleKey(d: DownloadRecord): string | null {
   return movieGroupKey(d);
+}
+
+/**
+ * 2:3 poster thumb for a download row. Art comes from the TMDB poster path via
+ * the key-less S8 proxy (single TMDB key app-wide); a row with no poster art
+ * (or one whose image fails to load) degrades to a letter monogram — never a
+ * broken `<img>` or an endless skeleton.
+ */
+function DownloadThumb({ d }: { d: DownloadRecord }): JSX.Element {
+  const src = d.posterPath ? posterUrl(d.posterPath, 'w500') : null;
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+  const initial = (d.title ?? d.torrentName ?? '?').trim().charAt(0).toUpperCase() || '?';
+  if (!src || failed) {
+    return (
+      <div className="download-thumb mono" title={d.title ?? d.torrentName} aria-hidden="true">
+        {initial}
+      </div>
+    );
+  }
+  return <img className="download-thumb" src={src} alt="" loading="lazy" onError={() => setFailed(true)} />;
 }
 
 interface GroupHead {
@@ -179,15 +202,9 @@ export function DownloadsPage() {
               );
             }
             const d = entry.d;
-            const posterSrc =
-              d.tmdbId != null && d.mediaType != null ? cardPosterUrl(d.mediaType, d.tmdbId) : null;
             return (
               <li key={d.infoHash} className="download-row">
-                {posterSrc ? (
-                  <img className="download-thumb" src={posterSrc} alt="" loading="lazy" />
-                ) : (
-                  <div className="download-thumb skeleton" aria-hidden="true" />
-                )}
+                <DownloadThumb d={d} />
 
               <div className="download-info">
                 <div>

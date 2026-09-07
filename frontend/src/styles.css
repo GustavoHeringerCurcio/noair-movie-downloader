@@ -2058,6 +2058,18 @@ ul {
   align-self: center;
   background: var(--bg-3);
 }
+/* Row with no resolvable poster art: a centered letter tile instead of a
+   broken image or an endless skeleton (TMDB-poster thumb, single-key design). */
+.download-thumb.mono {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--text-2);
+  background: linear-gradient(150deg, #171717 0%, #242424 55%, #1a1a1a 100%);
+  border: 1px solid var(--border-weak);
+}
 .download-info {
   flex: 1;
   min-width: 0;

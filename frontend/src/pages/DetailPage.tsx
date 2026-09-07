@@ -20,7 +20,7 @@ import type {
   TvEpisode,
 } from '../types';
 import {
-  cardPosterUrl,
+  backdropUrl,
   createDownload,
   externalPlayerUrl,
   humanEta,
@@ -28,6 +28,7 @@ import {
   humanSpeed,
   mediaDetails,
   pauseDownload,
+  posterUrl,
   removeDownload,
   resumeDownload,
   seasonEpisodes,
@@ -867,9 +868,15 @@ export function DetailPage() {
     void loadMovieSources(detail);
   }, [detail, mediaType, id, downloads, movieSources, movieLoading, movieError, audio]);
 
-  // Hero ground (D21): the OMDb portrait poster, blurred full-bleed so the page
-  // reads as a cinematic colour field that matches the title. No TMDB/FanArt art.
-  const heroPoster = detail ? cardPosterUrl(detail.mediaType, detail.tmdbId) : null;
+  // Hero ground: the title's TMDB poster (backdrop when no poster exists),
+  // blurred full-bleed so the page reads as a cinematic colour field that
+  // matches the title. Displayed art comes from the single TMDB key (S8 proxy);
+  // the OMDb poster pipeline is not used for on-screen art.
+  const heroPoster = detail
+    ? detail.posterPath
+      ? posterUrl(detail.posterPath, 'w780')
+      : backdropUrl(detail.backdropPath)
+    : null;
   const [heroArtFailed, setHeroArtFailed] = useState({ media: false });
   useEffect(() => {
     setHeroArtFailed({ media: false });

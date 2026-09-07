@@ -122,6 +122,39 @@ describe('DownloadsPage', () => {
     expect(screen.getByText('PT · Dub · 1080p WEB-DL x264')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /remove/i }).length).toBe(2);
   });
+
+  it('renders the row poster from the TMDB proxy when a poster path exists', () => {
+    useDownloadsStore.setState({
+      downloads: [makeDownload('a'.repeat(40), { posterPath: '/abc.jpg' })],
+    });
+
+    render(
+      <MemoryRouter>
+        <DownloadsPage />
+      </MemoryRouter>,
+    );
+
+    const img = document.querySelector('.download-thumb');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', '/api/images/tmdb/w500/abc.jpg');
+  });
+
+  it('degrades a poster-less row to a letter monogram instead of a broken image', () => {
+    useDownloadsStore.setState({
+      downloads: [makeDownload('a'.repeat(40), { posterPath: null })],
+    });
+
+    render(
+      <MemoryRouter>
+        <DownloadsPage />
+      </MemoryRouter>,
+    );
+
+    const mono = document.querySelector('.download-thumb.mono');
+    expect(mono).toBeInTheDocument();
+    expect(mono).toHaveTextContent('S');
+    expect(document.querySelector('.download-thumb:not(.mono)')).toBeNull();
+  });
 });
 
 describe('SettingsPage', () => {
