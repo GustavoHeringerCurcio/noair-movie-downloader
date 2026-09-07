@@ -35,6 +35,7 @@ import {
 } from '../api';
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
+import { RatingBadge } from '../components/RatingBadge';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
 import { chooseEpisodePick, chooseSeasonPick } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
@@ -915,7 +916,7 @@ export function DetailPage() {
             <span>{detail.year ?? '—'}</span>
             <span>{detail.genres.join(' · ')}</span>
             {detail.runtime != null && <span>{detail.runtime} min</span>}
-            <span className="dh-meta-chip">★ {detail.voteAverage.toFixed(1)}</span>
+            <RatingBadge value={detail.imdbRating} />
             {mediaType === 'tv' && <span className="dh-meta-chip">{seasons.length} Seasons</span>}
           </div>
           <p className="dh-overview">{detail.overview}</p>

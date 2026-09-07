@@ -137,6 +137,7 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
         originUrl: string | null;
         filePath: string | null;
         status: 'ok' | 'empty';
+        imdbRating: null;
       }> = [];
 
       await mapWithConcurrency(toResolve, CONCURRENCY, async (subject) => {
@@ -159,6 +160,7 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
             originUrl: null,
             filePath: null,
             status: 'empty',
+            imdbRating: null,
           });
           return;
         }
@@ -172,6 +174,7 @@ export function createArtCache(config: ArtCacheConfig): ArtCache {
             originUrl,
             filePath,
             status: 'ok',
+            imdbRating: null,
           });
         }
       });

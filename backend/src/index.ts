@@ -28,9 +28,11 @@ async function main(): Promise<void> {
   const omdb = config.omdbApiKey ? createOmdbClient({ apiKey: config.omdbApiKey }) : null;
   const artFiles = createArtFilesRepository(pool);
 
-  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL. Throws
-  // on transient OMDb failures (unreachable / daily budget) so the cache never
+  // Portrait-poster origin resolver: TMDB imdb id → OMDb → Amazon URL. Throws on
+  // transient OMDb failures (unreachable / daily budget) so the cache never
   // records "no poster" for an outage; returns null for a true no-poster title.
+  // The IMDb score (T-004) is captured separately by the warmArt backfill pass,
+  // which re-resolves poster rows missing a rating inside the same OMDb budget.
   const resolvePosterOrigin = async (subject: ArtSubject): Promise<string | null> => {
     if (!omdb) return null;
     const imdbId = await tmdb.imdbId(subject.tmdbId, subject.mediaType);

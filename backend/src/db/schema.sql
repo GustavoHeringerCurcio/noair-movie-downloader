@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS art_files (
   PRIMARY KEY (media_type, tmdb_id, kind)
 );
 
+-- T-004: IMDb score captured from the same OMDb response as the poster.
+ALTER TABLE art_files ADD COLUMN IF NOT EXISTS imdb_rating numeric(3,1);
+
 -- T-002 adds a `thumb` kind for fanart.tv key-art; recreate the kind check so
 -- upgraded installs (which created the table with the D21-era constraint) and
 -- fresh ones both accept poster/background/logo/thumb.

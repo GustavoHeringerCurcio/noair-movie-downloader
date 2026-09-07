@@ -1456,6 +1456,28 @@ ul {
   padding: 1px 7px;
   border-radius: 3px;
 }
+/* IMDb rating chip (T-004) — one component and one look on the hover card and
+   the detail hero (movies and TV); omitted entirely when no rating is cached. */
+.rating-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 3px;
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+.rating-badge-star {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.95;
+}
 .dh-overview {
   max-width: 640px;
   margin: 0 0 22px;

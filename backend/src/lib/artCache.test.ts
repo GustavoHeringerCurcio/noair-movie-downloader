@@ -20,10 +20,33 @@ function createMemoryArtFilesRepo(seed: ArtFileRow[] = []): ArtFilesRepository {
         rows.set(`${row.mediaType}:${row.tmdbId}:${row.kind}`, row);
       }
     },
+    async listPosterRowsMissingRating() {
+      return Array.from(rows.values()).filter((r) => r.kind === 'poster' && r.imdbRating === null);
+    },
+    async updateImdbRatings(entries) {
+      for (const entry of entries) {
+        const row = rows.get(`${entry.mediaType}:${entry.tmdbId}:poster`);
+        if (row) rows.set(`${entry.mediaType}:${entry.tmdbId}:poster`, { ...row, imdbRating: entry.imdbRating });
+      }
+    },
   };
 }
 
 const SUBJECT: ArtSubject = { mediaType: 'movie', tmdbId: 550 };
+
+function posterRow(overrides: Partial<ArtFileRow> = {}): ArtFileRow {
+  return {
+    mediaType: 'movie',
+    tmdbId: 550,
+    kind: 'poster',
+    originUrl: null,
+    filePath: null,
+    status: 'ok',
+    fetchedAt: new Date().toISOString(),
+    imdbRating: null,
+    ...overrides,
+  };
+}
 
 function artResponse(contentType = 'image/jpeg'): Response {
   return new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': contentType } });
@@ -67,7 +90,7 @@ describe('artCache', () => {
     expect(rows[0]?.originUrl).toBe(omdbPoster);
   });
 
-  it('records empty (no poster) when resolveOrigin returns null', async () => {
+  it('records empty (no poster) when OMDb reports none', async () => {
     repo = createMemoryArtFilesRepo();
     const written = await cache(async () => null).warm([SUBJECT]);
     expect(written).toBe(0);
@@ -78,15 +101,7 @@ describe('artCache', () => {
 
   it('does not re-ask OMDb for an empty row recorded recently', async () => {
     repo = createMemoryArtFilesRepo([
-      {
-        mediaType: 'movie',
-        tmdbId: 550,
-        kind: 'poster',
-        originUrl: null,
-        filePath: null,
-        status: 'empty',
-        fetchedAt: new Date().toISOString(),
-      },
+      posterRow({ originUrl: null, filePath: null, status: 'empty', imdbRating: null }),
     ]);
     let calls = 0;
     const written = await cache(async () => {
@@ -99,15 +114,7 @@ describe('artCache', () => {
 
   it('skips files already downloaded and on disk', async () => {
     repo = createMemoryArtFilesRepo([
-      {
-        mediaType: 'movie',
-        tmdbId: 550,
-        kind: 'poster',
-        originUrl: omdbPoster,
-        filePath: 'movie_550_poster.jpg',
-        status: 'ok',
-        fetchedAt: new Date().toISOString(),
-      },
+      posterRow({ originUrl: omdbPoster, filePath: 'movie_550_poster.jpg', status: 'ok', imdbRating: null }),
     ]);
     await fs.writeFile(path.join(artDir, 'movie_550_poster.jpg'), Buffer.from([1, 2, 3]));
     const written = await cache(async () => omdbPoster).warm([SUBJECT]);
@@ -117,15 +124,7 @@ describe('artCache', () => {
 
   it('re-downloads when the recorded file is gone from disk', async () => {
     repo = createMemoryArtFilesRepo([
-      {
-        mediaType: 'movie',
-        tmdbId: 550,
-        kind: 'poster',
-        originUrl: omdbPoster,
-        filePath: 'movie_550_poster.jpg',
-        status: 'ok',
-        fetchedAt: new Date().toISOString(),
-      },
+      posterRow({ originUrl: omdbPoster, filePath: 'movie_550_poster.jpg', status: 'ok', imdbRating: null }),
     ]);
     const written = await cache(async () => omdbPoster).warm([SUBJECT]);
     expect(written).toBe(1);
@@ -201,6 +200,7 @@ describe('artCache with a custom kind (T-002 fanart thumb / logo)', () => {
         filePath: 'movie_550_poster.jpg',
         status: 'ok',
         fetchedAt: new Date().toISOString(),
+        imdbRating: null,
       },
     ]);
     await fs.writeFile(path.join(artDir, 'movie_550_poster.jpg'), Buffer.from([1, 2, 3]));

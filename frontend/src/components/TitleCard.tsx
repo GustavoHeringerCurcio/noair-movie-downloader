@@ -6,6 +6,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import type { HoverCardInfo, MediaItem } from '../types';
 import { backdropUrl, fanartThumbUrl, hoverCardFor, logoUrl, posterUrl, trailerEmbedUrl } from '../api';
 import { durationLabel, hoverTags, seasonCountLabel } from '../lib/hoverCard';
+import { RatingBadge } from './RatingBadge';
 import { usePosterStyleStore } from '../store/posterStyleStore';
 
 /** How long a card must stay hovered before the expanded card (D20) opens (D18). */
@@ -665,8 +666,9 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                 </div>
               )}
 
-              {(info?.certification || metaLabel) && (
+              {(info?.imdbRating != null || info?.certification || metaLabel) && (
                 <div className="tc-pop-meta">
+                  <RatingBadge value={info?.imdbRating ?? null} />
                   {info?.certification && <span className="tc-pop-cert">{info.certification}</span>}
                   {metaLabel && <span className="tc-pop-meta-text">{metaLabel}</span>}
                   <span className="tc-pop-hd">HD</span>

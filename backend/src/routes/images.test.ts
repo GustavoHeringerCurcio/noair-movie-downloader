@@ -23,6 +23,10 @@ function makeMutableRepo(seed: ArtFileRow[] = []): { repo: ArtFilesRepository; r
       async upsertMany(newRows) {
         for (const row of newRows) rows.set(`${row.mediaType}:${row.tmdbId}:${row.kind}`, row);
       },
+      async listPosterRowsMissingRating() {
+        return [];
+      },
+      async updateImdbRatings() {},
     },
     rows,
   };
@@ -37,6 +41,7 @@ function row(overrides: Partial<ArtFileRow>): ArtFileRow {
     filePath: 'movie_550_poster.png',
     status: 'ok',
     fetchedAt: new Date().toISOString(),
+    imdbRating: null,
     ...overrides,
   };
 }
