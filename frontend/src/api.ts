@@ -128,8 +128,7 @@ export function clearPackage(infoHash: string, file?: string, variant?: 'web' | 
 }
 
 export interface RemoteStatus {
-  enabled: boolean;
-  mode: 'off' | 'starting' | 'quick' | 'named';
+  mode: 'starting' | 'quick' | 'named';
   url: string | null;
 }
 

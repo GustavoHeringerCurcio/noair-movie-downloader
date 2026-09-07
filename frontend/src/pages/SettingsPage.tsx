@@ -502,19 +502,14 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-card">
-        <h2>Remote access <span className="player-heading-note">beta</span></h2>
+        <h2>Remote access</h2>
         <p className="settings-note">
           Watch from anywhere — your TV, another computer or your phone — by exposing this app over
-          a Cloudflare tunnel while your machine stays on. It's opt-in: set <code>REMOTE_ACCESS=1</code>{' '}
-          in <code>.env</code> and start <code>docker compose --profile remote up -d cloudflared</code>.
+          a Cloudflare tunnel while your machine stays on. The tunnel is always on: open the URL
+          below on another device to watch there.
         </p>
         {remote == null ? (
           <p className="settings-note">Checking…</p>
-        ) : !remote.enabled ? (
-          <p className="settings-note settings-note-warn">
-            Remote access is off. Enable it in <code>.env</code> and start the <code>cloudflared</code>{' '}
-            service to get a public URL.
-          </p>
         ) : remote.url ? (
           <div className="settings-row">
             <span className="toggle-label">
@@ -536,12 +531,10 @@ export function SettingsPage() {
             seconds).
           </p>
         )}
-        {remote?.enabled && (
-          <p className="settings-note settings-note-warn">
-            There is no login. Anyone with the URL can search, download and delete — treat the URL
-            like a password and don't share it. A token gate is planned for later.
-          </p>
-        )}
+        <p className="settings-note settings-note-warn">
+          There is no login. Anyone with the URL can search, download and delete — treat the URL
+          like a password and don't share it. A token gate is planned for later.
+        </p>
       </section>
 
       <section className="settings-card">

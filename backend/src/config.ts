@@ -45,11 +45,9 @@ export interface AppConfig {
   packageMaxBytes: number | null;
   /** Root where the poster pipeline stores downloaded portrait posters (OMDb). */
   artDir: string;
-  /** Remote access (beta): whether the cloudflared tunnel is enabled (D28). */
-  remoteAccessEnabled: boolean;
   /** Shared volume dir where the cloudflared entrypoint writes the live public URL. */
   remoteDataDir: string;
-  /** Optional stable hostname for a named Cloudflare tunnel (D28). */
+  /** Optional stable hostname for a named Cloudflare tunnel. */
   cloudflareTunnelHostname: string | null;
   pollIntervalMs: number;
   artWarmIntervalMs: number;
@@ -79,7 +77,6 @@ export function loadConfig(): AppConfig {
     packageDir: optionalEnv('PACKAGE_DIR', '/packages'),
     packageMaxBytes: parseInt(optionalEnv('PACKAGE_MAX_BYTES', ''), 10) || null,
     artDir: optionalEnv('ART_DIR', '/art'),
-    remoteAccessEnabled: optionalEnv('REMOTE_ACCESS', '0') === '1',
     remoteDataDir: optionalEnv('REMOTE_DATA_DIR', '/remote'),
     cloudflareTunnelHostname: optionalEnv('CLOUDFLARE_TUNNEL_HOSTNAME', '') || null,
     pollIntervalMs: 2000,

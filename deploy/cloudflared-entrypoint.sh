@@ -1,5 +1,5 @@
 #!/bin/sh
-# noAir remote-access entrypoint (beta). Runs cloudflared and publishes the
+# noAir remote-access entrypoint. Runs cloudflared and publishes the
 # public URL to /data/url (shared with the backend via the remoteaccess volume)
 # so the app's Settings -> Remote access can show it.
 #

@@ -16,7 +16,7 @@ This file is a **template**. Never paste real secrets here — real values live 
 | qBittorrent | Base URL | Compose-internal service name | `QBITTORRENT_URL` |
 | PostgreSQL | `DATABASE_URL` | Self-contained in docker-compose (user `app`, no external account) | `DATABASE_URL` |
 | Trackers (TPB, 1337x, …) | None — no keys | Configured in Prowlarr UI (Settings → Indexers), not in code | — |
-| Cloudflare Tunnel (optional, remote access beta) | Tunnel token | Cloudflare Zero Trust → Access → Tunnels → Create a tunnel (only for a stable URL on your own domain) | `CLOUDFLARE_TUNNEL_TOKEN` / `CLOUDFLARE_TUNNEL_HOSTNAME` |
+| Cloudflare Tunnel | None — quick tunnel works with no account. Tunnel token only for a stable URL on your own domain | Cloudflare Zero Trust → Access → Tunnels → Create a tunnel | `CLOUDFLARE_TUNNEL_TOKEN` / `CLOUDFLARE_TUNNEL_HOSTNAME` (both optional) |
 
 Only external account required: **free TMDB API key** — all displayed artwork (posters for the default Vertical 2:3 cards, Downloads-page row thumbs, the Detail-hero ground, backdrops) is served through the backend TMDB proxy, so the whole UI needs a single key. Optionally add a **free OMDb key** (`OMDB_API_KEY`) to show the **true IMDb rating** chips on hover/Detail (nothing else needs it), and a **free fanart.tv key** (`FANART_API_KEY`) so Home/Search cards switched to the Horizontal look show real 16:9 key-art; without the fanart key those Horizontal cards fall back to backdrop + logo / typography.
 

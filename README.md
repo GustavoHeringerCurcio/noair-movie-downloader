@@ -35,7 +35,7 @@ never the norm.
 | **Download** | Best-matching, most-seeded release goes to qBittorrent. Sequential download pulls playback-ready pieces first. |
 | **Track** | Live progress over Socket.IO — state, speed, ETA, pause, resume, remove. |
 | **Watch** | In-browser playback of finished files with automatic codec handling — audio remux, HLS packaging, and an on-demand cached **H.264 compatibility copy** for HEVC/x265 titles the browser can't decode (so ~90% of movies play without a local player). |
-| **Watch anywhere** | Keep your machine on and open a **Cloudflare tunnel** (beta) or configure your own domain — then watch from your TV, another PC or your phone. |
+| **Watch anywhere** | A built-in **Cloudflare tunnel** exposes the app over HTTPS so you can watch from your TV, another PC or your phone — or configure your own domain. |
 | **Open in your player** | 4K/HEVC or exotic audio? One click hands the file to VLC, MPV, MPC-HC or PotPlayer via a one-time `movie://` registration. |
 | **Cinematic UI** | A black & white chrome over full-color artwork — hover-trailer previews, IMDb ratings, quality-filtered release lists, and per-title version grouping. |
 
@@ -139,20 +139,19 @@ The point of noAir is watching from **any device** — your TV, another PC, or y
 your machine keeps running. In-browser playback is the norm (~90% of titles), so the whole app is
 a web app you can reach from anywhere once it's exposed.
 
-**Beta: Cloudflare quick tunnel (no account needed).** A single extra container runs `cloudflared`
-and gives you a public `https://*.trycloudflare.com` URL:
+**Remote access is a core feature.** A `cloudflared` container runs as part of the stack on every
+`docker compose up` and publishes the frontend over a public HTTPS URL — no account or setup needed:
 
-1. In `.env`, set `REMOTE_ACCESS=1`.
-2. Start it: `docker compose --profile remote up -d cloudflared`.
-3. Open **Settings → Remote access** in the app — it shows the live URL (the URL changes each time
+1. Start the stack normally (`docker compose up -d`).
+2. Open **Settings → Remote access** in the app — it shows the live URL (the URL changes each time
    `cloudflared` restarts). Open that URL on your TV or another device.
 
 > **The URL is the password.** There is no login, so anyone with the link can search, download and
-> delete. For the beta it's assumed only you use it; don't share the URL. A token gate is planned.
+> delete. Don't share the URL. A token gate is planned.
 
 To use a **stable URL on your own domain** instead, run a named Cloudflare tunnel: set
-`CLOUDFLARE_TUNNEL_TOKEN` (and `CLOUDFLARE_TUNNEL_HOSTNAME`) in `.env` and it routes to the app the
-same way.
+`CLOUDFLARE_TUNNEL_TOKEN` (and `CLOUDFLARE_TUNNEL_HOSTNAME`) in `.env` and the same `cloudflared`
+container routes to the app on your domain.
 
 ## Development
 
@@ -222,8 +221,8 @@ Checks in each package: `npm test`, `npm run lint`, `npm run typecheck`.
 
 `frontend` (5173), `qbittorrent` (8080) and `prowlarr` (9696) are published on the host.
 `postgres` and `backend` are internal-only. qBittorrent requires its own login; **Prowlarr has no
-auth** — keep it on a trusted network. Remote access (beta) is an opt-in `cloudflared` container
-(compose profile `remote`) exposing only the `frontend` over HTTPS.
+auth** — keep it on a trusted network. The always-on `cloudflared` container exposes only the
+`frontend` over HTTPS (Settings → Remote access shows the public URL).
 
 ## Troubleshooting
 

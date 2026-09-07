@@ -4,10 +4,10 @@ import { Router } from 'express';
 import type { AppDeps } from '../deps.js';
 
 /**
- * Remote access status (D28, beta). The cloudflared entrypoint writes the live
+ * Remote access status (core). The cloudflared entrypoint writes the live
  * public URL to a file on the shared `remoteaccess` volume (`<remoteDataDir>/url`);
  * this route reads it back so Settings can show the user the URL to open on
- * their TV/other device. No auth: the URL itself is the secret for the beta.
+ * their TV/other device. No auth: the URL itself is the secret.
  */
 export function createRemoteRouter(deps: AppDeps): Router {
   const router = Router();
@@ -24,13 +24,8 @@ export function createRemoteRouter(deps: AppDeps): Router {
   router.get('/remote/status', (_req, res) => {
     const url = readUrl();
     const hostname = deps.config.cloudflareTunnelHostname;
-    let mode: 'off' | 'starting' | 'quick' | 'named';
-    if (!deps.config.remoteAccessEnabled) mode = 'off';
-    else if (hostname) mode = 'named';
-    else if (url) mode = 'quick';
-    else mode = 'starting';
+    const mode: 'starting' | 'quick' | 'named' = hostname ? 'named' : url ? 'quick' : 'starting';
     res.json({
-      enabled: deps.config.remoteAccessEnabled,
       mode,
       url: url ?? hostname,
     });

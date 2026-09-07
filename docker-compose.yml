@@ -83,7 +83,6 @@ services:
       DOWNLOAD_DIR: /downloads
       PORT: "3000"
       PACKAGE_MAX_BYTES: ${PACKAGE_MAX_BYTES:-53687091200}
-      REMOTE_ACCESS: ${REMOTE_ACCESS:-0}
       REMOTE_DATA_DIR: /remote
       CLOUDFLARE_TUNNEL_HOSTNAME: ${CLOUDFLARE_TUNNEL_HOSTNAME:-}
     depends_on:
@@ -106,14 +105,13 @@ services:
     restart: unless-stopped
     networks: [internal]
 
-  # Remote access (beta): exposes the frontend publicly over HTTPS via a
-  # Cloudflare tunnel. Opt-in — start it with `docker compose --profile remote up -d cloudflared`
-  # after setting REMOTE_ACCESS=1 in .env. Default = quick tunnel (ephemeral
-  # *.trycloudflare.com URL, URL-is-the-secret); set CLOUDFLARE_TUNNEL_TOKEN to
-  # use a named tunnel on your own domain instead.
+  # Remote access: core feature — exposes the frontend publicly over HTTPS via
+  # a Cloudflare tunnel so you can watch from a TV/other device. Always started
+  # with the rest of the stack. Default = quick tunnel (ephemeral
+  # *.trycloudflare.com URL, URL-is-the-secret); set CLOUDFLARE_TUNNEL_TOKEN +
+  # CLOUDFLARE_TUNNEL_HOSTNAME to use a named tunnel on your own domain instead.
   cloudflared:
     image: cloudflare/cloudflared:latest
-    profiles: ["remote"]
     command: ["sh", "/entrypoint.sh"]
     environment:
       CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}

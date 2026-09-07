@@ -19,6 +19,9 @@
 # source and config files are bind-mounted — never the repo root — so a Windows
 # node_modules can never shadow the container install. If you add an npm
 # dependency, rebuild the dev images (scripts\dev.ps1 rebuild).
+#
+# Every other service from docker-compose.yml (incl. the always-on `cloudflared`
+# tunnel) runs as-is, so remote access works identically in dev.
 
 services:
   backend:
