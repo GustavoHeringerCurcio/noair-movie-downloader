@@ -58,7 +58,7 @@ describe('TmdbClient.searchMulti', () => {
 });
 
 describe('TmdbClient.browse', () => {
-  it('merges movie and tv results for trending-week and dedupes by id', async () => {
+  it('merges movie and tv results for trending-week, deduping within each media type', async () => {
     const fetchImpl = makeFetch([
       {
         match: (url) => url.includes('/trending/movie/week'),
@@ -83,12 +83,18 @@ describe('TmdbClient.browse', () => {
     ]);
     const client = createTmdbClient({ ...CONFIG, fetchImpl });
     const items = await client.browse('trending-week');
-    expect(items.map((i) => i.tmdbId)).toEqual([1, 2, 3]);
+    // A movie and a TV show may share the same numeric TMDB id (separate id
+    // spaces) — both survive, only duplicates within one type collapse.
+    expect(items.map((i) => i.tmdbId)).toEqual([1, 2, 1, 3]);
+    expect(items).toHaveLength(4);
     expect(items[0]).toMatchObject({ tmdbId: 1, mediaType: 'movie', title: 'Movie A', year: 2026 });
     expect(items[1]).toMatchObject({ tmdbId: 2, mediaType: 'movie', title: 'Movie B', year: 2026 });
-    expect(items[2]).toMatchObject({ tmdbId: 3, mediaType: 'tv', title: 'Show B', year: 2026 });
+    expect(items[2]).toMatchObject({ tmdbId: 1, mediaType: 'tv', title: 'Show A', year: 2026 });
+    expect(items[3]).toMatchObject({ tmdbId: 3, mediaType: 'tv', title: 'Show B', year: 2026 });
   });
 
+  // Real TMDB discover responses omit `media_type`, so the section URL itself
+  // must drive the fallback type (movie and TV share one numeric id space).
   it('fetches all-time best movies via discover sorted by vote desc', async () => {
     const fetchImpl = makeFetch([
       {
@@ -99,7 +105,7 @@ describe('TmdbClient.browse', () => {
         respond: () =>
           createResponse(200, {
             results: [
-              { id: 12, media_type: 'movie', title: 'Best Movie', release_date: '1994-01-01', poster_path: null },
+              { id: 12, title: 'Best Movie', release_date: '1994-01-01', poster_path: null },
             ],
           }),
       },
@@ -120,7 +126,7 @@ describe('TmdbClient.browse', () => {
         respond: () =>
           createResponse(200, {
             results: [
-              { id: 20, media_type: 'tv', name: 'Best Show', first_air_date: '2008-01-20' },
+              { id: 1396, name: 'Breaking Bad', first_air_date: '2008-01-20' },
             ],
           }),
       },
@@ -128,7 +134,31 @@ describe('TmdbClient.browse', () => {
     const client = createTmdbClient({ ...CONFIG, fetchImpl });
     const items = await client.browse('best-tv');
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ tmdbId: 20, mediaType: 'tv', title: 'Best Show', year: 2008 });
+    expect(items[0]).toMatchObject({ tmdbId: 1396, mediaType: 'tv', title: 'Breaking Bad', year: 2008 });
+  });
+
+  it('keeps movie and tv entries that share one numeric id', async () => {
+    const fetchImpl = makeFetch([
+      {
+        match: (url) => url.includes('/trending/movie/week'),
+        respond: () =>
+          createResponse(200, {
+            results: [{ id: 1396, media_type: 'movie', title: 'A Movie', release_date: '1994-01-01' }],
+          }),
+      },
+      {
+        match: (url) => url.includes('/trending/tv/week'),
+        respond: () =>
+          createResponse(200, {
+            results: [{ id: 1396, media_type: 'tv', name: 'Breaking Bad', first_air_date: '2008-01-20' }],
+          }),
+      },
+    ]);
+    const client = createTmdbClient({ ...CONFIG, fetchImpl });
+    const items = await client.browse('trending-week');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ tmdbId: 1396, mediaType: 'movie', title: 'A Movie' });
+    expect(items[1]).toMatchObject({ tmdbId: 1396, mediaType: 'tv', title: 'Breaking Bad' });
   });
 
   it('throws UpstreamError when one of the calls fails', async () => {

@@ -236,9 +236,14 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
   }
 
   async function browse(section: DiscoverSection): Promise<MediaItem[]> {
-    const paths = sectionPaths(section);
-    const results = await Promise.all(
-      paths.map(async (path) => {
+    // TMDB only sets `media_type` on search/trending results — discover
+    // endpoints omit it, so each path contributes its own fallback type
+    // (movie and TV share one numeric id space). `/trending|discover/tv…`
+    // always carries a `tv` path segment; movie endpoints never do.
+    const typeOfPath = (path: string): MediaType =>
+      path.split('?')[0]!.split('/').includes('tv') ? 'tv' : 'movie';
+    const batches = await Promise.all(
+      sectionPaths(section).map(async (path) => {
         const sep = path.includes('?') ? '&' : '?';
         const url = `${config.baseUrl}${path}${sep}language=en-US&api_key=${encodeURIComponent(config.apiKey)}`;
         let res: Response;
@@ -249,15 +254,18 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
         }
         if (!res.ok) throw new UpstreamError(502, `TMDB browse failed (HTTP ${res.status})`);
         const data = (await res.json()) as { results?: TmdbSearchResult[] };
-        return (data.results ?? []).map<TmdbSearchResult>((r) => r);
+        const fallbackType = typeOfPath(path);
+        return (data.results ?? []).map((r) => {
+          const mt = r.media_type === 'movie' || r.media_type === 'tv' ? r.media_type : fallbackType;
+          return { mt, r };
+        });
       }),
     );
-    const seen = new Set<number>();
-    return results.flat().reduce<MediaItem[]>((acc, r) => {
-      if (seen.has(r.id)) return acc;
-      const mt = (r.media_type ?? (paths[0]?.includes('/tv/') ? 'tv' : 'movie')) as MediaType;
-      if (mt !== 'movie' && mt !== 'tv') return acc;
-      seen.add(r.id);
+    const seen = new Set<string>();
+    return batches.flat().reduce<MediaItem[]>((acc, { mt, r }) => {
+      const key = `${mt}:${r.id}`;
+      if (seen.has(key)) return acc;
+      seen.add(key);
       acc.push({
         tmdbId: r.id,
         mediaType: mt,
