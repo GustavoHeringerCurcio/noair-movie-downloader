@@ -3,6 +3,7 @@ import {
   cardPosterUrl,
   clearHoverCache,
   clearSourcesCache,
+  externalPlayerHref,
   fanartThumbUrl,
   hoverCardFor,
   humanEta,
@@ -52,6 +53,21 @@ describe('cardPosterUrl (D21 OMDb portrait)', () => {
   it('points at the local art-volume poster route for a subject', () => {
     expect(cardPosterUrl('movie', 550)).toBe('/api/images/art/movie/550/poster');
     expect(cardPosterUrl('tv', 1396)).toBe('/api/images/art/tv/1396/poster');
+  });
+});
+
+describe('externalPlayerHref (T-001 movie: hand-off)', () => {
+  it('wraps the stream URL in an opaque movie: URI (no nested authority)', () => {
+    const href = externalPlayerHref('http://localhost:5173', 'a'.repeat(40), 'Matrix (1999).mkv');
+    expect(href).toBe(`movie:http://localhost:5173/api/stream/${'a'.repeat(40)}?file=${encodeURIComponent('Matrix (1999).mkv')}`);
+    expect(href).not.toMatch(/^movie:\/\//);
+  });
+
+  it('round-trips the browser URI parser unchanged (the old movie://<url> form did not)', () => {
+    const href = externalPlayerHref('http://localhost:5173', 'b'.repeat(40));
+    expect(new URL(href).href).toBe(href);
+    // Old shape for comparison — canonicalized by dropping the nested colon:
+    expect(new URL('movie://http://localhost:5173/x').href).toBe('movie://http//localhost:5173/x');
   });
 });
 

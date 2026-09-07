@@ -6,6 +6,7 @@ import { WatchPage } from './WatchPage';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { shakaDouble } from '../components/ShakaPlayer.double';
+import { SETUP_DONE_KEY } from '../lib/openerInstaller';
 import type { DownloadRecord } from '../types';
 
 vi.mock('../components/ShakaPlayer', async () => {
@@ -275,15 +276,17 @@ describe('WatchPage HLS playback', () => {
   });
 
   it('shows a failure overlay with fallbacks when packaging fails, and recovers on Retry', async () => {
+    window.localStorage.setItem(SETUP_DONE_KEY, '1'); // Player links render once setup is confirmed
     const { calls } = stubHls([{ phase: 'failed', progress: 0, error: 'disk full' }]);
     renderWatch();
 
     expect(await screen.findByText(/couldn’t prepare a browser-playable copy/i)).toBeInTheDocument();
     expect(screen.getByText('disk full')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /open in your player/i })).toHaveAttribute(
-      'href',
-      expect.stringMatching(/^movie:\/\//),
-    );
+    const playerHref = screen.getByRole('link', { name: /open in your player/i }).getAttribute('href') ?? '';
+    expect(playerHref).toMatch(/^movie:http:\/\/localhost:3000\/api\/stream\//);
+    // Regression guard (T-001): the hand-off URL must survive the browser's URI
+    // parser — the old movie://<absolute-url> form was rewritten to movie://http//…
+    expect(new URL(playerHref).href).toBe(playerHref);
     expect(screen.getByRole('link', { name: /download file/i })).toHaveAttribute(
       'href',
       `/api/downloads/${HASH}/file`,
@@ -295,6 +298,24 @@ describe('WatchPage HLS playback', () => {
     await waitFor(() => expect(calls.deleted).toBe(1));
     await waitFor(() => expect(shakaDouble.mounts).toBe(1), { timeout: 6000 });
     expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+  });
+
+  it('routes the Player action to Settings (never a silent hand-off) until setup is confirmed', async () => {
+    stubHls([{ phase: 'failed', progress: 0, error: 'disk full' }]);
+    render(
+      <MemoryRouter initialEntries={[`/watch/${HASH}`]}>
+        <Routes>
+          <Route path="/watch/:infoHash" element={<WatchPage />} />
+          <Route path="/settings" element={<div>settings-page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/couldn’t prepare a browser-playable copy/i);
+    expect(screen.queryByRole('link', { name: /open in your player/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /open in your player/i }));
+
+    expect(await screen.findByText('settings-page')).toBeInTheDocument();
   });
 
   it('surfaces a Shaka startup failure into the failure overlay', async () => {
@@ -340,6 +361,7 @@ describe('WatchPage HLS playback', () => {
   });
 
   it('skips packaging entirely when the browser cannot decode the hls video codec', async () => {
+    window.localStorage.setItem(SETUP_DONE_KEY, '1'); // Player links render once setup is confirmed
     vi.stubGlobal('MediaSource', { isTypeSupported: vi.fn(() => false) });
     const { calls } = stubHls([], { mseProbe: ['video/mp4; codecs="hvc1.1.6.L120.B0,mp4a.40.2"'] });
     renderWatch();
@@ -347,10 +369,9 @@ describe('WatchPage HLS playback', () => {
     // The player-required screen appears instantly: no packaging status polling
     // ever starts and the Shaka player never mounts.
     expect(await screen.findByText(/can't decode in a web player/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /open in your player/i })).toHaveAttribute(
-      'href',
-      expect.stringMatching(/^movie:\/\//),
-    );
+    const playerHref = screen.getByRole('link', { name: /open in your player/i }).getAttribute('href') ?? '';
+    expect(playerHref).toMatch(/^movie:http:\/\/localhost:3000\/api\/stream\//);
+    expect(new URL(playerHref).href).toBe(playerHref);
     expect(shakaDouble.mounts).toBe(0);
     expect(calls.status).toBe(0);
     expect(screen.queryByText(/preparing a browser-friendly copy/i)).not.toBeInTheDocument();

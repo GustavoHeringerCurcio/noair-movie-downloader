@@ -2175,6 +2175,61 @@ ul {
   color: var(--white);
   margin-top: 6px;
 }
+.setup-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-weak);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.setup-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+}
+.setup-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.setup-list code {
+  color: var(--white);
+  background: var(--bg-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.setup-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 2px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.setup-ok {
+  color: var(--white);
+  font-weight: 600;
+}
+.setup-ok::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
+  vertical-align: 1px;
+}
+.setup-off {
+  color: var(--text-3);
+}
 .artwork-options {
   display: flex;
   gap: 10px;

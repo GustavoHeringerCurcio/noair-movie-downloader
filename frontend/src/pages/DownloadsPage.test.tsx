@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { DownloadsPage } from './DownloadsPage';
 import { SettingsPage } from './SettingsPage';
 import { useDownloadsStore } from '@/store/downloadsStore';
+import { isOpenerSetupDone } from '@/lib/openerInstaller';
 import type { DownloadRecord } from '@/types';
 
 function makeDownload(infoHash: string, overrides: Partial<DownloadRecord> = {}): DownloadRecord {
@@ -136,5 +137,29 @@ describe('SettingsPage', () => {
     expect(screen.getByText('About')).toBeInTheDocument();
     expect(screen.getByText('TMDB_API_KEY')).toBeInTheDocument();
     expect(screen.getByText('OMDB_API_KEY')).toBeInTheDocument();
+  });
+
+  it('explains the local-player setup, offers the installer and tracks the confirmation', () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+
+    // jsdom reports a Linux UA → the Linux explainer is shown.
+    expect(screen.getByText('Local player')).toBeInTheDocument();
+    expect(screen.getByText(/What the Linux installer does/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /download installer/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /download uninstaller/i })).toBeInTheDocument();
+    expect(screen.getByText('Not registered yet')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /i ran it/i }));
+    expect(screen.getByText(/movie:\/\/ registered/i)).toBeInTheDocument();
+    expect(isOpenerSetupDone()).toBe(true);
+
+    // Undo keeps the Player buttons honest.
+    fireEvent.click(screen.getByRole('button', { name: /mark as not set up/i }));
+    expect(screen.getByText('Not registered yet')).toBeInTheDocument();
+    expect(isOpenerSetupDone()).toBe(false);
   });
 });

@@ -5,12 +5,16 @@ import {
   buildLinuxUninstallerSh,
   buildOpenerCmd,
   buildUninstallerCmd,
+  markOpenerSetupDone,
+  isOpenerSetupDone,
+  normalizeMovieHandoffUrl,
   orderedPlayerIds,
   osFromUa,
   playerChoicesFor,
   readPlayerPreference,
   savePlayerPreference,
   PLAYER_PREF_KEY,
+  SETUP_DONE_KEY,
 } from './openerInstaller';
 
 function decodeCmd(cmd: string): string {
@@ -41,7 +45,16 @@ describe('buildOpenerCmd', () => {
     const ps = decodeCmd(cmd);
     expect(ps).toContain('VideoLAN\\VLC\\vlc.exe');
     expect(ps).toContain('Software\\Classes\\movie\\shell\\open\\command');
-    expect(ps).toContain('movie-open.cmd');
+    expect(ps).toContain('movie-open.ps1');
+    expect(ps).toContain('-File "{1}" "%1"');
+    expect(ps).toContain('Registered movie:// ->');
+  });
+
+  it('registers a PowerShell launcher (never cmd.exe) so the URL is not re-parsed', () => {
+    const ps = decodeCmd(buildOpenerCmd('vlc'));
+    expect(ps).toContain("$ps = Join-Path $PSHOME 'powershell.exe'");
+    expect(ps).toContain('Start-Process -FilePath "__EXE__" -ArgumentList @($url)');
+    expect(ps).not.toContain('movie-open.cmd');
   });
 
   it('prefers the chosen player when building the detection list', () => {
@@ -54,10 +67,44 @@ describe('buildOpenerCmd', () => {
 });
 
 describe('buildUninstallerCmd', () => {
-  it('removes the handler registry key and wrapper', () => {
+  it('removes the handler registry key and launchers', () => {
     const ps = decodeCmd(buildUninstallerCmd());
     expect(ps).toContain("Software\\Classes\\movie'");
-    expect(ps).toContain('movie-open.cmd');
+    expect(ps).toContain('movie-open.ps1');
+    expect(ps).toContain('movie-open.cmd'); // legacy cleanup
+  });
+});
+
+describe('normalizeMovieHandoffUrl', () => {
+  it('keeps the opaque movie:<url> shape the app now emits', () => {
+    const url = 'movie:http://localhost:5173/api/stream/abc';
+    expect(normalizeMovieHandoffUrl(url)).toBe('http://localhost:5173/api/stream/abc');
+  });
+
+  it('strips the legacy movie:// prefix', () => {
+    expect(normalizeMovieHandoffUrl('movie://http://localhost:5173/api/stream/abc')).toBe(
+      'http://localhost:5173/api/stream/abc',
+    );
+  });
+
+  it('repairs the browser-canonicalized movie://http//… form (root cause)', () => {
+    expect(normalizeMovieHandoffUrl('movie://http//localhost:5173/api/stream/abc')).toBe(
+      'http://localhost:5173/api/stream/abc',
+    );
+    expect(normalizeMovieHandoffUrl('movie://https//host:8443/api/stream/abc')).toBe(
+      'https://host:8443/api/stream/abc',
+    );
+  });
+
+  it('preserves query strings and percent-encoding', () => {
+    const href = 'movie:http://localhost:5173/api/stream/abc?file=Matrix%20(1999).mkv';
+    expect(normalizeMovieHandoffUrl(href)).toBe('http://localhost:5173/api/stream/abc?file=Matrix%20(1999).mkv');
+  });
+
+  it('rejects anything that is not an http(s) URL', () => {
+    expect(normalizeMovieHandoffUrl('movie:')).toBeNull();
+    expect(normalizeMovieHandoffUrl('movie://')).toBeNull();
+    expect(normalizeMovieHandoffUrl('not-a-url')).toBeNull();
   });
 });
 
@@ -74,6 +121,22 @@ describe('buildLinuxInstallerSh', () => {
     expect(sh).toContain('probe "mpv" "MPV" "io.mpv.Mpv"');
   });
 
+  it('writes a launcher that normalizes every movie: hand-off shape', () => {
+    const sh = buildLinuxInstallerSh('vlc');
+    expect(sh).toContain('movie:*) url=${url#movie:}');
+    expect(sh).toContain('http//*) url="http://${url#http//}"');
+    expect(sh).toContain('https//*) url="https://${url#https//}"');
+    expect(sh).not.toContain('url=${1#movie://}');
+  });
+
+  it('quotes the Exec path and verifies the registration stuck', () => {
+    const sh = buildLinuxInstallerSh('vlc');
+    expect(sh).toContain('Exec="$dir/movie-open.sh" %u');
+    expect(sh).toContain('xdg-mime query default x-scheme-handler/movie');
+    expect(sh).toContain("grep -qs '^x-scheme-handler/movie=movie-downloader.desktop' \"$HOME/.config/mimeapps.list\"");
+    expect(sh).toContain('echo "Verified: movie:// links now open $player_name."');
+  });
+
   it('detects the chosen player first', () => {
     const sh = buildLinuxInstallerSh('mpv');
     const mpvPos = sh.indexOf('probe "mpv" "MPV" "io.mpv.Mpv"');
@@ -84,7 +147,7 @@ describe('buildLinuxInstallerSh', () => {
 });
 
 describe('buildLinuxUninstallerSh', () => {
-  it('removes the desktop entry, wrapper dir and the mimeapps association', () => {
+  it('removes the desktop entry, launcher dir and the mimeapps association', () => {
     const sh = buildLinuxUninstallerSh();
     expect(sh.startsWith('#!/bin/sh')).toBe(true);
     expect(sh).toContain('movie-downloader.desktop');
@@ -118,5 +181,17 @@ describe('player preference (localStorage)', () => {
     expect(readPlayerPreference()).toBe('mpc-hc');
     window.localStorage.setItem(PLAYER_PREF_KEY, 'not-a-player');
     expect(readPlayerPreference()).toBeNull();
+  });
+});
+
+describe('setup confirmation (localStorage)', () => {
+  it('starts unconfirmed and flips only via markOpenerSetupDone', () => {
+    window.localStorage.clear();
+    expect(isOpenerSetupDone()).toBe(false);
+    markOpenerSetupDone(true);
+    expect(isOpenerSetupDone()).toBe(true);
+    expect(window.localStorage.getItem(SETUP_DONE_KEY)).toBe('1');
+    markOpenerSetupDone(false);
+    expect(isOpenerSetupDone()).toBe(false);
   });
 });

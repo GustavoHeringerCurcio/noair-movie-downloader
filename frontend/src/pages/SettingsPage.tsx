@@ -11,6 +11,8 @@ import {
   buildOpenerCmd,
   buildUninstallerCmd,
   detectOs,
+  isOpenerSetupDone,
+  markOpenerSetupDone,
   playerChoicesFor,
   readPlayerPreference,
   savePlayerPreference,
@@ -61,10 +63,12 @@ export function SettingsPage() {
   const setupOs = detectOs();
   const setupChoices = playerChoicesFor(setupOs);
   const isLinuxSetup = setupOs === 'linux';
+  const setupSupported = setupOs === 'linux' || setupOs === 'windows';
   const [player, setPlayer] = useState<string>(() => {
     const pref = readPlayerPreference();
     return pref && setupChoices.some((c) => c.id === pref) ? pref : (setupChoices[0]?.id ?? 'vlc');
   });
+  const [setupDone, setSetupDone] = useState<boolean>(() => isOpenerSetupDone());
 
   if (!ready) void loadSettings();
 
@@ -79,11 +83,41 @@ export function SettingsPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function copyScript(text: string, label: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`${label} copied — save it and run it on this computer.`, 'success');
+    } catch {
+      toast('Couldn’t access the clipboard — use “Download installer” instead.', 'error');
+    }
+  }
+
+  function installerName(): string {
+    return isLinuxSetup ? 'install-movie-player.sh' : 'install-movie-player.cmd';
+  }
+  function installerText(): string {
+    return isLinuxSetup ? buildLinuxInstallerSh(player) : buildOpenerCmd(player);
+  }
+
   function changePlayer(id: string): void {
     if (id === player) return;
     setPlayer(id);
     savePlayerPreference(id);
-    toast(`Local player: ${setupChoices.find((p) => p.id === id)?.label ?? id}`, 'info');
+    if (setupDone) {
+      // The registered handler is bound to the previously installed player —
+      // switching requires one re-run, so drop the "registered" confirmation.
+      setSetupDone(false);
+      markOpenerSetupDone(false);
+      toast(`Local player: ${setupChoices.find((p) => p.id === id)?.label ?? id} — re-run the installer for it to take effect.`, 'info');
+    } else {
+      toast(`Local player: ${setupChoices.find((p) => p.id === id)?.label ?? id}`, 'info');
+    }
+  }
+
+  function confirmSetup(done: boolean): void {
+    setSetupDone(done);
+    markOpenerSetupDone(done);
+    if (done) toast('Local player confirmed — Player buttons now open files in your player.', 'success');
   }
 
   function changePosterStyle(style: PosterStyle): void {
@@ -123,67 +157,148 @@ export function SettingsPage() {
       <section className="settings-card">
         <h2>Local player</h2>
         <p className="settings-note">
-          Browsers can’t launch desktop apps by themselves. The “Player” buttons on the Watch and
-          Downloads pages use a <code>movie://</code> link your machine has to know how to open — a
-          one-time setup. Pick which of your installed players to use (what you already have is
-          auto-detected), then download and run the installer once on this computer.
+          The “Player” buttons on Watch, Downloads and Detail open the video in an app on this
+          computer. Browsers can’t launch desktop apps by themselves, so your machine has to know the{' '}
+          <code>movie://</code> link once — that’s the one-time setup below. Which player opens is
+          decided here (your pick is auto-detected first when the installer runs).
         </p>
-        <div className="artwork-options" role="group" aria-label="Local player">
-          {setupChoices.map((choice) => {
-            const active = player === choice.id;
-            return (
-              <button
-                key={choice.id}
-                type="button"
-                className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
-                aria-pressed={active}
-                onClick={() => changePlayer(choice.id)}
-              >
-                <span className="artwork-option-label">{choice.label}</span>
-                <span className="artwork-option-hint">{choice.hint}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="settings-actions" style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="btn btn-white btn-sm"
-            onClick={() =>
-              downloadScript(
-                isLinuxSetup ? 'install-movie-player.sh' : 'install-movie-player.cmd',
-                isLinuxSetup ? buildLinuxInstallerSh(player) : buildOpenerCmd(player),
-              )
-            }
-          >
-            {isLinuxSetup ? 'Download installer (.sh)' : 'Download installer (.cmd)'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            onClick={() =>
-              downloadScript(
-                isLinuxSetup ? 'uninstall-movie-player.sh' : 'uninstall-movie-player.cmd',
-                isLinuxSetup ? buildLinuxUninstallerSh() : buildUninstallerCmd(),
-              )
-            }
-          >
-            Download uninstaller
-          </button>
-        </div>
-        <p className="settings-note">
-          {isLinuxSetup ? (
-            <>
-              Then run it once in a terminal: <code>bash ~/Downloads/install-movie-player.sh</code> — it
-              finds your installed player (MPV, VLC) and registers the <code>movie://</code> handler.
-            </>
-          ) : (
-            <>
-              Then run the downloaded <code>.cmd</code> once on this computer (Windows) — it finds your
-              installed player and registers the <code>movie://</code> handler.
-            </>
-          )}
-        </p>
+
+        {!setupSupported ? (
+          <p className="settings-note settings-note-warn">
+            Local-player setup is supported on Windows and Linux. On this system, use the “Download
+            file” button instead and open the file in any player you like.
+          </p>
+        ) : (
+          <>
+            <div className="artwork-options" role="group" aria-label="Local player">
+              {setupChoices.map((choice) => {
+                const active = player === choice.id;
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+                    aria-pressed={active}
+                    onClick={() => changePlayer(choice.id)}
+                  >
+                    <span className="artwork-option-label">{choice.label}</span>
+                    <span className="artwork-option-hint">{choice.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="setup-box">
+              <h3 className="setup-title">
+                {isLinuxSetup ? 'What the Linux installer does (nothing hidden)' : 'What the Windows installer does (nothing hidden)'}
+              </h3>
+              <ul className="setup-list">
+                {isLinuxSetup ? (
+                  <>
+                    <li>
+                      Detects an installed player — <strong>{setupChoices.find((c) => c.id === player)?.label}</strong> first,
+                      then the other. Prints what it finds, e.g. <code>Found: VLC (/usr/bin/vlc)</code>.
+                    </li>
+                    <li>
+                      Writes a small launcher: <code>~/.local/share/movie-downloader/movie-open.sh</code>.
+                    </li>
+                    <li>
+                      Registers it as the <code>movie://</code> handler via a desktop entry +{' '}
+                      <code>xdg-mime</code>, then verifies and prints the result.
+                    </li>
+                  </>
+                ) : (
+                  <>
+                    <li>
+                      Detects an installed player among VLC / MPV / MPC-HC / PotPlayer —{' '}
+                      <strong>{setupChoices.find((c) => c.id === player)?.label}</strong> first — and prints
+                      where it found it.
+                    </li>
+                    <li>
+                      Writes a small launcher: <code>%LOCALAPPDATA%\MovieDownloader\movie-open.ps1</code>.
+                    </li>
+                    <li>
+                      Registers it as the <code>movie://</code> handler under{' '}
+                      <code>HKCU:\Software\Classes\movie</code> (current user only, no admin), then
+                      verifies and prints the result.
+                    </li>
+                  </>
+                )}
+              </ul>
+              <p className="settings-note">
+                That’s the whole change: two small files (one is the launcher, one the registration)
+                and nothing else is touched. Re-running the installer is safe — it simply overwrites
+                them.
+              </p>
+              <p className="setup-status" aria-live="polite">
+                Status:{' '}
+                {setupDone ? (
+                  <span className="setup-ok">movie:// registered — confirmed by you</span>
+                ) : (
+                  <span className="setup-off">Not registered yet</span>
+                )}
+              </p>
+              <div className="settings-actions" style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-white btn-sm"
+                  onClick={() => downloadScript(installerName(), installerText())}
+                >
+                  Download installer ({isLinuxSetup ? '.sh' : '.cmd'})
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => void copyScript(installerText(), 'Installer')}
+                >
+                  Copy installer
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() =>
+                    downloadScript(
+                      isLinuxSetup ? 'uninstall-movie-player.sh' : 'uninstall-movie-player.cmd',
+                      isLinuxSetup ? buildLinuxUninstallerSh() : buildUninstallerCmd(),
+                    )
+                  }
+                >
+                  Download uninstaller
+                </button>
+              </div>
+              <p className="settings-note">
+                {isLinuxSetup ? (
+                  <>
+                    Run it once in a terminal:{' '}
+                    <code>bash ~/Downloads/install-movie-player.sh</code> — it prints{' '}
+                    <code>Found: …</code>, then <code>Verified: movie:// links now open …</code>.
+                  </>
+                ) : (
+                  <>
+                    Double-click the downloaded <code>install-movie-player.cmd</code> once — a console
+                    window prints what it found and that <code>movie://</code> is registered.
+                  </>
+                )}
+              </p>
+              <div className="settings-actions" style={{ display: 'flex', gap: '10px', marginTop: '8px', alignItems: 'center' }}>
+                {setupDone ? (
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => confirmSetup(false)}>
+                    Mark as not set up
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-white btn-sm" onClick={() => confirmSetup(true)}>
+                    I ran it — movie:// works
+                  </button>
+                )}
+                <span className="settings-note">
+                  {setupDone
+                    ? 'Player buttons on Watch / Downloads / Detail open your player directly.'
+                    : 'Until you confirm, the Player buttons route here instead of failing silently.'}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="settings-card">
