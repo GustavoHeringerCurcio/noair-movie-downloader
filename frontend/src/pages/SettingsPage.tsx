@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useFriendlyPickStore, FRIENDLY_PICK_OPTIONS } from '@/store/friendlyPickStore';
 import { useToastStore } from '@/store/toastStore';
 import { usePosterStyleStore, type PosterStyle } from '@/store/posterStyleStore';
-import type { AudioLang } from '@/types';
+import type { AudioLang, FriendlyPickMode } from '@/types';
 import {
   buildLinuxInstallerSh,
   buildLinuxUninstallerSh,
@@ -52,6 +53,8 @@ export function SettingsPage() {
   const saving = useSettingsStore((s) => s.saving);
   const loadSettings = useSettingsStore((s) => s.load);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
+  const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
+  const setFriendlyPickMode = useFriendlyPickStore((s) => s.setMode);
   const toast = useToastStore((s) => s.toast);
   const posterStyle = usePosterStyleStore((s) => s.style);
   const setPosterStyle = usePosterStyleStore((s) => s.setStyle);
@@ -97,6 +100,12 @@ export function SettingsPage() {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Save failed', 'error');
     }
+  }
+
+  function changeFriendlyPick(next: FriendlyPickMode): void {
+    if (next === friendlyPickMode) return;
+    setFriendlyPickMode(next);
+    toast(`Friendly download: ${FRIENDLY_PICK_OPTIONS.find((o) => o.value === next)?.label ?? next}`, 'info');
   }
 
   function copyDiagnostics(): void {
@@ -233,6 +242,34 @@ export function SettingsPage() {
           Tip: for results in a specific language, add matching indexers (e.g. Brazilian private
           trackers) in Prowlarr — the app auto-detects them and uses them for that language.
         </p>
+      </section>
+
+      <section className="settings-card">
+        <h2>Friendly download</h2>
+        <p className="settings-note">
+          The one-click <strong>Download</strong> button on Detail pages picks a release for you.
+          Choose what “friendly” should optimise for: the release with the most seeders (whatever
+          its codec), or a release this web app can actually play in-browser — x264/AV1, SDR, up
+          to 1080p — falling back to most-seeded only when nothing qualifies. The Advanced picker
+          always shows every release either way.
+        </p>
+        <div className="artwork-options" role="group" aria-label="Friendly download pick">
+          {FRIENDLY_PICK_OPTIONS.map((option) => {
+            const active = friendlyPickMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`btn ${active ? 'btn-white' : 'btn-outline'} artwork-option`}
+                aria-pressed={active}
+                onClick={() => changeFriendlyPick(option.value)}
+              >
+                <span className="artwork-option-label">{option.label}</span>
+                <span className="artwork-option-hint">{option.hint}</span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <section className="settings-card">

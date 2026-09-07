@@ -37,12 +37,13 @@ import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
 import { RatingBadge } from '../components/RatingBadge';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
-import { chooseEpisodePick, chooseSeasonPick } from '../lib/coverage';
+import { chooseEpisodePick, chooseMoviePick, chooseSeasonPick, isWebExhibitable } from '../lib/coverage';
 import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { useAudioLanguage } from '../store/settingsStore';
+import { useFriendlyPickStore } from '../store/friendlyPickStore';
 import { useVersionStore, versionKey } from '../store/versionStore';
 import {
   bestPlayable,
@@ -531,6 +532,7 @@ export function DetailPage() {
   const toast = useToastStore((s) => s.toast);
   const recordRecent = useRecentsStore((s) => s.record);
   const audio = useAudioLanguage();
+  const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
 
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -750,12 +752,12 @@ export function DetailPage() {
   }
 
   function movieFriendlyPick(): Source | null {
-    return movieSources.length > 0 ? movieSources[0]! : null;
+    return chooseMoviePick(movieSources, friendlyPickMode);
   }
 
   function seasonFullPick(): Source | null {
     if (activeSeason == null) return null;
-    return chooseSeasonPick(seasonSources, activeSeason);
+    return chooseSeasonPick(seasonSources, activeSeason, friendlyPickMode);
   }
 
   // Episode -> action derivation
@@ -775,7 +777,7 @@ export function DetailPage() {
     own: DownloadRecord | null;
   } {
     const own = titleDownloads.find((d) => d.seasonNumber === episode.seasonNumber && d.episodeNumber === episode.episodeNumber) ?? null;
-    const source = chooseEpisodePick(seasonSources, episode.seasonNumber, episode.episodeNumber);
+    const source = chooseEpisodePick(seasonSources, episode.seasonNumber, episode.episodeNumber, friendlyPickMode);
     if (own) return { kind: 'own', download: own, source: null, own };
     if (seasonPackDownload) return { kind: 'pack', download: seasonPackDownload, source: null, own: null };
     if (source) return { kind: 'download', download: null, source, own: null };
@@ -1201,6 +1203,9 @@ export function DetailPage() {
               <div>
                 <div className="pick-title">{confirm.source.title}</div>
                 <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {friendlyPickMode === 'web-playable' && isWebExhibitable(confirm.source) && (
+                    <span className="chip">Web-playable</span>
+                  )}
                   {audioChipLabel(confirm.source) && (
                     <span className="chip chip-audio">{audioChipLabel(confirm.source)}</span>
                   )}

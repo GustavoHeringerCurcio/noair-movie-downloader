@@ -143,6 +143,14 @@ export interface SourceGroup {
 
 export type SourceSortKey = 'seeders' | 'size' | 'age' | 'resolution' | 'sizePerSeeder';
 
+/**
+ * How the one-click ("friendly") Download button auto-picks a release (T-003):
+ * `most-seeded` = today's behaviour (best-seeded matching source); `web-playable`
+ * = best-seeded matching source the in-browser player can actually exhibit,
+ * falling back to most-seeded only when nothing qualifies.
+ */
+export type FriendlyPickMode = 'most-seeded' | 'web-playable';
+
 export interface SourceFilters {
   indexers: string[];
   resolutions: string[];
