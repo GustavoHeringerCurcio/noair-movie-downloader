@@ -107,6 +107,14 @@ type Props = ComponentProps<typeof ShakaPlayer>;
 
 const MANIFEST = '/api/playback/abc/hls/master.m3u8';
 
+/**
+ * The shaka UMD module is loaded with a dynamic import, which under a
+ * fully-parallel vitest run can take longer than @testing-library's 1s default
+ * waitFor budget. Give module-boot assertions a generous explicit timeout so the
+ * suite is deterministic regardless of machine load.
+ */
+const BOOT_TIMEOUT = 5000;
+
 function renderPlayer(props: Partial<Props> = {}) {
   const callbacks = {
     onTick: vi.fn(),
@@ -141,7 +149,7 @@ describe('ShakaPlayer', () => {
   it('lazy-loads shaka, installs polyfills and boots a configured player', async () => {
     renderPlayer();
 
-    await waitFor(() => expect(shakaState.players).toHaveLength(1));
+    await waitFor(() => expect(shakaState.players).toHaveLength(1), { timeout: BOOT_TIMEOUT });
     const player = shakaState.players[0]!;
 
     expect(shakaState.installAll).toHaveBeenCalled();
@@ -155,7 +163,7 @@ describe('ShakaPlayer', () => {
 
   it('renders Shaka’s own UI overlay with the audio/subtitle control elements', async () => {
     renderPlayer();
-    await waitFor(() => expect(shakaState.overlays).toHaveLength(1));
+    await waitFor(() => expect(shakaState.overlays).toHaveLength(1), { timeout: BOOT_TIMEOUT });
 
     const overlay = shakaState.overlays[0]!;
     // Overlay(player, videoContainer, video): the player instance must be first —
@@ -218,7 +226,7 @@ describe('ShakaPlayer', () => {
 
   it('destroys the player and overlay on unmount', async () => {
     renderPlayer();
-    await waitFor(() => expect(shakaState.players).toHaveLength(1));
+    await waitFor(() => expect(shakaState.players).toHaveLength(1), { timeout: BOOT_TIMEOUT });
 
     cleanup();
 
