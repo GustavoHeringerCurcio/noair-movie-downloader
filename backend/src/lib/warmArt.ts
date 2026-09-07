@@ -4,15 +4,18 @@ import type { ArtSubject } from '../types.js';
 import type { ArtFileRow } from '../db/artFilesRepo.js';
 
 /**
- * Poster warmer (D21) + IMDb-rating backfill (T-004).
+ * Poster warmer (D21) + fanart key-art warmer (T-002) + IMDb-rating backfill
+ * (T-004).
  *
  * After boot (and then every `intervalMs`) it walks the browse rails plus the
  * existing download rows and makes sure a portrait `poster` file exists on the
  * `art` volume for each title (IMDb id via TMDB → OMDb → Amazon, downloaded by
- * the `artCache` pipeline and served from `/api/images/art/*`). Titles with no
- * poster or no key are recorded as empty and not retried aggressively; the
- * image route also lazily warms on first render, so rails just get filled
- * ahead of time.
+ * the `artCache` pipeline and served from `/api/images/art/*`), and — when a
+ * fanart.tv key is configured — that the 16:9 key-art `thumb` files exist too
+ * (served from `/api/images/fanart/*`) so Horizontal cards paint instantly
+ * instead of warming on each first request. Titles with no art or no key are
+ * recorded as empty and not retried aggressively; the image route also lazily
+ * warms on first render, so rails just get filled ahead of time.
  *
  * The same OMDb response now carries `imdbRating`, so freshly-warmed rows store
  * it inline. Rows warmed *before* this feature shipped have no rating yet and
@@ -69,12 +72,20 @@ async function collectEntries(deps: AppDeps): Promise<ArtSubject[]> {
 }
 
 async function warmOnce(deps: AppDeps): Promise<void> {
-  if (!deps.artCache) return;
   const subjects = await collectEntries(deps);
   if (subjects.length === 0) return;
 
-  const downloaded = await deps.artCache.warm(subjects);
-  if (downloaded > 0) console.log(`[poster-warm] downloaded ${downloaded} poster file(s)`);
+  if (deps.artCache) {
+    const downloaded = await deps.artCache.warm(subjects);
+    if (downloaded > 0) console.log(`[poster-warm] downloaded ${downloaded} poster file(s)`);
+  }
+  // Horizontal-poster key-art (T-002): warm the same titles' `thumb` files when
+  // a fanart.tv key is wired, so an opt-in Horizontal card never waits on a
+  // first-request fetch.
+  if (deps.fanartCache) {
+    const downloaded = await deps.fanartCache.warm(subjects);
+    if (downloaded > 0) console.log(`[poster-warm] downloaded ${downloaded} key-art thumb(s)`);
+  }
   console.log(`[poster-warm] ensured posters for ${subjects.length} rail/download titles`);
 }
 
