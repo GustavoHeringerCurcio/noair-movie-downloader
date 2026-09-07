@@ -82,6 +82,10 @@ services:
       DATABASE_URL: postgres://app:app@postgres:5432/moviedl
       DOWNLOAD_DIR: /downloads
       PORT: "3000"
+      PACKAGE_MAX_BYTES: ${PACKAGE_MAX_BYTES:-53687091200}
+      REMOTE_ACCESS: ${REMOTE_ACCESS:-0}
+      REMOTE_DATA_DIR: /remote
+      CLOUDFLARE_TUNNEL_HOSTNAME: ${CLOUDFLARE_TUNNEL_HOSTNAME:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +93,7 @@ services:
       - downloads:/downloads
       - packages:/packages
       - art:/art
+      - remoteaccess:/remote
     restart: unless-stopped
     networks: [internal]
 
@@ -101,6 +106,26 @@ services:
     restart: unless-stopped
     networks: [internal]
 
+  # Remote access (beta): exposes the frontend publicly over HTTPS via a
+  # Cloudflare tunnel. Opt-in — start it with `docker compose --profile remote up -d cloudflared`
+  # after setting REMOTE_ACCESS=1 in .env. Default = quick tunnel (ephemeral
+  # *.trycloudflare.com URL, URL-is-the-secret); set CLOUDFLARE_TUNNEL_TOKEN to
+  # use a named tunnel on your own domain instead.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["remote"]
+    command: ["sh", "/entrypoint.sh"]
+    environment:
+      CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      CLOUDFLARE_TUNNEL_HOSTNAME: ${CLOUDFLARE_TUNNEL_HOSTNAME:-}
+    volumes:
+      - ./deploy/cloudflared-entrypoint.sh:/entrypoint.sh:ro
+      - remoteaccess:/data
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    networks: [internal]
+
 volumes:
   pgdata:
   qbconfig:
@@ -108,6 +133,7 @@ volumes:
   downloads:
   packages:
   art:
+  remoteaccess:
 
 networks:
   internal:

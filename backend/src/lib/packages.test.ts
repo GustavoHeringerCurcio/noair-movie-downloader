@@ -150,6 +150,63 @@ describe('createPackageManager', () => {
     manager.deletePackage(key);
     expect(fs.existsSync(layout.root)).toBe(false);
   });
+
+  it('builds a compat variant under a suffixed key using H.264 args', async () => {
+    const root = makeDir('pkg-compat-');
+    const source = path.join(makeDir('src-compat-'), 'movie.mkv');
+    fs.writeFileSync(source, Buffer.alloc(1_000_000));
+    const seen: string[][] = [];
+    const manager = createPackageManager({ packageRoot: root }, async (args) => {
+      seen.push(args);
+      fs.writeFileSync(args[args.length - 1]!, '#EXTM3U\n');
+      return 0;
+    });
+
+    const compatKey = packageKey('aa'.repeat(20), 'movie.mkv', 'compat');
+    await manager.ensurePackage({
+      infoHash: 'aa'.repeat(20),
+      relative: 'movie.mkv',
+      absolutePath: source,
+      media,
+      sidecars: [],
+      variant: 'compat',
+      targetHeight: null,
+    });
+    await waitUntil(() => manager.status(compatKey)?.phase === 'ready');
+
+    expect(manager.status(compatKey)?.phase).toBe('ready');
+    // The web (stream-copy) package for the same file stays untouched.
+    expect(manager.status(packageKey('aa'.repeat(20), 'movie.mkv'))).toBeNull();
+    expect(seen.some((a) => a.includes('-c:v') && a.includes('libx264'))).toBe(true);
+    expect(seen.some((a) => a.includes('-c:v') && a[a.indexOf('-c:v') + 1] === 'copy')).toBe(false);
+  });
+
+  it('evicts the oldest completed package when over the size budget', async () => {
+    const root = makeDir('pkg-evict-');
+    const source = path.join(makeDir('src-evict-'), 'movie.mkv');
+    fs.writeFileSync(source, Buffer.alloc(1000));
+    const manager = createPackageManager({ packageRoot: root, maxBytes: 1_500_000 }, async () => 0);
+
+    const oldLayout = layoutFor(root, packageKey('aa'.repeat(20), 'old.mkv'));
+    const newLayout = layoutFor(root, packageKey('bb'.repeat(20), 'new.mkv'));
+    for (const [layout, secs] of [[oldLayout, 1], [newLayout, 2]] as const) {
+      fs.mkdirSync(layout.root, { recursive: true });
+      fs.writeFileSync(path.join(layout.root, 'big.m4s'), Buffer.alloc(1_000_000));
+      fs.writeFileSync(path.join(layout.root, 'DONE'), 'x');
+      fs.utimesSync(path.join(layout.root, 'DONE'), secs, secs);
+    }
+
+    await manager.ensurePackage({
+      infoHash: 'cc'.repeat(20),
+      relative: 'third.mkv',
+      absolutePath: source,
+      media,
+      sidecars: [],
+    });
+
+    expect(fs.existsSync(oldLayout.root)).toBe(false);
+    expect(fs.existsSync(newLayout.root)).toBe(true);
+  });
 });
 
 describe('cleanupTorrentPackages', () => {
@@ -165,5 +222,22 @@ describe('cleanupTorrentPackages', () => {
     fs.mkdirSync(layout.root, { recursive: true });
     cleanupTorrentPackages(root, 'f'.repeat(40), downloadDir, content);
     expect(fs.existsSync(layout.root)).toBe(false);
+  });
+
+  it('removes both the web and compat packages of a torrent', () => {
+    const root = makeDir('pkg-clean2-');
+    const downloadDir = makeDir('dl-clean2-');
+    const content = path.join(downloadDir, 'show.s01');
+    fs.mkdirSync(content);
+    const file = path.join(content, 'S01E01.mkv');
+    fs.writeFileSync(file, Buffer.alloc(10));
+    const webKey = packageKey('ab'.repeat(20), 'show.s01/S01E01.mkv');
+    const compatKey = packageKey('ab'.repeat(20), 'show.s01/S01E01.mkv', 'compat');
+    for (const key of [webKey, compatKey]) {
+      fs.mkdirSync(layoutFor(root, key).root, { recursive: true });
+    }
+    cleanupTorrentPackages(root, 'ab'.repeat(20), downloadDir, content);
+    expect(fs.existsSync(layoutFor(root, webKey).root)).toBe(false);
+    expect(fs.existsSync(layoutFor(root, compatKey).root)).toBe(false);
   });
 });

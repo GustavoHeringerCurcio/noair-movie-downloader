@@ -147,6 +147,30 @@ describe('GET /api/downloads/:infoHash/playinfo', () => {
     expect(res.body.fileUrl).toBe(`/api/downloads/${HASH}/file`);
   });
 
+  it('offers a compat package for 1080p HEVC (no downscale)', async () => {
+    const app = setup({ videoCodec: 'hevc', audioCodec: 'aac', height: 1080 }, { container: 'mkv' });
+    const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);
+    expect(res.body.compat).toEqual({
+      manifestUrl: `/api/playback/pkg/${HASH}-movie.mkv-compat/master.m3u8`,
+      targetHeight: null,
+    });
+  });
+
+  it('offers a downscaled compat package for 4K HEVC (1080p)', async () => {
+    const app = setup({ videoCodec: 'hevc', audioCodec: 'eac3', height: 2160 });
+    const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);
+    expect(res.body.compat).toEqual({
+      manifestUrl: `/api/playback/pkg/${HASH}-movie.mp4-compat/master.m3u8`,
+      targetHeight: 1080,
+    });
+  });
+
+  it('offers no compat package for direct (already browser-safe) playback', async () => {
+    const app = setup({ videoCodec: 'h264', audioCodec: 'aac', height: 1080 });
+    const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);
+    expect(res.body.compat).toBeNull();
+  });
+
   it('404s for unknown downloads', async () => {
     const app = createApp(makeTestDeps());
     const res = await request(app).get(`/api/downloads/${HASH}/playinfo`);

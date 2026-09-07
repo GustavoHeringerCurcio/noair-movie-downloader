@@ -201,6 +201,13 @@ export function createDownloadsRouter(deps: AppDeps): Router {
     const sidecars = absolutePath ? listSidecarSubtitles(absolutePath) : [];
     const mode = media ? decidePlaybackMode(media, { sidecarSubtitles: sidecars.length }) : decideStreamMode(probeInfo);
     const qs = file ? toQueryString({ file }) : '';
+    // A cached H.264 "compatibility" package can be built for anything that
+    // isn't already natively playable (hls/player-required). The browser picks
+    // it up when its MSE can't decode the file's own video (D26), or for 4K
+    // when the user opts in to a 1080p rendition (D27).
+    const compatWanted =
+      (mode === 'hls' || mode === 'player-required') && media?.video != null && (media.height ?? 0) > 0;
+    const compatTargetHeight = compatWanted && (media.height ?? 0) >= 2160 ? 1080 : null;
     res.json({
       mode,
       videoCodec: probeInfo.videoCodec,
@@ -220,6 +227,12 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       // when none are supported the UI shows the external-player screen instead
       // of waiting on a package the browser could never decode (e.g. HEVC Main10).
       mseProbe: mode === 'hls' ? mseProbeTypes(media?.video ?? null) : null,
+      compat: compatWanted
+        ? {
+            manifestUrl: `/api/playback/pkg/${packageKey(infoHash, resolved.relative, 'compat')}/master.m3u8`,
+            targetHeight: compatTargetHeight,
+          }
+        : null,
     });
   });
 

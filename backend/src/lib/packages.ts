@@ -15,6 +15,7 @@ import {
   pickSubtitleRenditions,
   sidecarSubtitleArgs,
   subtitleMediaPlaylist,
+  videoCompatSegmentArgs,
   videoSegmentArgs,
   type PackageLayout,
 } from './hls.js';
@@ -37,6 +38,10 @@ export interface PackageRequest {
   absolutePath: string;
   media: MediaInfo;
   sidecars: SidecarSubtitle[];
+  /** 'web' (default) stream-copies the video; 'compat' re-encodes it to H.264. */
+  variant?: 'web' | 'compat';
+  /** Scale target for compat builds (e.g. 1080 for 4K sources); null keeps source resolution. */
+  targetHeight?: number | null;
 }
 
 export interface PackageManager {
@@ -90,9 +95,48 @@ function realRunner(): CommandRunner {
     });
 }
 
-export function createPackageManager(config: { packageRoot: string }, runCommand: CommandRunner = realRunner()): PackageManager {
+export function createPackageManager(
+  config: { packageRoot: string; maxBytes?: number | null },
+  runCommand: CommandRunner = realRunner(),
+): PackageManager {
   const store = new Map<string, PackageState>();
   const running = new Set<string>();
+
+  // Compat builds re-encode video (H.264) and are expensive on CPU; run at most
+  // one across the whole box at a time so a burst of HEVC titles can't starve a
+  // live /watch stream or the qBittorrent poll. Stream-copy (web) packages stay
+  // unthrottled — they're near-free.
+  let compatLock: Promise<unknown> = Promise.resolve();
+  function withCompatLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = compatLock.then(fn, fn);
+    compatLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  // Best-effort eviction for the `packages` volume: compat packages are ~1.0×
+  // the source size, so when `maxBytes` is set the oldest completed (DONE)
+  // packages are removed until the volume is back under budget. In-progress
+  // builds are never evicted.
+  function evictIfOverBudget(): void {
+    const max = config.maxBytes;
+    if (!max || max <= 0) return;
+    let total = totalPackageBytes(config.packageRoot);
+    if (total <= max) return;
+    for (const entry of donePackageDirs(config.packageRoot)) {
+      if (total <= max) break;
+      if (running.has(entry.key)) continue;
+      try {
+        fs.rmSync(entry.root, { recursive: true, force: true });
+        store.delete(entry.key);
+      } catch {
+        // best effort
+      }
+      total = totalPackageBytes(config.packageRoot);
+    }
+  }
 
   function stateFor(key: string): PackageState | null {
     const hit = store.get(key);
@@ -116,7 +160,7 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
 
   function snapshot(request: PackageRequest): PackageState {
     const s: PackageState = {
-      key: packageKey(request.infoHash, request.relative),
+      key: packageKey(request.infoHash, request.relative, request.variant),
       infoHash: request.infoHash,
       relative: request.relative,
       absolutePath: request.absolutePath,
@@ -134,12 +178,13 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
   }
 
   async function runPackage(request: PackageRequest): Promise<void> {
-    const key = packageKey(request.infoHash, request.relative);
+    const key = packageKey(request.infoHash, request.relative, request.variant);
     const layout = layoutFor(config.packageRoot, key);
     const media = request.media;
     const audio = pickAudioRenditions(media);
     const subs = pickSubtitleRenditions(media.subtitleTracks, request.sidecars);
     const duration = media.durationSeconds;
+    const compat = request.variant === 'compat';
 
     fs.mkdirSync(layout.root, { recursive: true });
     fs.mkdirSync(layout.videoDir, { recursive: true });
@@ -148,7 +193,10 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
 
     try {
       const steps: Array<{ weight: number; args: string[]; note: string }> = [];
-      steps.push({ weight: 0.5, args: videoSegmentArgs(request.absolutePath, layout.videoDir), note: 'video' });
+      const videoArgs = compat
+        ? videoCompatSegmentArgs(request.absolutePath, layout.videoDir, { targetHeight: request.targetHeight ?? null })
+        : videoSegmentArgs(request.absolutePath, layout.videoDir);
+      steps.push({ weight: 0.5, args: videoArgs, note: compat ? 'video (compat H.264)' : 'video' });
       media.audioTracks.forEach((track) => {
         const copy = canCopyAudioTrack(track);
         steps.push({
@@ -250,13 +298,21 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
   ): void {
     const size = fileSize(request.absolutePath);
     const bandwidth = size > 0 && duration ? Math.round((size * 8) / duration) : 4_000_000;
+    // A compat build re-encodes to H.264 (8-bit), so the CODECS hint must say
+    // avc1 — not the source's hevc/vp9/… The RESOLUTION hint is dropped when the
+    // compat build downscales (we don't know the scaled width up-front).
+    const compat = request.variant === 'compat';
+    const scaled = compat && request.targetHeight && request.targetHeight > 0;
     const master = buildMasterPlaylist({
       durationSeconds: duration,
       audio,
       subtitles: subs,
       bandwidth,
-      videoCodec: media.video?.codec ?? null,
-      resolution: { width: media.video?.width ?? null, height: media.video?.height ?? null },
+      videoCodec: compat ? 'h264' : media.video?.codec ?? null,
+      resolution:
+        compat || scaled
+          ? null
+          : { width: media.video?.width ?? null, height: media.video?.height ?? null },
     });
     fs.writeFileSync(path.join(layout.root, 'master.m3u8'), master);
   }
@@ -264,15 +320,16 @@ export function createPackageManager(config: { packageRoot: string }, runCommand
   return {
     status: (key) => stateFor(key) ?? null,
     async ensurePackage(request: PackageRequest): Promise<PackageState> {
-      const key = packageKey(request.infoHash, request.relative);
+      const key = packageKey(request.infoHash, request.relative, request.variant);
       const existing = stateFor(key);
       if (existing?.phase === 'ready') return existing;
       if (existing?.phase === 'packaging' || running.has(key)) {
         return existing ?? snapshot(request);
       }
+      evictIfOverBudget();
       const s = snapshot(request);
       running.add(key);
-      void runPackage(request);
+      void (request.variant === 'compat' ? withCompatLock(() => runPackage(request)) : runPackage(request));
       return s;
     },
     masterPlaylistPath: (key) => {
@@ -308,7 +365,54 @@ function fileSize(absolutePath: string): number {
   }
 }
 
-/** Removes the cached packages of every streamable file of a torrent. */
+function totalPackageBytes(packageRoot: string): number {
+  let total = 0;
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) {
+        try {
+          total += fs.statSync(full).size;
+        } catch {
+          // ignore
+        }
+      }
+    }
+  };
+  walk(packageRoot);
+  return total;
+}
+
+function donePackageDirs(packageRoot: string): Array<{ key: string; root: string; mtimeMs: number }> {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(packageRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const result: Array<{ key: string; root: string; mtimeMs: number }> = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const root = path.join(packageRoot, entry.name);
+    let mtimeMs = 0;
+    try {
+      mtimeMs = fs.statSync(path.join(root, 'DONE')).mtimeMs;
+    } catch {
+      continue; // no DONE marker → not a completed package
+    }
+    result.push({ key: entry.name, root, mtimeMs });
+  }
+  return result.sort((a, b) => a.mtimeMs - b.mtimeMs);
+}
+
+/** Removes the cached packages of every streamable file of a torrent (both variants). */
 export function cleanupTorrentPackages(
   packageRoot: string,
   infoHash: string,
@@ -318,12 +422,14 @@ export function cleanupTorrentPackages(
   if (!contentPath) return;
   const files = listStreamableFiles(downloadDir, contentPath);
   for (const file of files) {
-    const key = packageKey(infoHash, file.relative);
-    const layout = layoutFor(packageRoot, key);
-    try {
-      fs.rmSync(layout.root, { recursive: true, force: true });
-    } catch {
-      // best effort
+    for (const variant of ['web', 'compat'] as const) {
+      const key = packageKey(infoHash, file.relative, variant);
+      const layout = layoutFor(packageRoot, key);
+      try {
+        fs.rmSync(layout.root, { recursive: true, force: true });
+      } catch {
+        // best effort
+      }
     }
   }
 }

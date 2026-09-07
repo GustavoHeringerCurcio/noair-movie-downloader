@@ -11,6 +11,7 @@ import {
   pickAudioRenditions,
   pickSubtitleRenditions,
   subtitleMediaPlaylist,
+  videoCompatSegmentArgs,
   videoSegmentArgs,
 } from './hls.js';
 import type { MediaInfo } from './mediaInfo.js';
@@ -35,6 +36,13 @@ describe('packageKey', () => {
       `${'ab'.repeat(20)}-Show.S01-S01E01.mkv`,
     );
     expect(packageKey('x'.repeat(40), 'a/b')).not.toContain('/');
+  });
+
+  it('suffixes the compat variant so it never collides with the web package', () => {
+    const web = packageKey('AB'.repeat(20), 'Show.S01/S01E01.mkv');
+    const compat = packageKey('AB'.repeat(20), 'Show.S01/S01E01.mkv', 'compat');
+    expect(compat).toBe(`${web}-compat`);
+    expect(compat).not.toBe(web);
   });
 });
 
@@ -113,6 +121,24 @@ describe('ffmpeg argument builders', () => {
     expect(args[args.indexOf('-map') + 1]).toBe('0:3');
     expect(args).toContain('webvtt');
     expect(args[args.length - 1]).toBe('/packages/k/subs/track-0.vtt');
+  });
+
+  it('compat video args re-encode to H.264 instead of stream-copying', () => {
+    const args = videoCompatSegmentArgs('/downloads/m.mkv', path.join('/packages', 'k', 'video'));
+    expect(args[args.indexOf('-i') + 1]).toBe('/downloads/m.mkv');
+    expect(args[args.indexOf('-c:v') + 1]).toBe('libx264');
+    expect(args).toContain('veryfast');
+    expect(args[args.indexOf('-crf') + 1]).toBe('21');
+    expect(args[args.indexOf('-pix_fmt') + 1]).toBe('yuv420p');
+    expect(args).not.toContain('-vf');
+    expect(args[args.length - 1]).toBe(path.join('/packages', 'k', 'video', 'main.m3u8'));
+  });
+
+  it('compat video args downscale 4K sources to the requested height', () => {
+    const args = videoCompatSegmentArgs('/downloads/m.mkv', path.join('/packages', 'k', 'video'), {
+      targetHeight: 1080,
+    });
+    expect(args[args.indexOf('-vf') + 1]).toBe('scale=-2:1080');
   });
 });
 

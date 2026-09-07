@@ -130,6 +130,7 @@ describe('WatchPage', () => {
 });
 
 const MANIFEST = `/api/playback/${HASH}/hls/master.m3u8`;
+const COMPAT_MANIFEST = '/api/playback/pkg/movie.mkv-compat/master.m3u8';
 
 interface HlsStatus {
   phase: 'packaging' | 'ready' | 'failed';
@@ -188,19 +189,20 @@ const DEFAULT_HLS_STATUS: HlsStatus = { phase: 'ready', progress: 1, error: null
  */
 function stubHls(
   statuses: HlsStatus[],
-  opts: { mseProbe?: string[] } = {},
+  opts: { mseProbe?: string[]; compat?: boolean } = {},
 ): {
-  calls: { playinfo: number; status: number; deleted: number };
+  calls: { playinfo: number; status: number; deleted: number; statusUrls: string[] };
   push: (status: HlsStatus) => void;
 } {
   const queue = [...statuses];
-  const calls = { playinfo: 0, status: 0, deleted: 0 };
+  const calls = { playinfo: 0, status: 0, deleted: 0, statusUrls: [] as string[] };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/hls/status')) {
         calls.status += 1;
+        calls.statusUrls.push(url);
         const next = queue.shift() ?? DEFAULT_HLS_STATUS;
         return jsonResponse(next);
       }
@@ -208,6 +210,7 @@ function stubHls(
         calls.playinfo += 1;
         const playinfo = { ...hlsPlayInfo() };
         if (opts.mseProbe !== undefined) playinfo.mseProbe = opts.mseProbe;
+        if (opts.compat) playinfo.compat = { manifestUrl: COMPAT_MANIFEST, targetHeight: null };
         return jsonResponse(playinfo);
       }
       if (url.includes('/files')) {
@@ -235,14 +238,14 @@ describe('WatchPage HLS playback', () => {
     await waitFor(() => expect(shakaDouble.mounts).toBe(1));
     expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
     expect(shakaVideo()).toBeInTheDocument();
-    expect(screen.queryByText(/preparing a browser-friendly copy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/building a web-compatible copy/i)).not.toBeInTheDocument();
   });
 
   it('shows packaging progress before the player mounts once ready', async () => {
     stubHls([{ phase: 'packaging', progress: 0.4, error: null }]);
     renderWatch();
 
-    expect(await screen.findByText(/preparing a browser-friendly copy/i)).toBeInTheDocument();
+    expect(await screen.findByText(/building a web-compatible copy/i)).toBeInTheDocument();
     expect(await screen.findByText(/40%/)).toBeInTheDocument();
     expect(shakaDouble.mounts).toBe(0);
 
@@ -396,7 +399,7 @@ describe('WatchPage HLS playback', () => {
     expect(new URL(playerHref).href).toBe(playerHref);
     expect(shakaDouble.mounts).toBe(0);
     expect(calls.status).toBe(0);
-    expect(screen.queryByText(/preparing a browser-friendly copy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/building a web-compatible copy/i)).not.toBeInTheDocument();
   });
 
   it('proceeds to package when the browser supports the hls codec', async () => {
@@ -408,5 +411,19 @@ describe('WatchPage HLS playback', () => {
 
     await waitFor(() => expect(shakaDouble.mounts).toBe(1));
     expect(shakaDouble.latest?.manifestUrl).toBe(MANIFEST);
+  });
+
+  it('builds a cached compat copy when the browser cannot decode the hls codec (D26)', async () => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: vi.fn(() => false) });
+    const { calls } = stubHls([{ phase: 'ready', progress: 1, error: null }], {
+      mseProbe: ['video/mp4; codecs="hvc1.1.6.L120.B0,mp4a.40.2"'],
+      compat: true,
+    });
+    renderWatch();
+
+    await waitFor(() => expect(shakaDouble.mounts).toBe(1));
+    expect(shakaDouble.latest?.manifestUrl).toBe(COMPAT_MANIFEST);
+    expect(calls.statusUrls.some((u) => u.includes('variant=compat'))).toBe(true);
+    expect(screen.queryByText(/can't decode in a web player/i)).not.toBeInTheDocument();
   });
 });

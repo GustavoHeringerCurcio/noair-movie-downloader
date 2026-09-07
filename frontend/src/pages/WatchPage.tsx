@@ -17,6 +17,7 @@ import type { PlayInfo, StreamFileInfo } from '../types';
 import { episodeKeyFromFilename, parseEpisodeToken } from '../lib/episode';
 import { ShakaPlayer } from '../components/ShakaPlayer';
 import { ExternalPlayerLink } from '../components/ExternalPlayerLink';
+import { useTranscode4k } from '../store/transcode4kStore';
 
 function baseName(relative: string): string {
   return relative.split('/').pop() ?? relative;
@@ -50,6 +51,7 @@ export function WatchPage() {
   const getPosition = usePlaybackStore((s) => s.getPosition);
   const setPosition = usePlaybackStore((s) => s.setPosition);
   const clearPosition = usePlaybackStore((s) => s.clearPosition);
+  const transcode4k = useTranscode4k();
 
   const [play, setPlay] = useState<PlayInfo | null>(null);
   const [files, setFiles] = useState<StreamFileInfo[]>([]);
@@ -219,17 +221,32 @@ export function WatchPage() {
   }
 
   const isHls = play != null && play.mode === 'hls' && !codecUnsupported;
-  const needsPlayer = play != null && (play.mode === 'player-required' || (play.mode === 'hls' && codecUnsupported));
+  // A cached H.264 "compatibility" package (D26/D27): the browser can't decode
+  // the file's own video (HEVC/x265 ≤1080p) or the user opted into a 4K → 1080p
+  // rendition for a player-required file.
+  const compatInfo = play?.compat ?? null;
+  const needsCompat =
+    play != null &&
+    compatInfo != null &&
+    ((play.mode === 'hls' && codecUnsupported) || (play.mode === 'player-required' && transcode4k));
+  const needsPlayer =
+    play != null &&
+    !isHls &&
+    !needsCompat &&
+    (play.mode === 'player-required' || (play.mode === 'hls' && codecUnsupported));
+  const webPackage = isHls || needsCompat;
+  const manifestUrl = needsCompat ? (compatInfo?.manifestUrl ?? '') : (play?.manifestUrl ?? '');
+  const pkgVariant: 'web' | 'compat' | undefined = needsCompat ? 'compat' : undefined;
 
   useEffect(() => {
-    if (!isHls) return;
+    if (!webPackage) return;
     let cancelled = false;
     let timer: number | undefined;
     setPkgFailed(false);
     setPkgError(null);
     const poll = async (): Promise<void> => {
       try {
-        const status = await packageStatus(infoHash, selectedFile ?? undefined);
+        const status = await packageStatus(infoHash, selectedFile ?? undefined, pkgVariant);
         if (cancelled) return;
         if (status.phase === 'ready') {
           setPkgPhase('ready');
@@ -256,10 +273,10 @@ export function WatchPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isHls, infoHash, selectedFile, pkgTick]);
+  }, [webPackage, infoHash, selectedFile, pkgVariant, pkgTick]);
 
   function retryHls(): void {
-    void clearPackage(infoHash, selectedFile ?? undefined)
+    void clearPackage(infoHash, selectedFile ?? undefined, pkgVariant)
       .catch(() => undefined)
       .then(() => setPkgTick((t) => t + 1));
   }
@@ -352,6 +369,12 @@ export function WatchPage() {
             : "This release can't be decoded in the browser."}{' '}
           Play it in your own player (VLC, MPV, …) instead — open one below and it plays directly.
         </p>
+        {play.mode === 'player-required' && compatInfo != null && (
+          <p className="empty-state" style={{ marginTop: 0 }}>
+            Tip: enable <strong>4K → 1080p</strong> in Settings → Web playback to build a
+            browser-playable copy instead.
+          </p>
+        )}
         <div className="page-state" style={{ minHeight: 'auto', flexDirection: 'row' }}>
           <ExternalPlayerLink className="btn btn-white" href={externalPlayerUrl(infoHash, selectedFile ?? undefined)}>
             <MonitorPlay size={18} /> Open in your player
@@ -412,11 +435,11 @@ export function WatchPage() {
       )}
 
       {resumeSeconds == null &&
-        (isHls ? (
+        (webPackage ? (
           pkgPhase === 'ready' && !pkgFailed ? (
             <ShakaPlayer
-              key={`${play.manifestUrl ?? 'hls'}::${reloadNonce}`}
-              manifestUrl={play.manifestUrl ?? ''}
+              key={`${manifestUrl || 'hls'}::${reloadNonce}`}
+              manifestUrl={manifestUrl}
               resumeAt={startAt}
               onTick={(video) => saveProgress(video)}
               onPlayback={onPlaying}
@@ -453,8 +476,10 @@ export function WatchPage() {
             <div className="watch-overlay">
               <span className="spinner spinner-sm" aria-hidden="true" />
               <span>
-                Preparing a browser-friendly copy… {Math.round(pkgProgress * 100)}% (one-time, then
-                cached)
+                {needsCompat && compatInfo?.targetHeight
+                  ? `Building a web-compatible ${compatInfo.targetHeight}p copy…`
+                  : 'Building a web-compatible copy…'}{' '}
+                {Math.round(pkgProgress * 100)}% (one-time, then cached)
               </span>
             </div>
           )

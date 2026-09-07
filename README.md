@@ -7,6 +7,11 @@
 Search the TMDB catalog, find the best release with Prowlarr, download it with qBittorrent,
 and stream it straight from your own library — nothing leaves your hardware.
 
+The goal is **~90% of titles stream in-browser with no external player**: keep your machine on,
+open a tunnel (or point your own domain at it), and watch from your TV, another PC or your phone —
+anywhere. External players (VLC/MPV/…) are a fallback for the long tail (4K/HEVC, exotic codecs),
+never the norm.
+
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=nodedotjs&logoColor=white)
@@ -29,7 +34,8 @@ and stream it straight from your own library — nothing leaves your hardware.
 | **Find** | Tracker-agnostic torrent search through Prowlarr. Enable any indexer (1337x, The Pirate Bay, YTS, …) — nothing is hard-coded. |
 | **Download** | Best-matching, most-seeded release goes to qBittorrent. Sequential download pulls playback-ready pieces first. |
 | **Track** | Live progress over Socket.IO — state, speed, ETA, pause, resume, remove. |
-| **Watch** | In-browser playback of finished files with automatic codec handling — audio remux, H.264 transcode and HLS packaging when the browser needs it. |
+| **Watch** | In-browser playback of finished files with automatic codec handling — audio remux, HLS packaging, and an on-demand cached **H.264 compatibility copy** for HEVC/x265 titles the browser can't decode (so ~90% of movies play without a local player). |
+| **Watch anywhere** | Keep your machine on and open a **Cloudflare tunnel** (beta) or configure your own domain — then watch from your TV, another PC or your phone. |
 | **Open in your player** | 4K/HEVC or exotic audio? One click hands the file to VLC, MPV, MPC-HC or PotPlayer via a one-time `movie://` registration. |
 | **Cinematic UI** | A black & white chrome over full-color artwork — hover-trailer previews, IMDb ratings, quality-filtered release lists, and per-title version grouping. |
 
@@ -127,6 +133,27 @@ The **Player** buttons always try to open your player — the setup just makes t
 status shown in Settings is informational only. Re-running the file is harmless (it simply
 overwrites the launcher). To remove the link, use the uninstaller in Settings.
 
+## Watch anywhere (beta)
+
+The point of noAir is watching from **any device** — your TV, another PC, or your phone — while
+your machine keeps running. In-browser playback is the norm (~90% of titles), so the whole app is
+a web app you can reach from anywhere once it's exposed.
+
+**Beta: Cloudflare quick tunnel (no account needed).** A single extra container runs `cloudflared`
+and gives you a public `https://*.trycloudflare.com` URL:
+
+1. In `.env`, set `REMOTE_ACCESS=1`.
+2. Start it: `docker compose --profile remote up -d cloudflared`.
+3. Open **Settings → Remote access** in the app — it shows the live URL (the URL changes each time
+   `cloudflared` restarts). Open that URL on your TV or another device.
+
+> **The URL is the password.** There is no login, so anyone with the link can search, download and
+> delete. For the beta it's assumed only you use it; don't share the URL. A token gate is planned.
+
+To use a **stable URL on your own domain** instead, run a named Cloudflare tunnel: set
+`CLOUDFLARE_TUNNEL_TOKEN` (and `CLOUDFLARE_TUNNEL_HOSTNAME`) in `.env` and it routes to the app the
+same way.
+
 ## Development
 
 Run the API and Vite dev server locally (without Docker):
@@ -142,7 +169,8 @@ Checks in each package: `npm test`, `npm run lint`, `npm run typecheck`.
 
 `frontend` (5173), `qbittorrent` (8080) and `prowlarr` (9696) are published on the host.
 `postgres` and `backend` are internal-only. qBittorrent requires its own login; **Prowlarr has no
-auth** — keep it on a trusted network.
+auth** — keep it on a trusted network. Remote access (beta) is an opt-in `cloudflared` container
+(compose profile `remote`) exposing only the `frontend` over HTTPS.
 
 ## Troubleshooting
 
@@ -168,8 +196,10 @@ auth** — keep it on a trusted network.
   2. Repeated failed logins triggered qBittorrent's **IP ban** — the backend polled with wrong
      credentials and banned its own container IP. Restart the qBittorrent container to clear it,
      then fix the credentials in `.env`.
-- **HEVC/x265 or `.avi` won't play in-browser**: use *Download file* and open in a native player
-  (browser codec limitation, not a bug).
+- **HEVC/x265 or `.avi` won't play in-browser**: noAir builds an on-demand H.264 compatibility copy
+  for HEVC/x265 ≤1080p titles (watch again after the "Building a web-compatible copy" bar
+  finishes). 4K files can build a 1080p copy if you enable it (Settings → Web playback). The long
+  tail (4K/HEVC bit-perfect, exotic codecs) remains available via *Download file* + a native player.
 
 </details>
 
@@ -183,7 +213,6 @@ auth** — keep it on a trusted network.
 ## Documentation
 
 - `docs/credentials.md` — credential setup and rotation.
-- `docs/plan/` — design and build notes.
 - `AGENTS.md` — repository working rules.
 
 Download content you have the right to. Respect the terms of the services you use.

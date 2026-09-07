@@ -9,6 +9,7 @@ import { createImagesRouter } from './routes/images.js';
 import { createBrowseRouter } from './routes/browse.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createPlaybackRouter } from './routes/playback.js';
+import { createRemoteRouter } from './routes/remote.js';
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
@@ -27,6 +28,7 @@ export function createApp(deps: AppDeps): Express {
   app.use('/api', createBrowseRouter(deps));
   app.use('/api', createSettingsRouter(deps));
   app.use('/api', createPlaybackRouter(deps));
+  app.use('/api', createRemoteRouter(deps));
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof UpstreamError) {

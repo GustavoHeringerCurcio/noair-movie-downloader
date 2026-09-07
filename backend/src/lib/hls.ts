@@ -10,10 +10,15 @@ import type { AudioInfo, MediaInfo, SidecarSubtitle, SubtitleInfo } from './medi
  * they can be unit-tested.
  */
 
-/** Deterministic directory key for one package (per torrent + file). */
-export function packageKey(infoHash: string, relative: string): string {
+/**
+ * Deterministic directory key for one package (per torrent + file + variant).
+ * The default (web) variant stream-copies the video; `compat` re-encodes it to
+ * H.264 for files the browser's MSE can't decode, so the two never collide.
+ */
+export function packageKey(infoHash: string, relative: string, variant?: 'web' | 'compat'): string {
   const slug = relative.split('/').join('-').replace(/[^A-Za-z0-9._-]/g, '-');
-  return `${infoHash.toLowerCase()}-${slug}`;
+  const suffix = variant === 'compat' ? '-compat' : '';
+  return `${infoHash.toLowerCase()}-${slug}${suffix}`;
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -106,6 +111,45 @@ export function videoSegmentArgs(input: string, dir: string): string[] {
     '-hls_segment_filename', path.join(dir, 'seg_%05d.m4s'),
     path.join(dir, 'main.m3u8'),
   ];
+}
+
+/**
+ * The "compatibility" video rendition (D26/D27): same fMP4 HLS layout as
+ * `videoSegmentArgs` but the video is re-encoded once to H.264 instead of
+ * stream-copied, so files the browser's MSE can't decode (HEVC/x265 8- or
+ * 10-bit, and — with the 4K opt-in — 2160p content) still play in-browser.
+ * `targetHeight` scales the encode down (e.g. 1080) for 4K sources; leave it
+ * null to keep the source resolution.
+ */
+export function videoCompatSegmentArgs(
+  input: string,
+  dir: string,
+  opts: { targetHeight?: number | null } = {},
+): string[] {
+  const args = [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-i', input,
+    '-map', '0:v:0',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '21',
+    '-pix_fmt', 'yuv420p',
+  ];
+  if (opts.targetHeight && opts.targetHeight > 0) {
+    args.push('-vf', `scale=-2:${opts.targetHeight}`);
+  }
+  args.push(
+    '-an', '-dn',
+    '-f', 'hls',
+    '-hls_time', '6',
+    '-hls_playlist_type', 'vod',
+    '-hls_segment_type', 'fmp4',
+    '-hls_fmp4_init_filename', 'init.mp4',
+    '-hls_segment_filename', path.join(dir, 'seg_%05d.m4s'),
+    path.join(dir, 'main.m3u8'),
+  );
+  return args;
 }
 
 /**

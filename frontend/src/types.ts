@@ -287,6 +287,13 @@ export interface PlayInfo {
    * browser (skip packaging, use the external player); null = no gate.
    */
   mseProbe: string[] | null;
+  /**
+   * Present when a cached H.264 "compatibility" package can be built for this
+   * file (D26/D27). The Watch page uses it when the browser's MSE can't decode
+   * the file's own video, or for 4K files when the 1080p rendition is enabled.
+   * `targetHeight` is 1080 for 4K sources (downscaled), null otherwise.
+   */
+  compat: { manifestUrl: string; targetHeight: number | null } | null;
 }
 
 export interface CreateDownloadPayload {

@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDownloadsStore } from '@/store/downloadsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useFriendlyPickStore, FRIENDLY_PICK_OPTIONS } from '@/store/friendlyPickStore';
 import { useToastStore } from '@/store/toastStore';
 import { usePosterStyleStore, type PosterStyle } from '@/store/posterStyleStore';
 import { usePosterImdbStore } from '@/store/posterImdbStore';
+import { useTranscode4kStore } from '@/store/transcode4kStore';
+import { remoteStatus, type RemoteStatus } from '@/api';
 import type { AudioLang, FriendlyPickMode } from '@/types';
 import {
   buildLinuxInstallerSh,
@@ -21,7 +23,7 @@ import { AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel } from '@/lib/audio';
 
 const CONFIG_KEYS: Array<{ key: string; description: string }> = [
   { key: 'TMDB_API_KEY', description: 'Metadata provider (TMDB)' },
-  { key: 'OMDB_API_KEY', description: 'Portrait-poster provider (OMDb)' },
+  { key: 'OMDB_API_KEY', description: 'IMDb-rating provider (OMDb, optional)' },
   { key: 'FANART_API_KEY', description: 'Horizontal key-art provider (fanart.tv)' },
   { key: 'PROWLARR_URL', description: 'Torrent indexer aggregator base URL' },
   { key: 'PROWLARR_API_KEY', description: 'Prowlarr API key' },
@@ -32,14 +34,14 @@ const CONFIG_KEYS: Array<{ key: string; description: string }> = [
 
 const POSTER_STYLE_OPTIONS: Array<{ id: PosterStyle; label: string; hint: string }> = [
   {
-    id: 'horizontal',
-    label: 'Horizontal',
-    hint: 'Wide 16:9 poster cards with key-art thumbnails (default)',
-  },
-  {
     id: 'vertical',
     label: 'Vertical 2:3',
-    hint: 'Classic poster cards using TMDB poster art',
+    hint: 'Classic poster cards using TMDB poster art (default)',
+  },
+  {
+    id: 'horizontal',
+    label: 'Horizontal',
+    hint: 'Wide 16:9 poster cards with key-art thumbnails',
   },
 ];
 
@@ -62,6 +64,9 @@ export function SettingsPage() {
   const setPosterStyle = usePosterStyleStore((s) => s.setStyle);
   const showImdb = usePosterImdbStore((s) => s.show);
   const setShowImdb = usePosterImdbStore((s) => s.setShow);
+  const transcode4k = useTranscode4kStore((s) => s.enabled);
+  const setTranscode4k = useTranscode4kStore((s) => s.setEnabled);
+  const [remote, setRemote] = useState<RemoteStatus | null>(null);
   const setupOs = detectOs();
   const setupChoices = playerChoicesFor(setupOs);
   const isLinuxSetup = setupOs === 'linux';
@@ -71,6 +76,20 @@ export function SettingsPage() {
     return pref && setupChoices.some((c) => c.id === pref) ? pref : (setupChoices[0]?.id ?? 'vlc');
   });
   const [setupDone, setSetupDone] = useState<boolean>(() => isOpenerSetupDone());
+
+  useEffect(() => {
+    let cancelled = false;
+    remoteStatus()
+      .then((r) => {
+        if (!cancelled) setRemote(r);
+      })
+      .catch(() => {
+        if (!cancelled) setRemote(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!ready) void loadSettings();
 
@@ -118,6 +137,26 @@ export function SettingsPage() {
     if (next === showImdb) return;
     setShowImdb(next);
     toast(next ? 'IMDb ratings: shown on posters' : 'IMDb ratings: hidden on posters', 'info');
+  }
+
+  function changeTranscode4k(next: boolean): void {
+    if (next === transcode4k) return;
+    setTranscode4k(next);
+    toast(next ? '4K → 1080p web copy: enabled' : '4K → 1080p web copy: disabled', 'info');
+  }
+
+  function refreshRemote(): void {
+    setRemote(null);
+    remoteStatus()
+      .then((r) => setRemote(r))
+      .catch(() => setRemote(null));
+  }
+
+  function copyRemoteUrl(url: string): void {
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => toast('Remote URL copied — open it on your TV or another device.', 'success'))
+      .catch(() => toast('Couldn’t access the clipboard.', 'error'));
   }
 
   async function changeAudio(next: AudioLang): Promise<void> {
@@ -288,9 +327,9 @@ export function SettingsPage() {
       <section className="settings-card">
         <h2>Poster style</h2>
         <p className="settings-note">
-          How every Home and Search card is framed. Horizontal (default) shows real 16:9 key-art
-          thumbnails — titles without one fall back to a backdrop with the studio logo overlaid.
-          Vertical 2:3 narrows and tallens the cards and uses the raw TMDB poster instead.
+          How every Home and Search card is framed. Vertical 2:3 is the default view — classic
+          poster cards using the raw TMDB poster. Switch to Horizontal for wide 16:9 key-art
+          thumbnails; titles without one fall back to a backdrop with the studio logo overlaid.
         </p>
         <div className="artwork-options" role="group" aria-label="Poster style">
           {POSTER_STYLE_OPTIONS.map((option) => {
@@ -400,6 +439,35 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-card">
+        <h2>Web playback</h2>
+        <p className="settings-note">
+          Most titles already play in-browser, and HEVC/x265 ≤1080p files automatically build a
+          cached H.264 copy. 4K/UHD files don't decode in any browser, so by default they stay
+          bit-perfect in your local player. Enable the option below to instead build a cached
+          1080p copy for 4K files — it's slow (up to a couple of hours) and uses ~4 GB per title,
+          but then those play in-browser too.
+        </p>
+        <label className="toggle-row">
+          <span className="toggle-label">Build a 1080p copy for 4K/UHD files</span>
+          <span className="toggle-control">
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={transcode4k}
+              onChange={(e) => changeTranscode4k(e.target.checked)}
+              aria-label="Build a 1080p copy for 4K/UHD files"
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+          </span>
+        </label>
+        <p className="settings-note">
+          Saved on this device only — each browser keeps its own preference.
+        </p>
+      </section>
+
+      <section className="settings-card">
         <h2>System</h2>
         <dl className="settings-row">
           <dt>Backend (REST + Socket.IO)</dt>
@@ -431,6 +499,49 @@ export function SettingsPage() {
             <dd>{description}</dd>
           </dl>
         ))}
+      </section>
+
+      <section className="settings-card">
+        <h2>Remote access <span className="player-heading-note">beta</span></h2>
+        <p className="settings-note">
+          Watch from anywhere — your TV, another computer or your phone — by exposing this app over
+          a Cloudflare tunnel while your machine stays on. It's opt-in: set <code>REMOTE_ACCESS=1</code>{' '}
+          in <code>.env</code> and start <code>docker compose --profile remote up -d cloudflared</code>.
+        </p>
+        {remote == null ? (
+          <p className="settings-note">Checking…</p>
+        ) : !remote.enabled ? (
+          <p className="settings-note settings-note-warn">
+            Remote access is off. Enable it in <code>.env</code> and start the <code>cloudflared</code>{' '}
+            service to get a public URL.
+          </p>
+        ) : remote.url ? (
+          <div className="settings-row">
+            <span className="toggle-label">
+              {remote.mode === 'named' ? 'Your domain' : 'Public URL (changes on restart)'}
+            </span>
+            <span className="remote-url" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <code style={{ wordBreak: 'break-all' }}>{remote.url}</code>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => copyRemoteUrl(remote.url!)}>
+                Copy
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={refreshRemote}>
+                Refresh
+              </button>
+            </span>
+          </div>
+        ) : (
+          <p className="settings-note">
+            Tunnel starting — a URL appears here once cloudflared connects (this can take a few
+            seconds).
+          </p>
+        )}
+        {remote?.enabled && (
+          <p className="settings-note settings-note-warn">
+            There is no login. Anyone with the URL can search, download and delete — treat the URL
+            like a password and don't share it. A token gate is planned for later.
+          </p>
+        )}
       </section>
 
       <section className="settings-card">

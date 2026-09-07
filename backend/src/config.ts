@@ -41,8 +41,16 @@ export interface AppConfig {
   downloadDir: string;
   /** Root for the HLS package cache produced for completed files (Playback). */
   packageDir: string;
+  /** Soft size cap for the package cache; oldest completed packages are evicted beyond it (D26). */
+  packageMaxBytes: number | null;
   /** Root where the poster pipeline stores downloaded portrait posters (OMDb). */
   artDir: string;
+  /** Remote access (beta): whether the cloudflared tunnel is enabled (D28). */
+  remoteAccessEnabled: boolean;
+  /** Shared volume dir where the cloudflared entrypoint writes the live public URL. */
+  remoteDataDir: string;
+  /** Optional stable hostname for a named Cloudflare tunnel (D28). */
+  cloudflareTunnelHostname: string | null;
   pollIntervalMs: number;
   artWarmIntervalMs: number;
 }
@@ -69,7 +77,11 @@ export function loadConfig(): AppConfig {
     databaseUrl: requireEnv('DATABASE_URL'),
     downloadDir: optionalEnv('DOWNLOAD_DIR', '/downloads'),
     packageDir: optionalEnv('PACKAGE_DIR', '/packages'),
+    packageMaxBytes: parseInt(optionalEnv('PACKAGE_MAX_BYTES', ''), 10) || null,
     artDir: optionalEnv('ART_DIR', '/art'),
+    remoteAccessEnabled: optionalEnv('REMOTE_ACCESS', '0') === '1',
+    remoteDataDir: optionalEnv('REMOTE_DATA_DIR', '/remote'),
+    cloudflareTunnelHostname: optionalEnv('CLOUDFLARE_TUNNEL_HOSTNAME', '') || null,
     pollIntervalMs: 2000,
     artWarmIntervalMs: parseInt(optionalEnv('ART_WARM_INTERVAL_MS', String(12 * 60 * 60 * 1000)), 10),
   };

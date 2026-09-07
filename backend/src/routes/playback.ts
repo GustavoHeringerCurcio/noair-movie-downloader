@@ -22,7 +22,10 @@ function toText(value: unknown): string {
 const PACKAGE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function createPlaybackRouter(deps: AppDeps): Router {
-  const manager = createPackageManager({ packageRoot: deps.config.packageDir });
+  const manager = createPackageManager({
+    packageRoot: deps.config.packageDir,
+    maxBytes: deps.config.packageMaxBytes,
+  });
   const router = Router();
 
   function resolveFile(record: DownloadRecord, file: string | null): ResolvedFile | null {
@@ -36,6 +39,7 @@ export function createPlaybackRouter(deps: AppDeps): Router {
   async function loadPackage(
     infoHash: string,
     file: string | null,
+    variant: 'web' | 'compat',
   ): Promise<
     { record: DownloadRecord; resolved: ResolvedFile; state: PackageState } | { error: { status: number; message: string } }
   > {
@@ -46,12 +50,18 @@ export function createPlaybackRouter(deps: AppDeps): Router {
     const media = await probeMediaInfo(resolved.absolutePath);
     if (!media) return { error: { status: 500, message: 'could not probe media' } };
     const sidecars = listSidecarSubtitles(resolved.absolutePath);
+    // 4K compat renditions are downscaled to 1080p (D27); ≤1080p compat keeps
+    // the source resolution. Derived server-side so the package key and the
+    // built rendition always match.
+    const targetHeight = variant === 'compat' && (media.height ?? 0) >= 2160 ? 1080 : null;
     const state = await manager.ensurePackage({
       infoHash: record.infoHash,
       relative: resolved.relative,
       absolutePath: resolved.absolutePath,
       media,
       sidecars,
+      variant,
+      targetHeight,
     });
     return { record, resolved, state };
   }
@@ -60,10 +70,14 @@ export function createPlaybackRouter(deps: AppDeps): Router {
     return { phase: state.phase, progress: state.progress, error: state.error };
   }
 
+  function variantFrom(value: unknown): 'web' | 'compat' {
+    return value === 'compat' ? 'compat' : 'web';
+  }
+
   router.get('/playback/:infoHash/hls/status', async (req, res) => {
     const infoHash = toText(req.params.infoHash).trim().toLowerCase();
     const file = toText(req.query.file) || null;
-    const loaded = await loadPackage(infoHash, file);
+    const loaded = await loadPackage(infoHash, file, variantFrom(req.query.variant));
     if ('error' in loaded) {
       res.status(loaded.error.status).json({ error: loaded.error.message });
       return;
@@ -74,7 +88,8 @@ export function createPlaybackRouter(deps: AppDeps): Router {
   router.get('/playback/:infoHash/hls/master.m3u8', async (req, res) => {
     const infoHash = toText(req.params.infoHash).trim().toLowerCase();
     const file = toText(req.query.file) || null;
-    const loaded = await loadPackage(infoHash, file);
+    const variant = variantFrom(req.query.variant);
+    const loaded = await loadPackage(infoHash, file, variant);
     if ('error' in loaded) {
       res.status(loaded.error.status).json({ error: loaded.error.message });
       return;
@@ -83,7 +98,7 @@ export function createPlaybackRouter(deps: AppDeps): Router {
       res.status(202).json(packageStatusBody(loaded.state));
       return;
     }
-    const key = packageKey(loaded.record.infoHash, loaded.resolved.relative);
+    const key = packageKey(loaded.record.infoHash, loaded.resolved.relative, variant);
     const master = manager.masterPlaylistPath(key);
     if (!master) {
       res.status(500).json({ error: 'package manifest missing' });
@@ -98,6 +113,7 @@ export function createPlaybackRouter(deps: AppDeps): Router {
   router.delete('/playback/:infoHash/hls', async (req, res) => {
     const infoHash = toText(req.params.infoHash).trim().toLowerCase();
     const file = toText(req.query.file) || null;
+    const variant = variantFrom(req.query.variant);
     const record = await deps.downloads.findByInfoHash(infoHash);
     if (!record) {
       res.status(404).json({ error: 'not found' });
@@ -108,7 +124,7 @@ export function createPlaybackRouter(deps: AppDeps): Router {
       res.status(404).json({ error: 'not ready' });
       return;
     }
-    manager.deletePackage(packageKey(record.infoHash, resolved.relative));
+    manager.deletePackage(packageKey(record.infoHash, resolved.relative, variant));
     res.status(204).end();
   });
 
