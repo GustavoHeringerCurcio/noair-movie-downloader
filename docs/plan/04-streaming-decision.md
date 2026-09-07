@@ -94,7 +94,7 @@ is the authoritative figure above.
   486 s of content) ≈ 4.3 Mb/s. For a 2h32m film: **≈4.0-4.7 GB** package vs **4.3 GB**
   source (x265 10-bit CRF≈source size). A compat package therefore roughly **adds
   ~1.0× the source file's size** to the `packages` volume. Audio renditions add only
-  ~220 MB/h (192 kb/s AAC); WebVTT subs are negligible.
+  ~90 MB/h each (192 kb/s AAC ≈ 220 MB for a 2h32m film); WebVTT subs are negligible.
 - 2160p→1080p capped rendition output: ≈3.5 Mb/s → ≈4.0 GB per 2h32m 4K film.
 
 ## 4. Candidate strategies — costed comparison
