@@ -156,12 +156,45 @@ same way.
 
 ## Development
 
-Run the API and Vite dev server locally (without Docker):
+For a fast edit→see-it loop use the **Docker dev stack**. Infra containers run
+as-is, but `backend` and `frontend` are replaced by live-reloading dev servers
+(`tsx watch` + Vite HMR) with your source bind-mounted. Edits land in the
+browser at http://localhost:5173 in seconds — nothing ever needs a rebuild:
+
+```
+.\scripts\dev.ps1            # start dev stack (builds cached dev images first time)
+```
+
+(Short for `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`.)
+
+While it runs: edit `backend/src` → `tsx watch` restarts the API on save
+(:3000 is also exposed on the host for curl); edit `frontend/src` → HMR updates
+the browser immediately.
+
+```
+.\scripts\dev.ps1 start      # start again without rebuilding images
+.\scripts\dev.ps1 rebuild    # rebuild dev images — do this after adding an npm dependency
+.\scripts\dev.ps1 logs       # tail backend + frontend logs
+.\scripts\dev.ps1 down       # stop everything
+```
+
+Production is untouched — plain `docker compose up -d --build` still builds the
+real multi-stage images.
+
+### Running natively (optional)
+
+Both apps can also run on the host against the Docker backing services (the
+Vite proxy and backend `.env` loading support this), but it needs extra setup:
 
 ```
 cd backend && npm install && npm run dev      # API + Socket.IO on :3000
 cd frontend && npm install && npm run dev     # Vite on :5173, proxies /api + /socket.io to :3000
 ```
+
+Caveats: the backend spawns `ffmpeg` from PATH (streaming/transcoding), and the
+`.env` service URLs (`DATABASE_URL`, `PROWLARR_URL`, `QBITTORRENT_URL`) must be
+pointed at `localhost` for native use — so the Docker dev stack above is the
+supported workflow.
 
 Checks in each package: `npm test`, `npm run lint`, `npm run typecheck`.
 
