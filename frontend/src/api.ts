@@ -208,7 +208,8 @@ export function trailerEmbedUrl(trailer: Trailer, opts: { muted?: boolean } = {}
     return `https://player.vimeo.com/video/${encodeURIComponent(trailer.videoId)}?autoplay=1&muted=${v}&loop=1&controls=0&title=0&byline=0&portrait=0`;
   }
   const m = muted ? '1' : '0';
-  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.videoId)}?autoplay=1&mute=${m}&controls=0&playsinline=1&loop=1&playlist=${encodeURIComponent(trailer.videoId)}&modestbranding=1`;
+  // `start=5` skips the studio splash at the head of most trailers.
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.videoId)}?autoplay=1&mute=${m}&controls=0&playsinline=1&loop=1&playlist=${encodeURIComponent(trailer.videoId)}&modestbranding=1&start=5`;
 }
 
 /**

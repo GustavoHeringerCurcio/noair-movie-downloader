@@ -11,9 +11,19 @@ import { usePosterStyleStore } from '../store/posterStyleStore';
 import { usePosterImdbStore } from '../store/posterImdbStore';
 
 /** How long a card must stay hovered before the expanded card (D20) opens (D18). */
-const TRAILER_HOVER_DELAY_MS = 600;
-/** Hover-card width = 1.7× the base card (Netflix-style scale). */
+const TRAILER_HOVER_DELAY_MS = 320;
+/** Hover-time before the payload prefetch starts. Kept well under the expand
+    delay so the pop-up opens with its trailer/backdrop already resolved, but
+    long enough that accidental fast sweeps across a row cost no requests. */
+const PREFETCH_HOVER_DELAY_MS = 150;
+/** If the embed never reports ready (blocked, ad-heavy, or slow), reveal it
+    anyway after this grace period so the pop-up can't sit on a static still. */
+const TRAILER_REVEAL_FALLBACK_MS = 3000;
+/** Hover-card width vs the base card (Netflix-style scale). Vertical 2:3
+    posters keep 1.7×; horizontal key-art cards get 1.8× so their pop-up stays
+    clearly wide next to the portrait vertical one. */
 const POP_SCALE = 1.7;
+const POP_SCALE_HORIZ = 1.8;
 /** Small close grace so the pointer can move from the card onto the pop-up. */
 const POP_CLOSE_GRACE_MS = 200;
 /**
@@ -159,9 +169,13 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   const [info, setInfo] = useState<HoverCardInfo | null>(null);
   const [geometry, setGeometry] = useState<PopGeometry | null>(null);
   const [soundOn, setSoundOn] = useState(true);
+  const [trailerReady, setTrailerReady] = useState(false);
 
   const leavingRef = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
+  const expandTimerRef = useRef<number | null>(null);
+  const prefetchTimerRef = useRef<number | null>(null);
+  const fetchIdRef = useRef(0);
   const collapseRef = useRef<() => void>(() => {});
   const releaseRef = useRef<(() => void) | null>(null);
 
@@ -172,6 +186,7 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
     setInfo(null);
     setGeometry(null);
     setSoundOn(true);
+    setTrailerReady(false);
   }, [subjectKey]);
 
   const reduceMotion = prefersReducedMotion();
@@ -186,33 +201,66 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
       setExpanded(false);
       return;
     }
-    const timer = window.setTimeout(() => {
+    if (expandTimerRef.current != null) {
+      window.clearTimeout(expandTimerRef.current);
+    }
+    expandTimerRef.current = window.setTimeout(() => {
+      expandTimerRef.current = null;
+      // Each fresh open re-hides the iframe (so the artwork crossfades in again
+      // instead of showing a buffering embed at full opacity) and restarts with
+      // sound on.
+      setSoundOn(true);
+      setTrailerReady(false);
       setExpanded(true);
     }, TRAILER_HOVER_DELAY_MS);
     return () => {
-      window.clearTimeout(timer);
+      if (expandTimerRef.current != null) {
+        window.clearTimeout(expandTimerRef.current);
+        expandTimerRef.current = null;
+      }
     };
   }, [hovering, canHover, subjectKey]);
 
-  // Resolve the hover payload once the card expands. A failure (null) keeps the
-  // card static — the pop-up must never depend on an unreachable backend.
+  // Resolve the hover payload a beat after a hover begins — before the expand
+  // delay above ends — so the pop-up opens with its trailer/backdrop already
+  // resolved and the rise feels instant. Too-short sweeps (under the prefetch
+  // wait) never fire a request. A failure (null) keeps the card static: the
+  // pop-up must never depend on an unreachable backend. `fetchIdRef` lets a
+  // stale in-flight response be dropped if the user moves on mid-flight.
   useEffect(() => {
-    if (!expanded) return;
-    let cancelled = false;
-    setSoundOn(true);
-    setInfo(null);
-    void hoverCardFor({ tmdbId: item.tmdbId, mediaType: item.mediaType }).then((res) => {
-      if (cancelled) return;
-      if (!res) {
-        setExpanded(false);
-        return;
-      }
-      setInfo(res);
-    });
+    fetchIdRef.current += 1;
+    const id = fetchIdRef.current;
+    if (!canHover || !hovering) {
+      setInfo(null);
+      return;
+    }
+    if (prefetchTimerRef.current != null) {
+      window.clearTimeout(prefetchTimerRef.current);
+    }
+    prefetchTimerRef.current = window.setTimeout(() => {
+      prefetchTimerRef.current = null;
+      void hoverCardFor({ tmdbId: item.tmdbId, mediaType: item.mediaType }).then((res) => {
+        if (id !== fetchIdRef.current) return;
+        if (!res) {
+          // Learned before the pop-up opened that the backend can't answer —
+          // cancel the pending expansion instead of opening an empty card.
+          if (expandTimerRef.current != null) {
+            window.clearTimeout(expandTimerRef.current);
+            expandTimerRef.current = null;
+          }
+          setExpanded(false);
+          return;
+        }
+        setInfo(res);
+      });
+    }, PREFETCH_HOVER_DELAY_MS);
     return () => {
-      cancelled = true;
+      if (prefetchTimerRef.current != null) {
+        window.clearTimeout(prefetchTimerRef.current);
+        prefetchTimerRef.current = null;
+      }
     };
-  }, [expanded, item.tmdbId, item.mediaType]);
+  }, [canHover, hovering, item.tmdbId, item.mediaType]);
 
   // Any scroll/resize while a pop-up is open would leave it floating over the
   // wrong cell — close it (Netflix also dismisses previews on scroll).
@@ -228,11 +276,12 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   }, [expanded]);
 
   // Measure the base card AFTER the expanded class has removed its hover scale,
-  // then size the pop-up to it: 1.7× wide, centered horizontally. This first pass
-  // uses a provisional top; the layout effect below re-centers it vertically so
-  // the card grows equally above and below the hovered cell (Netflix overlap).
-  // A 2:3 (vertical) base card is narrower, so the pop-up keeps a wider minimum
-  // than the 16:9 card does — the details column must never feel cramped.
+  // then size the pop-up to it: centered horizontally, wider than the card. This
+  // first pass uses a provisional top; the layout effect below re-centers it
+  // vertically so the card grows equally above and below the hovered cell. A
+  // 2:3 (vertical) base card is narrower, so its pop-up keeps a wider minimum
+  // and a smaller scale than the 16:9 card — the details column must never feel
+  // cramped, and horizontal pop-ups stay comfortably wide (1.8×).
   useEffect(() => {
     if (!expanded) {
       setGeometry(null);
@@ -242,8 +291,9 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const vw = window.innerWidth;
-    const minW = vertical ? 248 : 200;
-    const width = Math.min(Math.max(minW, Math.round(rect.width * POP_SCALE)), vw - 24);
+    const scale = vertical ? POP_SCALE : POP_SCALE_HORIZ;
+    const minW = vertical ? 248 : 220;
+    const width = Math.min(Math.max(minW, Math.round(rect.width * scale)), vw - 24);
     const mediaHeight = Math.round((width * 9) / 16);
     const maxLeft = Math.max(12, vw - width - 12);
     const left = Math.min(Math.max(12, Math.round(rect.left + rect.width / 2 - width / 2)), maxLeft);
@@ -282,7 +332,17 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
   // Reduced-motion users never get an autoplaying <iframe>; a static YouTube
   // first-frame stands in so the pop-up stays motion-free but informative.
   const showTrailer = hasTrailer && !reduceMotion;
-  const trailerStill = reduceMotion && hasTrailer ? trailerStillUrl(info?.trailer ?? null) : null;
+  // YouTube's first-frame is also the cheapest "loading poster": it sits under
+  // the autoplaying embed so the band is never black while YouTube buffers.
+  const trailerFrame = trailerStillUrl(info?.trailer ?? null);
+  const trailerStill = reduceMotion ? trailerFrame : null;
+
+  // Reveal the iframe after a grace period even if its onLoad never fires.
+  useEffect(() => {
+    if (!expanded || !hasTrailer || trailerReady) return;
+    const timer = window.setTimeout(() => setTrailerReady(true), TRAILER_REVEAL_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [expanded, hasTrailer, trailerReady, subjectKey]);
 
   // ------------------------------------------------------------------------
   // Artwork (T-002). Default = vertical 2:3 poster: raw TMDB poster over the
@@ -585,26 +645,37 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
         createPortal(
           <div
             ref={popRef}
-            className="tc-pop"
+            className={`tc-pop ${vertical ? 'tc-pop-vert' : 'tc-pop-horiz'}`}
             style={{ left: geometry.left, top: geometry.top, width: geometry.width }}
             onMouseEnter={cancelClose}
             onMouseLeave={scheduleClose}
           >
             <div className="tc-pop-media" style={{ height: geometry.mediaHeight }} onClick={playAction}>
-              {showTrailer && info?.trailer ? (
-                <iframe
-                  key={`${info.trailer.videoId}:${soundOn ? 'on' : 'muted'}`}
-                  className="tc-pop-video"
-                  src={trailerEmbedUrl(info.trailer, { muted: !soundOn })}
-                  title={`${item.title} trailer preview`}
-                  tabIndex={-1}
-                  allow="autoplay; encrypted-media; picture-in-picture"
+              {/* Base layer: always paints so the band is never blank/black while
+                  the embed buffers — the artwork "hides" the load and the video
+                  crossfades in on top once its onLoad fires. In reduced motion
+                  (or no trailer) this layer IS the pop-up's media. */}
+              {showTrailer && popArtSrc ? (
+                <img
+                  key={`popstill:${popArtSrc}`}
+                  className={`tc-pop-art ${posterOrientedStill ? 'tc-pop-art-poster' : ''}`}
+                  src={popArtSrc}
+                  alt=""
+                  loading="lazy"
                 />
               ) : trailerStill ? (
                 <img
                   key={`trailerstill:${trailerStill}`}
                   className="tc-pop-art"
                   src={trailerStill}
+                  alt=""
+                  loading="lazy"
+                />
+              ) : showTrailer && trailerFrame ? (
+                <img
+                  key={`trailerframe:${trailerFrame}`}
+                  className="tc-pop-art"
+                  src={trailerFrame}
                   alt=""
                   loading="lazy"
                 />
@@ -620,6 +691,18 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                 <div className="tc-pop-fallback" aria-hidden="true">
                   {initial}
                 </div>
+              )}
+
+              {showTrailer && info?.trailer && (
+                <iframe
+                  key={`${info.trailer.videoId}:${soundOn ? 'on' : 'muted'}`}
+                  className={`tc-pop-video ${trailerReady ? 'is-ready' : ''}`}
+                  src={trailerEmbedUrl(info.trailer, { muted: !soundOn })}
+                  title={`${item.title} trailer preview`}
+                  tabIndex={-1}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  onLoad={() => setTrailerReady(true)}
+                />
               )}
               <div className="tc-pop-scrim" aria-hidden="true" />
               <div className="tc-pop-title">

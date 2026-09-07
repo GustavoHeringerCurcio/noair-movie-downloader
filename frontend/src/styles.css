@@ -1096,7 +1096,6 @@ ul {
   overflow: hidden;
   cursor: pointer;
 }
-.tc-pop-video,
 .tc-pop-art {
   position: absolute;
   inset: 0;
@@ -1106,6 +1105,28 @@ ul {
   background: var(--bg);
   border: 0;
   pointer-events: none;
+}
+/* The autoplaying embed sits over the base still and is hidden until its embed
+   document reports ready, then crossfades in — so a pop-up opening on a slow
+   trailer never shows a black/buffering band (D20). */
+.tc-pop-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+.tc-pop-video.is-ready {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-pop-video {
+    transition: none;
+  }
 }
 /* A 2:3 poster standing in as the pop-up still is portrait — keep the subject's
    face in frame instead of center-cropping through it. */
@@ -1291,6 +1312,22 @@ ul {
 .tc-pop-tag-sep {
   margin-right: var(--space-1);
   color: var(--text-3);
+}
+
+/* Vertical 2:3 posters: the expanded card keeps its portrait character. The
+   16:9 art band stays; the info column below breathes (larger vertical gaps
+   between the action row, the PG-13/HD line and the genre line) so the card
+   reads tall — height > width — instead of the tight horizontal stacking used
+   on horizontal key-art hovers (D20). Horizontal mode keeps the compact base
+   rules above. */
+.tc-pop-vert .tc-pop-details {
+  padding-top: var(--space-4);
+}
+.tc-pop-vert .tc-pop-meta {
+  margin-top: var(--space-5);
+}
+.tc-pop-vert .tc-pop-tags {
+  margin-top: var(--space-4);
 }
 
 /* Landscape result grid (search, generic) */

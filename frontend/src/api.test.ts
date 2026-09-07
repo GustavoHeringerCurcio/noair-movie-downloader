@@ -77,16 +77,17 @@ describe('fanartThumbUrl / logoUrl (T-002 horizontal-poster art)', () => {
 });
 
 describe('trailerEmbedUrl (D18/D20)', () => {
-  it('builds a sound-on looping youtube-nocookie embed by default', () => {
+  it('builds a sound-on looping youtube-nocookie embed by default, starting at 5s', () => {
     const url = trailerEmbedUrl({ provider: 'youtube', videoId: 'O-b2VfmmbyA', name: null });
     expect(url).toBe(
-      'https://www.youtube-nocookie.com/embed/O-b2VfmmbyA?autoplay=1&mute=0&controls=0&playsinline=1&loop=1&playlist=O-b2VfmmbyA&modestbranding=1',
+      'https://www.youtube-nocookie.com/embed/O-b2VfmmbyA?autoplay=1&mute=0&controls=0&playsinline=1&loop=1&playlist=O-b2VfmmbyA&modestbranding=1&start=5',
     );
   });
 
   it('mutes the youtube embed when asked', () => {
     const url = trailerEmbedUrl({ provider: 'youtube', videoId: 'O-b2VfmmbyA', name: null }, { muted: true });
     expect(url).toContain('mute=1');
+    expect(url).toContain('start=5');
   });
 
   it('builds a sound-on looping Vimeo embed', () => {

@@ -262,6 +262,8 @@ describe('TitleCard expanded hover card (D20)', () => {
     expect(mockHoverCardFor).toHaveBeenCalledWith({ tmdbId: 27205, mediaType: 'movie' });
     const pop = document.querySelector('.tc-pop') as HTMLElement | null;
     expect(pop).not.toBeNull();
+    expect(pop?.className).toContain('tc-pop-horiz');
+    expect(pop?.className).not.toContain('tc-pop-vert');
     expect(pop?.querySelector('.tc-pop-title-text')?.textContent).toBe('Inception');
     expect(pop?.querySelector('.tc-pop-meta .rating-badge')?.textContent).toContain('8.8');
     expect(screen.getByRole('img', { name: 'IMDb rating 8.8' })).toBeInTheDocument();
@@ -283,7 +285,7 @@ describe('TitleCard expanded hover card (D20)', () => {
     renderCard(FULL);
     const card = screen.getByRole('button', { name: /inception/i });
 
-    await hoverFor(card, 300);
+    await hoverFor(card, 100);
     fireEvent.mouseLeave(card);
     await act(async () => {});
 
@@ -394,6 +396,26 @@ describe('TitleCard expanded hover card (D20)', () => {
     expect(pop?.querySelector('.tc-pop-meta')).not.toBeNull();
   });
 
+  it('keeps an art still under the trailer embed until it reports ready, then crossfades it in', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    renderCard(FULL);
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    const pop = document.querySelector('.tc-pop') as HTMLElement | null;
+    expect(pop).not.toBeNull();
+    // While the embed buffers, the still base layer is in the DOM and the
+    // autoplaying iframe sits above it hidden (no is-ready yet).
+    expect(pop?.querySelector('img.tc-pop-art')).not.toBeNull();
+    const video = pop?.querySelector('.tc-pop-video') as HTMLIFrameElement | null;
+    expect(video).not.toBeNull();
+    expect(video?.className).not.toContain('is-ready');
+
+    fireEvent.load(video!);
+    await act(async () => {});
+    expect(document.querySelector('.tc-pop-video')?.className).toContain('is-ready');
+  });
+
   it('triggers the primary watch action from the pop-up Play button', async () => {
     mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
     const onClick = vi.fn();
@@ -484,6 +506,7 @@ describe('TitleCard expanded hover card (D20)', () => {
 
     const pop = document.querySelector('.tc-pop') as HTMLElement | null;
     expect(pop).not.toBeNull();
+    expect(pop?.className).toContain('tc-pop-vert');
     const popStyle = pop?.getAttribute('style') ?? '';
     // Width comes from the (2:3) base-card measurement; never NaN/empty.
     expect(popStyle).toMatch(/width:\s*\d+px/);
