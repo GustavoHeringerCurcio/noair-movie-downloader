@@ -20,10 +20,10 @@ const PREFETCH_HOVER_DELAY_MS = 150;
     anyway after this grace period so the pop-up can't sit on a static still. */
 const TRAILER_REVEAL_FALLBACK_MS = 3000;
 /** Hover-card width vs the base card (Netflix-style scale). Vertical 2:3
-    posters keep 1.7×; horizontal key-art cards get 1.8× so their pop-up stays
+    posters keep 2.0×; horizontal key-art cards get 2.2× so their pop-up stays
     clearly wide next to the portrait vertical one. */
-const POP_SCALE = 1.7;
-const POP_SCALE_HORIZ = 1.8;
+const POP_SCALE = 2.0;
+const POP_SCALE_HORIZ = 2.2;
 /** Small close grace so the pointer can move from the card onto the pop-up. */
 const POP_CLOSE_GRACE_MS = 200;
 /**
@@ -295,7 +295,7 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect, 
     const rect = el.getBoundingClientRect();
     const vw = window.innerWidth;
     const scale = vertical ? POP_SCALE : POP_SCALE_HORIZ;
-    const minW = vertical ? 248 : 220;
+    const minW = vertical ? 288 : 264;
     const width = Math.min(Math.max(minW, Math.round(rect.width * scale)), vw - 24);
     const mediaHeight = Math.round((width * 9) / 16);
     const maxLeft = Math.max(12, vw - width - 12);

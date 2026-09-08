@@ -37,6 +37,7 @@ import {
 import { SourceRow } from '../components/SourceRow';
 import { StateBadge } from '../components/StateBadge';
 import { ExternalPlayerLink } from '../components/ExternalPlayerLink';
+import { DownloadListItem } from '../components/DownloadListItem';
 import { RatingBadge } from '../components/RatingBadge';
 import { activeFilterCount, filterSources, groupSources, sortSources } from '../lib/release';
 import { chooseEpisodePick, chooseMoviePick, chooseSeasonPick, isWebExhibitable } from '../lib/coverage';
@@ -589,6 +590,11 @@ export function DetailPage() {
     if (storedActive && sortedCopies.some((c) => c.infoHash === storedActive)) return storedActive;
     return leadCopy(sortedCopies)?.infoHash ?? null;
   }, [mediaType, sortedCopies, playableCopies, anyPlayable, storedActive]);
+
+  // Counts for the bottom "Downloads" section summary (same ready/active
+  // semantics as the Downloads page tabs).
+  const copiesReady = sortedCopies.filter((c) => c.progress >= 1 || c.state === 'seeding').length;
+  const copiesActive = sortedCopies.length - copiesReady;
 
   useEffect(() => {
     if (!Number.isFinite(id) || id <= 0) {
@@ -1199,6 +1205,25 @@ export function DetailPage() {
             })
           )}
         </div>
+      )}
+
+      {mediaType === 'movie' && titleDownloads.length > 0 && (
+        <section className="detail-downloads" aria-label={`Downloads for ${detail.title}`}>
+          <div className="detail-downloads-inner">
+            <div className="detail-downloads-head">
+              <h2 className="detail-downloads-title">Downloads</h2>
+              <p className="detail-downloads-count">
+                {sortedCopies.length} {sortedCopies.length === 1 ? 'version' : 'versions'} · {copiesReady} ready
+                to watch · {copiesActive} downloading
+              </p>
+            </div>
+            <ul className="downloads-list">
+              {sortedCopies.map((d) => (
+                <DownloadListItem key={d.infoHash} d={d} label={versionLabel(d)} />
+              ))}
+            </ul>
+          </div>
+        </section>
       )}
 
       {/* Confirm download sheet */}
