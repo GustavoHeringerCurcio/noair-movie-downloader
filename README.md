@@ -1,8 +1,10 @@
 <div align="center">
 
-# noAir
+# noAir [![WIP](https://img.shields.io/badge/Status-WIP-yellow.svg)]()
 
 **Self-hosted movie & TV downloader.**
+> [!WARNING]
+> This project is currently under active development and is not yet ready for use. Expect breaking changes and incomplete features.
 
 Search the TMDB catalog, find the best release with Prowlarr, download it with qBittorrent,
 and stream it straight from your own library — nothing leaves your hardware.
