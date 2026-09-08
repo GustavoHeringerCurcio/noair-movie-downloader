@@ -2208,10 +2208,25 @@ ul {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The player stage fills the watch area edge-to-edge. The <video> is crop-filled
+   (object-fit: cover) so a widescreen movie never letterboxes into black bars —
+   the picture always fills the stage, in the inline view and in Shaka fullscreen
+   (where the container spans 100% × 100%). */
+.watch-page .shaka-player-host,
 .watch-video {
   width: 100%;
-  max-height: calc(100vh - var(--nav-h) - 120px);
+  height: calc(100vh - var(--nav-h) - 120px);
+  min-height: 320px;
   background: #000;
+}
+.watch-page .shaka-player-host {
+  position: relative;
+}
+.watch-page .shaka-player-host .watch-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 .watch-overlay {
   text-align: center;

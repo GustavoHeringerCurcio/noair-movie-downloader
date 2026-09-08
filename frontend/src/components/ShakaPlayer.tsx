@@ -104,8 +104,33 @@ export function ShakaPlayer({ manifestUrl, resumeAt, onTick, onPlayback, onError
           const overlay = new module.ui.Overlay(player, container, video);
           handleRef.current.overlay = overlay;
           overlay.configure({
-            controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'language', 'overflow_menu'],
-            overflowMenuButtons: ['captions', 'quality', 'language'],
+            // Fullscreen, sound (mute + volume), subtitles and trick-play are all
+            // stock Shaka UI elements; captions/PiP auto-hide when unsupported or
+            // when the stream carries no text track.
+            controlPanelElements: [
+              'play_pause',
+              'mute_volume',
+              'time_and_duration',
+              'spacer',
+              'rewind',
+              'fast_forward',
+              'language',
+              'captions',
+              'playback_rate',
+              'overflow_menu',
+              'picture_in_picture',
+              'fullscreen',
+            ],
+            overflowMenuButtons: [
+              'captions',
+              'captions-position',
+              'captions-size',
+              'quality',
+              'language',
+              'playback_rate',
+              'picture_in_picture',
+            ],
+            enableTooltips: true,
           });
         }
 

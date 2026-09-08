@@ -173,8 +173,28 @@ describe('ShakaPlayer', () => {
     expect(overlay.args[2]).toBe(video());
     expect(overlay.configure).toHaveBeenCalledWith(
       expect.objectContaining({
-        controlPanelElements: expect.arrayContaining(['language', 'overflow_menu', 'play_pause']),
-        overflowMenuButtons: expect.arrayContaining(['captions', 'quality', 'language']),
+        controlPanelElements: expect.arrayContaining([
+          'language',
+          'overflow_menu',
+          'play_pause',
+          'mute_volume',
+          'captions',
+          'rewind',
+          'fast_forward',
+          'playback_rate',
+          'picture_in_picture',
+          'fullscreen',
+        ]),
+        overflowMenuButtons: expect.arrayContaining([
+          'captions',
+          'captions-position',
+          'captions-size',
+          'quality',
+          'language',
+          'playback_rate',
+          'picture_in_picture',
+        ]),
+        enableTooltips: true,
       }),
     );
   });
