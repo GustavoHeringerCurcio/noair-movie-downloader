@@ -183,24 +183,34 @@ export function createQbittorrentClient(config: QBittorrentClientConfig): QBitto
     }));
   }
 
+  // Mutating torrents (delete/stop/start) must carry their parameters in the
+  // POST form body: qBittorrent ≥5 parses only the body for these actions and
+  // answers query-string params with 400 "Missing required parameters".
+  const postForm = (path: string, params: URLSearchParams): Promise<Response> =>
+    request(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
   async function deleteTorrent(infoHash: string, deleteFiles: boolean): Promise<void> {
     const params = new URLSearchParams({
       hashes: infoHash.toLowerCase(),
       deleteFiles: deleteFiles ? 'true' : 'false',
     });
-    const res = await request(`/api/v2/torrents/delete?${params.toString()}`, { method: 'POST' });
+    const res = await postForm('/api/v2/torrents/delete', params);
     if (!res.ok) throw new UpstreamError(502, `qBittorrent delete failed (HTTP ${res.status})`);
   }
 
   async function pauseTorrent(infoHash: string): Promise<void> {
     const params = new URLSearchParams({ hashes: infoHash.toLowerCase() });
-    const res = await request(`/api/v2/torrents/stop?${params.toString()}`, { method: 'POST' });
+    const res = await postForm('/api/v2/torrents/stop', params);
     if (!res.ok) throw new UpstreamError(502, `qBittorrent pause failed (HTTP ${res.status})`);
   }
 
   async function resumeTorrent(infoHash: string): Promise<void> {
     const params = new URLSearchParams({ hashes: infoHash.toLowerCase() });
-    const res = await request(`/api/v2/torrents/start?${params.toString()}`, { method: 'POST' });
+    const res = await postForm('/api/v2/torrents/start', params);
     if (!res.ok) throw new UpstreamError(502, `qBittorrent resume failed (HTTP ${res.status})`);
   }
 

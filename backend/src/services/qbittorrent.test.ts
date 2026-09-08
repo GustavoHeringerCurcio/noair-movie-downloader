@@ -192,33 +192,51 @@ describe('QBittorrentClient login flow', () => {
 });
 
 describe('QBittorrentClient.deleteTorrent', () => {
-  it('passes deleteFiles flag and returns on success', async () => {
-    const seen: string[] = [];
+  it('passes deleteFiles flag in the POST form body and returns on success', async () => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = makeFetch([
       { match: (url) => url.endsWith('/api/v2/auth/login'), respond: () => createResponseWithCookies(200, 'Ok.', ['SID=x']) },
       {
         match: (url) => url.includes('/api/v2/torrents/delete'),
-        respond: (url) => {
-          seen.push(url);
+        respond: (url, init) => {
+          seen.push({ url, init });
           return createResponse(200, 'Ok.');
         },
       },
     ]);
     const client = createQbittorrentClient({ ...CONFIG, fetchImpl });
     await client.deleteTorrent('a'.repeat(40), true);
-    expect(seen[0]).toContain('deleteFiles=true');
+    expect(seen[0]?.url).not.toContain('deleteFiles');
+    const body = seen[0]?.init?.body as string;
+    expect(body).toContain('deleteFiles=true');
+    expect(body).toContain(`hashes=${'a'.repeat(40)}`);
+  });
+
+  it('throws 502 when qBittorrent answers the delete with an error status', async () => {
+    const fetchImpl = makeFetch([
+      { match: (url) => url.endsWith('/api/v2/auth/login'), respond: () => createResponseWithCookies(200, 'Ok.', ['SID=x']) },
+      {
+        match: (url) => url.includes('/api/v2/torrents/delete'),
+        respond: () => createResponse(400, 'Missing required parameters: hashes, deleteFiles'),
+      },
+    ]);
+    const client = createQbittorrentClient({ ...CONFIG, fetchImpl });
+    await expect(client.deleteTorrent('a'.repeat(40), true)).rejects.toMatchObject({
+      status: 502,
+      message: 'qBittorrent delete failed (HTTP 400)',
+    });
   });
 });
 
 describe('QBittorrentClient pause/resume', () => {
-  it('calls stop and start endpoints', async () => {
+  it('calls stop and start endpoints with the hash in the POST form body', async () => {
     const calls: string[] = [];
     const fetchImpl = makeFetch([
       { match: (url) => url.endsWith('/api/v2/auth/login'), respond: () => createResponseWithCookies(200, 'Ok.', ['SID=x']) },
       {
         match: (url) => url.includes('/api/v2/torrents/stop') || url.includes('/api/v2/torrents/start'),
-        respond: (url) => {
-          calls.push(url);
+        respond: (url, init) => {
+          calls.push(`${url}|${init?.body as string}`);
           return createResponse(200, 'Ok.');
         },
       },
@@ -226,7 +244,7 @@ describe('QBittorrentClient pause/resume', () => {
     const client = createQbittorrentClient({ ...CONFIG, fetchImpl });
     await client.pauseTorrent('a'.repeat(40));
     await client.resumeTorrent('a'.repeat(40));
-    expect(calls.some((u) => u.includes('/torrents/stop'))).toBe(true);
-    expect(calls.some((u) => u.includes('/torrents/start'))).toBe(true);
+    expect(calls.some((c) => c.includes('/torrents/stop') && c.includes(`hashes=${'a'.repeat(40)}`))).toBe(true);
+    expect(calls.some((c) => c.includes('/torrents/start') && c.includes(`hashes=${'a'.repeat(40)}`))).toBe(true);
   });
 });
