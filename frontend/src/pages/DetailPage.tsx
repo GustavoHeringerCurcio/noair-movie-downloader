@@ -45,7 +45,7 @@ import { episodeToken } from '../lib/episode';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useToastStore } from '../store/toastStore';
 import { useRecentsStore } from '../store/recentsStore';
-import { useAudioLanguage, useMaxResolution } from '../store/settingsStore';
+import { useAudioLanguage, useMaxResolution, useReleaseCatalogMode } from '../store/settingsStore';
 import { useFriendlyPickStore } from '../store/friendlyPickStore';
 import { useVersionStore, versionKey } from '../store/versionStore';
 import {
@@ -536,6 +536,7 @@ export function DetailPage() {
   const recordRecent = useRecentsStore((s) => s.record);
   const audio = useAudioLanguage();
   const maxResolution = useMaxResolution();
+  const catalogMode = useReleaseCatalogMode();
   const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
 
   const [detail, setDetail] = useState<MediaDetail | null>(null);
@@ -663,7 +664,7 @@ export function DetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, mediaType, audio, maxResolution]);
+  }, [id, mediaType, audio, maxResolution, catalogMode]);
 
   async function loadMovieSources(media: MediaDetail, override?: AudioLang): Promise<Source[]> {
     const reqAudio = override ?? audio;
@@ -672,7 +673,7 @@ export function DetailPage() {
     setMovieNoMatch(null);
     setMovieFallback(false);
     try {
-      const res = await sources(media.tmdbId, 'movie', { audio: reqAudio, maxResolution });
+      const res = await sources(media.tmdbId, 'movie', { audio: reqAudio, maxResolution, catalogMode });
       setMovieSources(res.sources);
       if (res.noMatchForAudio) setMovieNoMatch(res.noMatchForAudio);
       if (reqAudio === 'en' && audio !== 'en') setMovieFallback(true);
@@ -698,7 +699,7 @@ export function DetailPage() {
     try {
       const [epRes, srcRes] = await Promise.all([
         seasonEpisodes(media.tmdbId, season),
-        sources(media.tmdbId, 'tv', { season, audio: reqAudio, maxResolution }),
+        sources(media.tmdbId, 'tv', { season, audio: reqAudio, maxResolution, catalogMode }),
       ]);
       setEpisodes(epRes.episodes);
       setSeasonSources(srcRes.sources);
@@ -873,7 +874,7 @@ export function DetailPage() {
     const owned = downloads.some((d) => d.tmdbId === id && d.mediaType === 'movie');
     if (owned || movieSources.length > 0 || movieLoading || movieError) return;
     void loadMovieSources(detail);
-  }, [detail, mediaType, id, downloads, movieSources, movieLoading, movieError, audio, maxResolution]);
+  }, [detail, mediaType, id, downloads, movieSources, movieLoading, movieError, audio, maxResolution, catalogMode]);
 
   // Hero ground: the title's TMDB poster (backdrop when no poster exists),
   // blurred full-bleed so the page reads as a cinematic colour field that

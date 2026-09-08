@@ -129,3 +129,8 @@ export function useAudioLanguage(): AudioLang {
 export function useMaxResolution(): MaxResolution {
   return useSettingsStore((s) => (s.ready ? s.maxResolution : DEFAULT_MAX_RESOLUTION));
 }
+
+/** Active release-catalog strictness; before settings load, treat as browser-friendly. */
+export function useReleaseCatalogMode(): ReleaseCatalogMode {
+  return useSettingsStore((s) => (s.ready ? s.catalogMode : DEFAULT_CATALOG_MODE));
+}

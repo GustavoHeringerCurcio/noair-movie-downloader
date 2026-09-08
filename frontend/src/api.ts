@@ -262,16 +262,25 @@ const sourcesCache = new Map<string, { promise: Promise<SourcesResponse>; expire
 
 /**
  * Best-source search (S3). In-flight requests are deduped and successful
- * results cached ~10 min per context (`type:id:season:episode:audio:maxResolution`)
- * so the confirm sheet stays instant and re-visiting a title never re-asks
- * Prowlarr. HTTP failures are never cached, so Retry always hits the network
- * again. `maxResolution` asks the backend to cap releases (site setting, default
- * 1080p) — it's part of the cache key so raising the ceiling really re-searches.
+ * results cached ~10 min per context
+ * (`type:id:season:episode:audio:maxResolution:catalogMode`) so the confirm
+ * sheet stays instant and re-visiting a title never re-asks Prowlarr. HTTP
+ * failures are never cached, so Retry always hits the network again.
+ * `maxResolution` asks the backend to cap releases (site setting, default
+ * 1080p) and `catalogMode` asks for browser-friendly vs all (site setting,
+ * default browser-friendly) — both are part of the cache key so toggling a
+ * setting in the UI really re-searches.
  */
 export function sources(
   id: number,
   type: MediaType,
-  context?: { season?: number; episode?: number; audio?: AudioLang; maxResolution?: MaxResolution },
+  context?: {
+    season?: number;
+    episode?: number;
+    audio?: AudioLang;
+    maxResolution?: MaxResolution;
+    catalogMode?: ReleaseCatalogMode;
+  },
 ): Promise<SourcesResponse> {
   const params = new URLSearchParams({ type });
   if (context?.audio != null) {
@@ -280,11 +289,14 @@ export function sources(
   if (context?.maxResolution != null) {
     params.set('maxResolution', context.maxResolution);
   }
+  if (context?.catalogMode != null) {
+    params.set('catalog', context.catalogMode);
+  }
   if (context?.season != null) {
     params.set('season', String(context.season));
     if (context.episode != null) params.set('episode', String(context.episode));
   }
-  const cacheKey = `${type}:${id}:${context?.season ?? ''}:${context?.episode ?? ''}:${context?.audio ?? ''}:${context?.maxResolution ?? ''}`;
+  const cacheKey = `${type}:${id}:${context?.season ?? ''}:${context?.episode ?? ''}:${context?.audio ?? ''}:${context?.maxResolution ?? ''}:${context?.catalogMode ?? ''}`;
   const hit = sourcesCache.get(cacheKey);
   if (hit && hit.expires > Date.now()) return hit.promise;
   const promise = request<SourcesResponse>(`/api/media/${id}/sources?${params.toString()}`);

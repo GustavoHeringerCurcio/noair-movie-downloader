@@ -241,6 +241,24 @@ describe('sources (S3 cached best-source search)', () => {
     await sources(550, 'movie', { audio: 'en', maxResolution: '1080p' });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('sends the catalog strictness as a catalog query param', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sources: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sources(550, 'movie', { audio: 'en', catalogMode: 'browser-friendly' });
+    const url = String((fetchMock.mock.calls[0] as unknown[])[0]);
+    expect(url).toContain('/api/media/550/sources?');
+    expect(url).toContain('catalog=browser-friendly');
+  });
+
+  it('keeps distinct cache entries per catalog mode', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sources: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sources(550, 'movie', { audio: 'en', catalogMode: 'browser-friendly' });
+    await sources(550, 'movie', { audio: 'en', catalogMode: 'all' });
+    await sources(550, 'movie', { audio: 'en', catalogMode: 'browser-friendly' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('removeDownload', () => {

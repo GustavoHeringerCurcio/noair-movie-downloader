@@ -28,6 +28,10 @@ export interface SourcesResponse {
   authError?: boolean;
   /** Set when a strict (non-English) audio search found nothing. */
   noMatchForAudio?: AudioLang;
+  /** Catalog strictness actually applied to this list (server echoes the mode). */
+  catalogMode?: ReleaseCatalogMode;
+  /** How many releases were filtered out by `catalogMode` (0 in "all" mode). */
+  hiddenCount?: number;
 }
 
 export interface HomeSection {
