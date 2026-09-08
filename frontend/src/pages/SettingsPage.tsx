@@ -6,8 +6,8 @@ import { useToastStore } from '@/store/toastStore';
 import { usePosterStyleStore, type PosterStyle } from '@/store/posterStyleStore';
 import { usePosterImdbStore } from '@/store/posterImdbStore';
 import { useTranscode4kStore } from '@/store/transcode4kStore';
-import { remoteStatus, type RemoteStatus } from '@/api';
-import type { AudioLang, FriendlyPickMode, MaxResolution } from '@/types';
+import { remoteStatus, engineStatus, type RemoteStatus } from '@/api';
+import type { AudioLang, EngineInfo, FriendlyPickMode, MaxResolution, ReleaseCatalogMode } from '@/types';
 import { MAX_RESOLUTION_OPTIONS, maxResolutionLabel } from '@/lib/quality';
 import {
   buildLinuxInstallerSh,
@@ -60,6 +60,10 @@ export function SettingsPage() {
   const loadSettings = useSettingsStore((s) => s.load);
   const saveAudio = useSettingsStore((s) => s.saveAudio);
   const saveMaxResolution = useSettingsStore((s) => s.saveMaxResolution);
+  const catalogMode = useSettingsStore((s) => s.catalogMode);
+  const autoConvert = useSettingsStore((s) => s.autoConvertMovies);
+  const saveCatalogMode = useSettingsStore((s) => s.saveCatalogMode);
+  const saveAutoConvert = useSettingsStore((s) => s.saveAutoConvert);
   const friendlyPickMode = useFriendlyPickStore((s) => s.mode);
   const setFriendlyPickMode = useFriendlyPickStore((s) => s.setMode);
   const toast = useToastStore((s) => s.toast);
@@ -70,6 +74,7 @@ export function SettingsPage() {
   const transcode4k = useTranscode4kStore((s) => s.enabled);
   const setTranscode4k = useTranscode4kStore((s) => s.setEnabled);
   const [remote, setRemote] = useState<RemoteStatus | null>(null);
+  const [engine, setEngine] = useState<EngineInfo | null>(null);
   const setupOs = detectOs();
   const setupChoices = playerChoicesFor(setupOs);
   const isLinuxSetup = setupOs === 'linux';
@@ -88,6 +93,13 @@ export function SettingsPage() {
       })
       .catch(() => {
         if (!cancelled) setRemote(null);
+      });
+    engineStatus()
+      .then((e) => {
+        if (!cancelled) setEngine(e);
+      })
+      .catch(() => {
+        if (!cancelled) setEngine(null);
       });
     return () => {
       cancelled = true;
@@ -186,6 +198,36 @@ export function SettingsPage() {
     if (next === friendlyPickMode) return;
     setFriendlyPickMode(next);
     toast(`Friendly download: ${FRIENDLY_PICK_OPTIONS.find((o) => o.value === next)?.label ?? next}`, 'info');
+  }
+
+  async function changeCatalog(next: ReleaseCatalogMode): Promise<void> {
+    if (next === catalogMode || saving) return;
+    try {
+      await saveCatalogMode(next);
+      toast(
+        next === 'browser-friendly'
+          ? 'Releases: browser-friendly only — the safe default'
+          : 'Releases: show everything, including HEVC/4K (needs conversion)',
+        'success',
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
+  }
+
+  async function changeAutoConvert(next: boolean): Promise<void> {
+    if (next === autoConvert || saving) return;
+    try {
+      await saveAutoConvert(next);
+      toast(
+        next
+          ? 'Finished movies: optimized in the background for instant playback'
+          : 'Finished movies: background optimization off',
+        'success',
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Save failed', 'error');
+    }
   }
 
   function copyDiagnostics(): void {
@@ -449,6 +491,56 @@ export function SettingsPage() {
             );
           })}
         </div>
+      </section>
+
+      <section className="settings-card">
+        <h2>Browser playback & downloads</h2>
+        <p className="settings-note">
+          By default, search results only show releases that play instantly in your browser
+          (H.264/AV1 · SDR · up to 1080p) — no conversion needed. Switch to <strong>all
+          releases</strong> to also browse HEVC/4K/HDR; those are optimized in the background
+          after downloading so they still play here.
+        </p>
+        <label className="toggle-row">
+          <span className="toggle-label">Browser-friendly releases only</span>
+          <span className="toggle-control">
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={catalogMode === 'browser-friendly'}
+              onChange={(e) => void changeCatalog(e.target.checked ? 'browser-friendly' : 'all')}
+              aria-label="Show only releases that play directly in the browser"
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+          </span>
+        </label>
+        <label className="toggle-row">
+          <span className="toggle-label">Optimize finished movies in the background</span>
+          <span className="toggle-control">
+            <input
+              type="checkbox"
+              className="toggle-input"
+              checked={autoConvert}
+              onChange={(e) => void changeAutoConvert(e.target.checked)}
+              aria-label="Optimize finished movies in the background"
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+          </span>
+        </label>
+        <p className="settings-note">
+          Saved on the server and shared by every device.
+        </p>
+        {engine && (
+          <p className="settings-note">
+            Conversion engine: {engine.hardware ? `hardware (${engine.encoder})` : `${engine.encoder} (CPU)`}
+            {engine.speedX != null ? ` · ~${engine.speedX.toFixed(1)}× real-time` : ''}
+            {engine.cores ? ` · ${engine.cores} cores` : ''}.
+          </p>
+        )}
       </section>
 
       <section className="settings-card">

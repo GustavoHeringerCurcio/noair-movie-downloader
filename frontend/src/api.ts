@@ -3,12 +3,14 @@ import type {
   CreateDownloadPayload,
   DiscoverSection,
   DownloadRecord,
+  EngineInfo,
   HoverCardInfo,
   MaxResolution,
   MediaDetail,
   MediaItem,
   MediaType,
   PlayInfo,
+  ReleaseCatalogMode,
   SearchType,
   SeasonEpisodesResponse,
   SourcesResponse,
@@ -61,6 +63,10 @@ export function logoUrl(mediaType: MediaType, tmdbId: number): string {
 export interface SiteSettings {
   language: { audio: AudioLang };
   quality: { maxResolution: MaxResolution };
+  /** Server-wide catalog strictness (browser-friendly by default). */
+  catalog?: { mode?: ReleaseCatalogMode };
+  /** Whether finished movies auto-convert in the background (Option C). */
+  optimize?: { autoConvertMovies?: boolean };
 }
 
 export function fetchSettings(): Promise<SiteSettings> {
@@ -78,6 +84,30 @@ export function saveMaxResolution(maxResolution: MaxResolution): Promise<SiteSet
   return request<SiteSettings>('/api/settings', {
     method: 'PUT',
     body: JSON.stringify({ quality: { maxResolution } }),
+  });
+}
+
+export function saveReleaseCatalog(mode: ReleaseCatalogMode): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ catalog: { mode } }),
+  });
+}
+
+export function saveAutoConvertMovies(enabled: boolean): Promise<SiteSettings> {
+  return request<SiteSettings>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ optimize: { autoConvertMovies: enabled } }),
+  });
+}
+
+export function engineStatus(): Promise<EngineInfo> {
+  return request<EngineInfo>('/api/settings/engine');
+}
+
+export function optimizeDownload(infoHash: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/api/downloads/${encodeURIComponent(infoHash)}/optimize`, {
+    method: 'POST',
   });
 }
 

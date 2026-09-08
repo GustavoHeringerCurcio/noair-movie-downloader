@@ -5,6 +5,7 @@ import { toCanonicalState } from '../services/qbittorrent.js';
 import { isPlaceholderInfoHash } from '../services/prowlarr.js';
 import { existsOnDisk, resolveInside, resolveStreamForServing } from '../lib/streaming.js';
 import { episodeKeyFromFilename, parseCoverage } from '../lib/releaseParser.js';
+import { loadAutoConvertPreference, optimizeDownload, readOptimizeJob } from '../lib/autoConvert.js';
 
 /**
  * NB-11: legacy TV rows predate season_number/episode_number. Once the torrent
@@ -76,18 +77,34 @@ export async function pollOnce(deps: AppDeps): Promise<void> {
     if (label.seasonNumber !== undefined) update.seasonNumber = label.seasonNumber;
     if (label.episodeNumber !== undefined) update.episodeNumber = label.episodeNumber;
 
-    if (torrent.progress >= 1 && !record.completedAt) {
+    // Option C: the moment a movie finishes downloading, start the background
+    // browser-copy conversion so "Watch" is instant by the time the user opens
+    // it. Fire-and-forget — never blocks the 2s poll.
+    const completedNow = torrent.progress >= 1 && !record.completedAt;
+    if (completedNow) {
       update.completedAt = new Date();
     }
 
     await deps.downloads.update(infoHash, update);
+
+    if (completedNow && record.mediaType === 'movie') {
+      void (async () => {
+        try {
+          if (await loadAutoConvertPreference(deps)) await optimizeDownload(deps, infoHash);
+        } catch (error) {
+          console.error(
+            `[optimize] auto-convert failed for ${infoHash}: ${error instanceof Error ? error.message : error}`,
+          );
+        }
+      })();
+    }
   }
 }
 
 export function attachSocket(io: Server, deps: AppDeps): void {
   io.on('connection', async (socket) => {
     try {
-      const downloads = await deps.downloads.list();
+      const downloads = (await deps.downloads.list()).map((d) => ({ ...d, optimize: readOptimizeJob(deps, d) }));
       socket.emit('downloads:initial', { downloads });
     } catch (error) {
       console.error('failed to send downloads:initial', error);
@@ -103,7 +120,7 @@ export function startPollLoop(deps: AppDeps, io: Server, intervalMs: number): No
       console.error('qBittorrent poll failed', error);
     }
     try {
-      const downloads = await deps.downloads.list();
+      const downloads = (await deps.downloads.list()).map((d) => ({ ...d, optimize: readOptimizeJob(deps, d) }));
       io.emit('downloads:update', { downloads });
     } catch (error) {
       console.error('failed to emit downloads:update', error);

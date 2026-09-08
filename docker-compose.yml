@@ -85,6 +85,9 @@ services:
       PACKAGE_MAX_BYTES: ${PACKAGE_MAX_BYTES:-53687091200}
       REMOTE_DATA_DIR: /remote
       CLOUDFLARE_TUNNEL_HOSTNAME: ${CLOUDFLARE_TUNNEL_HOSTNAME:-}
+      # Optional cap on software-encode threads (e.g. 8) to keep the host
+      # responsive while converting; unset = auto (cores, memory-aware).
+      CONVERSION_THREADS: ${CONVERSION_THREADS:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,8 +114,11 @@ services:
   # *.trycloudflare.com URL, URL-is-the-secret); set CLOUDFLARE_TUNNEL_TOKEN +
   # CLOUDFLARE_TUNNEL_HOSTNAME to use a named tunnel on your own domain instead.
   cloudflared:
-    image: cloudflare/cloudflared:latest
-    command: ["sh", "/entrypoint.sh"]
+    build:
+      context: .
+      dockerfile: deploy/cloudflared.Dockerfile
+    image: movie-downloader-cloudflared
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     environment:
       CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
       CLOUDFLARE_TUNNEL_HOSTNAME: ${CLOUDFLARE_TUNNEL_HOSTNAME:-}

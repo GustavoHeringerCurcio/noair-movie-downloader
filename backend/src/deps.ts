@@ -4,6 +4,7 @@ import type { DownloadsRepository } from './db/downloadsRepo.js';
 import type { SettingsRepository } from './db/settingsRepo.js';
 import type { ArtFilesRepository } from './db/artFilesRepo.js';
 import type { ArtCache } from './lib/artCache.js';
+import type { PackageManager } from './lib/packages.js';
 import type { OmdbClient } from './services/omdb.js';
 import type { FanartClient } from './services/fanart.js';
 import type { ProwlarrAdminClient } from './services/prowlarrAdmin.js';
@@ -33,4 +34,9 @@ export interface AppDeps {
   logoCache?: ArtCache | null;
   /** Admin/indexer introspection. Optional so tests (and headless setups) skip Prowlarr admin calls. */
   prowlarrAdmin?: ProwlarrAdminClient | null;
+  /**
+   * Shared HLS package manager (one instance for routes + the completion poller).
+   * Optional for tests/embedders — the playback router falls back to its own.
+   */
+  packageManager?: PackageManager | null;
 }

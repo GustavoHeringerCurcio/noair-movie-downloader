@@ -120,33 +120,63 @@ export function videoSegmentArgs(input: string, dir: string): string[] {
 }
 
 /**
+ * Video encoders the compat pipeline can target (Phase 2). `libx264` (software,
+ * universal) is always available; the hardware encoders are used only when the
+ * runtime engine validated the device (VAAPI `/dev/dri`, NVENC via a CUDA
+ * toolchain) and the user allows hardware acceleration. Output is always 8-bit
+ * H.264 in `nv12`/`yuv420p`, so any of them is playable by the browser.
+ */
+export type CompatVideoEncoder = 'libx264' | 'h264_vaapi' | 'h264_qsv' | 'h264_nvenc';
+
+/**
  * The "compatibility" video rendition (D26/D27): same fMP4 HLS layout as
  * `videoSegmentArgs` but the video is re-encoded once to H.264 instead of
  * stream-copied, so files the browser's MSE can't decode (HEVC/x265 8- or
  * 10-bit, and — with the 4K opt-in — 2160p content) still play in-browser.
  * `targetHeight` scales the encode down (e.g. 1080) for 4K sources; leave it
- * null to keep the source resolution.
+ * null to keep the source resolution. `encoder` selects the H.264 encoder
+ * (hardware encoders require `hwDevice`, e.g. `/dev/dri/renderD128`).
  */
 export function videoCompatSegmentArgs(
   input: string,
   dir: string,
-  opts: { targetHeight?: number | null } = {},
+  opts: {
+    targetHeight?: number | null;
+    encoder?: CompatVideoEncoder;
+    hwDevice?: string | null;
+    /** Software encode thread cap (libx264); omit to let ffmpeg/x264 auto-tune. */
+    threads?: number;
+  } = {},
 ): string[] {
-  const args = [
-    '-hide_banner',
-    '-loglevel', 'error',
-    '-i', input,
-    '-map', '0:v:0',
-    '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-crf', '21',
-    '-pix_fmt', 'yuv420p',
-  ];
-  if (opts.targetHeight && opts.targetHeight > 0) {
-    args.push('-vf', `scale=-2:${opts.targetHeight}`);
+  const encoder = opts.encoder ?? 'libx264';
+  const args = ['-hide_banner', '-loglevel', 'error', '-i', input, '-map', '0:v:0'];
+  if (encoder === 'libx264' && opts.threads && opts.threads > 0) {
+    args.push('-threads', String(opts.threads));
   }
+
+  let vf: string[] = [];
+  if (encoder === 'h264_vaapi') {
+    const device = opts.hwDevice || '/dev/dri/renderD128';
+    args.push('-init_hw_device', `vaapi=va:${device}`, '-filter_hw_device', 'va');
+    args.push('-c:v', 'h264_vaapi', '-global_quality', '22');
+    const scale = opts.targetHeight && opts.targetHeight > 0 ? `scale=-2:${opts.targetHeight},` : '';
+    vf = ['-vf', `${scale}format=nv12,hwupload`];
+  } else if (encoder === 'h264_nvenc') {
+    args.push('-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '20', '-b:v', '0');
+    const scale = opts.targetHeight && opts.targetHeight > 0 ? `scale=-2:${opts.targetHeight},` : '';
+    vf = ['-vf', `${scale}format=nv12`];
+  } else if (encoder === 'h264_qsv') {
+    args.push('-init_hw_device', 'qsv=hw');
+    args.push('-c:v', 'h264_qsv', '-global_quality', '22');
+    const scale = opts.targetHeight && opts.targetHeight > 0 ? `scale=-2:${opts.targetHeight},` : '';
+    vf = ['-vf', `${scale}format=nv12,hwupload=extra_hw_frames=64`];
+  } else {
+    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p');
+    if (opts.targetHeight && opts.targetHeight > 0) vf = ['-vf', `scale=-2:${opts.targetHeight}`];
+  }
+
+  args.push(...vf, '-an', '-dn');
   args.push(
-    '-an', '-dn',
     '-f', 'hls',
     '-hls_time', '6',
     '-hls_playlist_type', 'event',

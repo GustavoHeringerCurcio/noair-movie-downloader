@@ -133,6 +133,26 @@ The **Player** buttons always try to open your player — the setup just makes t
 status shown in Settings is informational only. Re-running the file is harmless (it simply
 overwrites the launcher). To remove the link, use the uninstaller in Settings.
 
+## Browser copy & hardware acceleration
+
+Search results default to **browser-friendly releases** (H.264/AV1 · SDR · up to 1080p) that play
+instantly with no conversion. Finished **movies are optimized in the background** into a cached
+browser copy — the Downloads card shows “Optimizing… → Ready to watch” — so opening Watch is instant
+and fully scrubbable. TV episodes optimize when you open them. Both behaviours are server-wide
+Settings toggles (**Browser playback & downloads**), and each finished movie has a per-title
+**Optimize** action.
+
+HEVC/x265/4K/HDR releases you enable via “Show all releases” are re-encoded to H.264 on this server
+before the browser can play them. The encoder is auto-detected at boot:
+
+- A Linux Docker host exposing `/dev/dri` uses Intel/AMD hardware encoding via **VAAPI** — see
+  [`docker-compose.gpu.example.yml`](docker-compose.gpu.example.yml).
+- NVIDIA hosts use **NVENC** (with `nvidia-container-toolkit`).
+- Everything else falls back to software **libx264**, so low-end boxes just work.
+
+Settings → Browser playback & downloads shows the detected engine and its measured speed
+(`/api/settings/engine`).
+
 ## Watch anywhere (beta)
 
 The point of noAir is watching from **any device** — your TV, another PC, or your phone — while

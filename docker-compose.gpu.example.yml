@@ -1,0 +1,25 @@
+# Optional GPU acceleration example.
+#
+# Expose /dev/dri (Intel/AMD VAAPI) to the backend so noAir auto-detects a
+# hardware H.264 encoder at boot instead of using software libx264. Copy this
+# file to docker-compose.override.yml (Docker Compose merges it automatically)
+# or fold the `backend` device into your production compose file, then run:
+#
+#   docker compose up -d backend
+#
+# NVIDIA hosts: install nvidia-container-toolkit, then uncomment the `deploy`
+# block below (devices passthrough for NVENC) instead of /dev/dri.
+#
+# No GPU host? Skip this entirely — the app detects the absence and uses CPU.
+
+services:
+  backend:
+    devices:
+      - /dev/dri:/dev/dri
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video]

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { DownloadsPage } from './DownloadsPage';
@@ -84,6 +84,89 @@ describe('DownloadsPage', () => {
     expect(screen.getByText('The Matrix')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /watch/i }).length).toBe(2);
     expect(screen.getAllByRole('button', { name: /remove/i }).length).toBe(2);
+  });
+
+  it('shows background optimize progress and an Optimize affordance on finished movies', () => {
+    useDownloadsStore.setState({
+      downloads: [
+        makeDownload('a'.repeat(40), {
+          state: 'seeding',
+          progress: 1,
+          completedAt: '2026-09-02T00:00:00.000Z',
+          optimize: { status: 'converting', progress: 0.5, etaSeconds: 600, error: null },
+        }),
+        makeDownload('b'.repeat(40), {
+          state: 'seeding',
+          progress: 1,
+          completedAt: '2026-09-02T00:00:00.000Z',
+          codec: 'x265',
+          optimize: null,
+        }),
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <DownloadsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/Optimizing for instant playback… 50%/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^optimize$/i })).toBeInTheDocument();
+  });
+
+  it('retries a failed optimization through POST /optimize', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      ({ ok: true, status: 200, json: async () => ({ status: 'started' }) }) as unknown as Response,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    useDownloadsStore.setState({
+      downloads: [
+        makeDownload('c'.repeat(40), {
+          state: 'seeding',
+          progress: 1,
+          completedAt: '2026-09-02T00:00:00.000Z',
+          optimize: { status: 'failed', progress: 0, etaSeconds: null, error: 'disk full' },
+        }),
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <DownloadsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /retry optimize/i }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    const [input, init] = fetcher.mock.calls[0]!;
+    expect(String(input)).toContain('/optimize');
+    expect(init?.method).toBe('POST');
+  });
+
+  it('Remove asks qBittorrent to drop the seed AND delete the files, then clears the row', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      ({ ok: true, status: 204, json: async () => ({}) }) as unknown as Response,
+    );
+    vi.stubGlobal('fetch', fetcher);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const hash = 'd'.repeat(40);
+    useDownloadsStore.setState({
+      downloads: [makeDownload(hash, { state: 'seeding', progress: 1, etaSeconds: null })],
+    });
+
+    render(
+      <MemoryRouter>
+        <DownloadsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    const [input, init] = fetcher.mock.calls[0]!;
+    expect(String(input)).toBe(`/api/downloads/${hash}?deleteFiles=true`);
+    expect(init?.method).toBe('DELETE');
+    await waitFor(() => expect(screen.getByText(/nothing downloaded yet/i)).toBeInTheDocument());
   });
 
   it('groups copies of the same movie under one header and labels them as versions', () => {

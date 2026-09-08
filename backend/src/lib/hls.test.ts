@@ -151,6 +151,41 @@ describe('ffmpeg argument builders', () => {
     });
     expect(args[args.indexOf('-vf') + 1]).toBe('scale=-2:1080');
   });
+
+  it('compat args target VAAPI when hardware is available and upload nv12 frames', () => {
+    const args = videoCompatSegmentArgs('/downloads/m.mkv', path.join('/packages', 'k', 'video'), {
+      encoder: 'h264_vaapi',
+      hwDevice: '/dev/dri/renderD128',
+    });
+    expect(args[args.indexOf('-c:v') + 1]).toBe('h264_vaapi');
+    expect(args).toContain('-init_hw_device');
+    expect(args[args.indexOf('-vf') + 1]).toBe('format=nv12,hwupload');
+  });
+
+  it('compat args scale before uploading when hardware downscales 4K', () => {
+    const args = videoCompatSegmentArgs('/downloads/m.mkv', path.join('/packages', 'k', 'video'), {
+      encoder: 'h264_vaapi',
+      hwDevice: '/dev/dri/renderD128',
+      targetHeight: 1080,
+    });
+    expect(args[args.indexOf('-vf') + 1]).toBe('scale=-2:1080,format=nv12,hwupload');
+  });
+
+  it('compat args target NVENC with constant-quality bitrate', () => {
+    const args = videoCompatSegmentArgs('/downloads/m.mkv', path.join('/packages', 'k', 'video'), {
+      encoder: 'h264_nvenc',
+    });
+    expect(args[args.indexOf('-c:v') + 1]).toBe('h264_nvenc');
+    expect(args).toContain('-cq');
+    expect(args[args.indexOf('-vf') + 1]).toBe('format=nv12');
+  });
+
+  it('caps libx264 software threads when configured and leaves them alone otherwise', () => {
+    const capped = videoCompatSegmentArgs('/x', '/packages/k/video', { threads: 6 });
+    expect(capped[capped.indexOf('-threads') + 1]).toBe('6');
+    const auto = videoCompatSegmentArgs('/x', '/packages/k/video');
+    expect(auto).not.toContain('-threads');
+  });
 });
 
 describe('subtitleMediaPlaylist', () => {

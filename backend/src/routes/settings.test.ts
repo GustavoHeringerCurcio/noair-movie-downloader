@@ -17,11 +17,16 @@ function depsWithMemorySettings(): { deps: ReturnType<typeof makeTestDeps>; stat
 }
 
 describe('GET /api/settings', () => {
-  it('returns the default audio + quality preferences when nothing is stored', async () => {
+  it('returns the default audio + quality + catalog preferences when nothing is stored', async () => {
     const app = createApp(makeTestDeps());
     const res = await request(app).get('/api/settings');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ language: { audio: 'en' }, quality: { maxResolution: '1080p' } });
+    expect(res.body).toEqual({
+      language: { audio: 'en' },
+      quality: { maxResolution: '1080p' },
+      catalog: { mode: 'browser-friendly' },
+      optimize: { autoConvertMovies: true },
+    });
   });
 });
 
@@ -51,6 +56,53 @@ describe('PUT /api/settings', () => {
     const res = await request(app).put('/api/settings').send({ quality: { maxResolution: '4k' } });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('quality.maxResolution');
+  });
+
+  it('persists an "all releases" catalog mode', async () => {
+    const { deps, state } = depsWithMemorySettings();
+    const app = createApp(deps);
+    const res = await request(app).put('/api/settings').send({ catalog: { mode: 'all' } });
+    expect(res.status).toBe(200);
+    expect(res.body.catalog).toEqual({ mode: 'all' });
+    expect(state.releaseCatalog).toEqual({ mode: 'all' });
+  });
+
+  it('rejects an invalid catalog mode', async () => {
+    const app = createApp(makeTestDeps());
+    const res = await request(app).put('/api/settings').send({ catalog: { mode: 'everything' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('catalog.mode');
+  });
+
+  it('reads the stored catalog mode back on GET', async () => {
+    const deps = makeTestDeps({
+      settings: {
+        get: async (key: string) => (key === 'releaseCatalog' ? { mode: 'all' } : null),
+        set: async () => {},
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).get('/api/settings');
+    expect(res.body.catalog).toEqual({ mode: 'all' });
+  });
+
+  it('turns background auto-convert off and reads it back', async () => {
+    const { deps, state } = depsWithMemorySettings();
+    const app = createApp(deps);
+    const put = await request(app).put('/api/settings').send({ optimize: { autoConvertMovies: false } });
+    expect(put.status).toBe(200);
+    expect(put.body.optimize).toEqual({ autoConvertMovies: false });
+    expect(state.autoConvertMovies).toEqual({ enabled: false });
+
+    const get = await request(app).get('/api/settings');
+    expect(get.body.optimize).toEqual({ autoConvertMovies: false });
+  });
+
+  it('rejects a non-boolean autoConvertMovies', async () => {
+    const app = createApp(makeTestDeps());
+    const res = await request(app).put('/api/settings').send({ optimize: { autoConvertMovies: 'yes' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('optimize.autoConvertMovies');
   });
 
   it('reads the stored Portuguese preference back on GET', async () => {

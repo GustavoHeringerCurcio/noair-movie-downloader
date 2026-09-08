@@ -9,6 +9,7 @@ import {
   humanSize,
   humanSpeed,
   logoUrl,
+  removeDownload,
   sources,
   trailerEmbedUrl,
   trailerStillUrl,
@@ -239,5 +240,30 @@ describe('sources (S3 cached best-source search)', () => {
     await sources(550, 'movie', { audio: 'en', maxResolution: '2160p' });
     await sources(550, 'movie', { audio: 'en', maxResolution: '1080p' });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('removeDownload', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('DELETEs /api/downloads/:infoHash?deleteFiles=true so the seed and its files are removed', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}, 204));
+    vi.stubGlobal('fetch', fetchMock);
+    await removeDownload('aa'.repeat(20), true);
+    const calls = fetchMock.mock.calls as unknown[];
+    const [input, init] = calls[0] as [RequestInfo | URL, RequestInit];
+    expect(String(input)).toBe(`/api/downloads/${'aa'.repeat(20)}?deleteFiles=true`);
+    expect(init?.method).toBe('DELETE');
+  });
+
+  it('passes deleteFiles=false to drop the seed while keeping the files', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}, 204));
+    vi.stubGlobal('fetch', fetchMock);
+    await removeDownload('bb'.repeat(20), false);
+    const calls = fetchMock.mock.calls as unknown[];
+    const [input] = calls[0] as [RequestInfo | URL];
+    expect(String(input)).toBe(`/api/downloads/${'bb'.repeat(20)}?deleteFiles=false`);
   });
 });

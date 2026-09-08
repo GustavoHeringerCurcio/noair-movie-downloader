@@ -9,7 +9,6 @@ import {
 import { probeMediaInfo, listSidecarSubtitles } from '../lib/mediaInfo.js';
 import { packageKey } from '../lib/hls.js';
 import { createPackageManager, type PackageState } from '../lib/packages.js';
-
 interface ResolvedFile {
   relative: string;
   absolutePath: string;
@@ -22,10 +21,12 @@ function toText(value: unknown): string {
 const PACKAGE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function createPlaybackRouter(deps: AppDeps): Router {
-  const manager = createPackageManager({
-    packageRoot: deps.config.packageDir,
-    maxBytes: deps.config.packageMaxBytes,
-  });
+  const manager =
+    deps.packageManager ??
+    createPackageManager({
+      packageRoot: deps.config.packageDir,
+      maxBytes: deps.config.packageMaxBytes,
+    });
   const router = Router();
 
   function resolveFile(record: DownloadRecord, file: string | null): ResolvedFile | null {

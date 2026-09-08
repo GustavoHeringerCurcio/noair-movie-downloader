@@ -11,6 +11,13 @@ import {
   loadMaxResolutionPreference,
   type MaxResolution,
 } from '../lib/quality.js';
+import {
+  DEFAULT_RELEASE_CATALOG,
+  filterSourcesByReleaseCatalog,
+  isReleaseCatalogMode,
+  loadReleaseCatalogPreference,
+  type ReleaseCatalogMode,
+} from '../lib/catalog.js';
 import { pickTrailer } from '../lib/trailer.js';
 import type { AppDeps } from '../deps.js';
 
@@ -293,6 +300,13 @@ export function createMediaRouter(deps: AppDeps): Router {
     const cap = isMaxResolution(req.query.maxResolution)
       ? req.query.maxResolution
       : await loadMaxResolutionPreference(deps).catch(() => DEFAULT_MAX_RESOLUTION);
+    // Catalog strictness (default browser-friendly): only releases the browser
+    // can play with zero re-encode reach the list unless the user opts into
+    // "all" — the query override lets the UI show-then-persist the toggle.
+    const catalogOverride = isReleaseCatalogMode(req.query.catalog) ? req.query.catalog : null;
+    const catalog =
+      catalogOverride ??
+      (await loadReleaseCatalogPreference(deps).catch(() => DEFAULT_RELEASE_CATALOG));
     try {
       const detail = await deps.tmdb.details(id, type);
       const query = buildQuery(detail.title, detail.year, season, episode);
@@ -308,14 +322,18 @@ export function createMediaRouter(deps: AppDeps): Router {
         sources = gateTvSources(filtered, detail, season, episode);
       }
 
+      const visible = filterSourcesByReleaseCatalog(sources, catalog);
+      const hiddenCount = catalog === 'browser-friendly' ? sources.length - visible.length : 0;
+      const respond = (list: Source[]) => res.json({ sources: list, catalogMode: catalog, hiddenCount });
+
       // English (default): return everything, tagged. Other languages: strict.
       if (!strict) {
-        res.json({ sources });
+        respond(visible);
         return;
       }
 
       const langById = await indexerLanguageMap(deps);
-      let matches = matchedSources(sources, pref, langById);
+      let matches = matchedSources(visible, pref, langById);
       // Rescue: matching indexers may only index releases under the localized
       // title (which the English query above could not find at all).
       if (matches.length === 0) {
@@ -329,19 +347,20 @@ export function createMediaRouter(deps: AppDeps): Router {
           pref,
           langById,
           cap,
+          catalog,
         });
       }
       if (matches.length > 0) {
-        res.json({ sources: matches });
+        respond(matches);
         return;
       }
       // No releases were found anywhere — show the plain empty state, not the
       // "no <language> audio — search English?" prompt (English would be empty too).
       if (filtered.length === 0) {
-        res.json({ sources: [] });
+        respond([]);
         return;
       }
-      res.json({ sources: [], noMatchForAudio: pref });
+      res.json({ sources: [], noMatchForAudio: pref, catalogMode: catalog, hiddenCount });
     } catch (error) {
       if (error instanceof UpstreamError) {
         if (error.status === 401) {
@@ -370,6 +389,7 @@ interface LanguageSearchContext {
   pref: AudioLang;
   langById: Map<number, string>;
   cap: MaxResolution;
+  catalog: ReleaseCatalogMode;
 }
 
 /**
@@ -380,7 +400,7 @@ interface LanguageSearchContext {
  * assumed to be a match; only pt-BR trackers guarantee the audio.
  */
 async function targetedLanguageSearch(ctx: LanguageSearchContext): Promise<Source[]> {
-  const { deps, detail, category, season, episode, pref, langById, cap } = ctx;
+  const { deps, detail, category, season, episode, pref, langById, cap, catalog } = ctx;
   const targetIds = [...langById.entries()]
     .filter(([, lang]) => isTargetIndexer(lang, pref))
     .map(([id]) => id);
@@ -405,9 +425,12 @@ async function targetedLanguageSearch(ctx: LanguageSearchContext): Promise<Sourc
 
   try {
     const extra = await deps.prowlarr.search(query, category, { indexerIds: targetIds });
-    let extraSources = filterSourcesByMaxResolution(
-      filterSourcesToMedia(extra, { title: filterTitle, year: filterYear }),
-      cap,
+    let extraSources = filterSourcesByReleaseCatalog(
+      filterSourcesByMaxResolution(
+        filterSourcesToMedia(extra, { title: filterTitle, year: filterYear }),
+        cap,
+      ),
+      catalog,
     );
     if (detail.mediaType === 'tv' && season !== null) {
       extraSources = gateTvSources(extraSources, detail, season, episode);

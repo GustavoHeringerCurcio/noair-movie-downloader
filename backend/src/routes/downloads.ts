@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import { Router, type Response } from 'express';
 import type { AudioLang, AudioMode, MediaType } from '../types.js';
 import { UpstreamError } from '../types.js';
@@ -14,6 +15,7 @@ import { probeMediaInfo, listSidecarSubtitles } from '../lib/mediaInfo.js';
 import { decidePlaybackMode, decideStreamMode } from '../lib/streamPlan.js';
 import { cleanupTorrentPackages } from '../lib/packages.js';
 import { packageKey, mseProbeTypes } from '../lib/hls.js';
+import { optimizeDownload, readOptimizeJob } from '../lib/autoConvert.js';
 import { episodeKeyFromFilename } from '../lib/releaseParser.js';
 
 function toIntOrNull(value: unknown): number | null {
@@ -46,12 +48,44 @@ function toBool(value: unknown): boolean {
   return value === true || value === 'true' || value === '1';
 }
 
+/**
+ * Best-effort disk sweep of a torrent's content once qBittorrent no longer
+ * tracks it. `deleteFiles=true` already asks qBittorrent to remove the data,
+ * but a torrent deleted out-of-band (or a partially-completed removal) can
+ * leave the directory behind — this guarantees "remove" frees the disk.
+ * Path-guarded: content outside the download root is never touched.
+ */
+async function deleteContentTree(downloadDir: string, contentPath: string): Promise<void> {
+  const absolute = path.isAbsolute(contentPath) ? path.resolve(contentPath) : path.resolve(downloadDir, contentPath);
+  if (!isInsideDirectory(downloadDir, absolute)) {
+    console.warn(`[downloads] refusing to delete content outside download dir: ${contentPath}`);
+    return;
+  }
+  try {
+    await rm(absolute, { recursive: true, force: true });
+  } catch (error) {
+    console.error(`[downloads] failed to delete leftover content ${absolute}`, error);
+  }
+}
+
 export function createDownloadsRouter(deps: AppDeps): Router {
   const router = Router();
 
   router.get('/downloads', async (_req, res) => {
     const downloads = await deps.downloads.list();
-    res.json({ downloads });
+    res.json({ downloads: downloads.map((d) => ({ ...d, optimize: readOptimizeJob(deps, d) })) });
+  });
+
+  // Start (or resume) the background browser-copy for a finished title now.
+  // Used by the "Optimize now" affordance and by the auto-convert completion hook.
+  router.post('/downloads/:infoHash/optimize', async (req, res) => {
+    const infoHash = toText(req.params.infoHash).trim().toLowerCase();
+    const result = await optimizeDownload(deps, infoHash);
+    if (result === 'not-found') {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    res.json({ status: result });
   });
 
   // Lists the playable video files inside a torrent so the UI can offer an
@@ -141,12 +175,36 @@ export function createDownloadsRouter(deps: AppDeps): Router {
       return;
     }
     const deleteFiles = req.query.deleteFiles === 'true';
+
+    // Playback packages are keyed per content file, so they must be enumerated
+    // while the files are still on disk — before qBittorrent drops the torrent.
+    cleanupTorrentPackages(deps.config.packageDir, infoHash, deps.config.downloadDir, record.contentPath);
+
+    // The torrent (and, with deleteFiles, its data on disk) is owned by
+    // qBittorrent — ask it to remove both. On failure we keep the DB row and
+    // surface the error instead of silently dropping it: a row removed here
+    // would orphan a still-seeding torrent the UI could never retry, and the
+    // files would stay on disk.
     try {
       await deps.qbittorrent.deleteTorrent(infoHash, deleteFiles);
     } catch (error) {
+      const message = error instanceof UpstreamError ? error.message : 'qBittorrent unreachable';
       console.error(`qBittorrent delete failed for ${infoHash}`, error);
+      res.status(error instanceof UpstreamError ? error.status : 502).json({
+        error: `Removal from qBittorrent failed (${message}). The download was kept so you can try again.`,
+      });
+      return;
     }
-    cleanupTorrentPackages(deps.config.packageDir, infoHash, deps.config.downloadDir, record.contentPath);
+
+    // qBittorrent removes the data when deleteFiles=true; sweep anything it
+    // left behind (e.g. a torrent already deleted out-of-band whose files were
+    // orphaned) so "remove" really frees the disk. The DB record is removed
+    // regardless — a contentPath that is gone or unwritable must not strand a
+    // download row the poller can no longer update.
+    if (deleteFiles && record.contentPath) {
+      await deleteContentTree(deps.config.downloadDir, record.contentPath);
+    }
+
     await deps.downloads.remove(infoHash);
     res.status(204).end();
   });

@@ -1,7 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app.js';
 import { makeDownloadRecord, makeTestDeps } from '../../test/helpers.js';
+import { loadConfig } from '../config.js';
 import { UpstreamError } from '../types.js';
 import type { MediaDetail, Source } from '../types.js';
 
@@ -419,7 +423,7 @@ describe('GET /api/media/:id/sources (quality cap)', () => {
       },
     });
     const app = createApp(deps);
-    const res = await request(app).get('/api/media/27205/sources?type=movie&maxResolution=2160p');
+    const res = await request(app).get('/api/media/27205/sources?type=movie&maxResolution=2160p&catalog=all');
     expect(res.status).toBe(200);
     const titles = res.body.sources.map((s: { title: string }) => s.title);
     expect(titles).toEqual(['Inception.2010.2160p.WEB-DL', 'Inception.2010.1080p.WEB-DL']);
@@ -478,6 +482,70 @@ describe('GET /api/media/:id/sources (quality cap)', () => {
   });
 });
 
+describe('GET /api/media/:id/sources (browser-friendly catalog)', () => {
+  const cat = (overrides: Partial<Source>): Source => ({
+    indexerId: 1,
+    indexer: 'YTS',
+    title: 'Inception.2010.BluRay',
+    sizeBytes: 0,
+    seeders: 10,
+    leechers: 0,
+    infoHash: 'a'.repeat(40),
+    magnetUri: 'magnet:?xt=urn:btih:' + 'a'.repeat(40),
+    ageHours: null,
+    resolution: '1080p',
+    source: 'BluRay',
+    codec: 'x264',
+    hdr: false,
+    isDolbyVision: false,
+    group: null,
+    cleanTitle: 'inception',
+    audioCodec: null,
+    coverage: null,
+    ...overrides,
+  });
+  const depsFor = (sources: Source[]) =>
+    makeTestDeps({
+      tmdb: { ...makeTestDeps().tmdb, details: async () => DETAIL },
+      prowlarr: { search: async () => sources },
+    });
+
+  it('hides HEVC/HDR releases by default and reports how many were hidden', async () => {
+    const app = createApp(
+      depsFor([
+        cat({ codec: 'x264' }),
+        cat({ codec: 'x265' }),
+        cat({ codec: 'AV1', hdr: true }),
+      ]),
+    );
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    expect(res.body.catalogMode).toBe('browser-friendly');
+    expect(res.body.sources.map((s: Source) => s.codec)).toEqual(['x264']);
+    expect(res.body.hiddenCount).toBe(2);
+  });
+
+  it('returns everything when the caller asks for catalog=all', async () => {
+    const app = createApp(
+      depsFor([cat({ codec: 'x264' }), cat({ codec: 'x265' }), cat({ codec: 'AV1', hdr: true })]),
+    );
+    const res = await request(app).get('/api/media/27205/sources?type=movie&catalog=all');
+    expect(res.status).toBe(200);
+    expect(res.body.catalogMode).toBe('all');
+    expect(res.body.sources).toHaveLength(3);
+    expect(res.body.hiddenCount).toBe(0);
+  });
+
+  it('respects a stored site-wide "all" catalog mode without a per-request param', async () => {
+    const deps = depsFor([cat({ codec: 'x264' }), cat({ codec: 'x265' })]);
+    deps.settings.get = async (key: string) => (key === 'releaseCatalog' ? { mode: 'all' } : null);
+    const app = createApp(deps);
+    const res = await request(app).get('/api/media/27205/sources?type=movie');
+    expect(res.status).toBe(200);
+    expect(res.body.sources).toHaveLength(2);
+  });
+});
+
 describe('S12 GET /api/media/:id/season/:n', () => {
   it('returns the season summary and its episodes', async () => {
     const deps = makeTestDeps({
@@ -510,5 +578,171 @@ describe('S12 GET /api/media/:id/season/:n', () => {
     const app = createApp(makeTestDeps());
     const res = await request(app).get('/api/media/94997/season/1');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('DELETE /api/downloads/:infoHash (remove = drop the seed, optionally its files)', () => {
+  const H = 'aa'.repeat(20);
+
+  function depsFor(opts: {
+    deleteTorrent?: (hash: string, deleteFiles: boolean) => Promise<void>;
+    remove?: () => Promise<void>;
+  } = {}) {
+    return makeTestDeps({
+      downloads: {
+        ...makeTestDeps().downloads,
+        findByInfoHash: async () => makeDownloadRecord({ infoHash: H, contentPath: null }),
+        ...(opts.remove ? { remove: opts.remove } : {}),
+      },
+      qbittorrent: {
+        ...makeTestDeps().qbittorrent,
+        ...(opts.deleteTorrent ? { deleteTorrent: opts.deleteTorrent } : {}),
+      },
+    });
+  }
+
+  function tempDirs(): { downloadDir: string; packageDir: string; content: string; cleanup: () => void } {
+    const downloadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'noair-dl-'));
+    const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'noair-pkg-'));
+    const content = path.join(downloadDir, 'Inception.2010');
+    fs.mkdirSync(content);
+    fs.writeFileSync(path.join(content, 'Inception.mkv'), 'media-bytes');
+    const cleanup = (): void => {
+      fs.rmSync(downloadDir, { recursive: true, force: true });
+      fs.rmSync(packageDir, { recursive: true, force: true });
+    };
+    return { downloadDir, packageDir, content, cleanup };
+  }
+
+  function onDiskDeps(recordContentPath: string | null) {
+    const dirs = tempDirs();
+    const deps = makeTestDeps({
+      config: { ...loadConfig(), downloadDir: dirs.downloadDir, packageDir: dirs.packageDir },
+      downloads: {
+        ...makeTestDeps().downloads,
+        findByInfoHash: async () =>
+          makeDownloadRecord({ infoHash: H, contentPath: recordContentPath ?? null }),
+        remove: async () => {},
+      },
+    });
+    return { dirs, deps };
+  }
+
+  it('404s when the download is unknown', async () => {
+    const app = createApp(makeTestDeps());
+    const res = await request(app).delete(`/api/downloads/${H}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('removes the qBittorrent seed with deleteFiles=true and then the DB record', async () => {
+    let seen: [string, boolean] | null = null;
+    let removed = false;
+    const deps = depsFor({
+      deleteTorrent: async (hash, deleteFiles) => {
+        seen = [hash, deleteFiles];
+      },
+      remove: async () => {
+        removed = true;
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).delete(`/api/downloads/${H}?deleteFiles=true`);
+    expect(res.status).toBe(204);
+    expect(seen).toEqual([H, true]);
+    expect(removed).toBe(true);
+  });
+
+  it('defaults deleteFiles to false when the query param is omitted (files stay on disk)', async () => {
+    let seen: [string, boolean] | null = null;
+    const deps = depsFor({
+      deleteTorrent: async (hash, deleteFiles) => {
+        seen = [hash, deleteFiles];
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).delete(`/api/downloads/${H}`);
+    expect(res.status).toBe(204);
+    expect(seen).toEqual([H, false]);
+  });
+
+  it('keeps the download record and returns an error when qBittorrent removal fails', async () => {
+    let removed = false;
+    const deps = depsFor({
+      deleteTorrent: async () => {
+        throw new UpstreamError(502, 'qBittorrent unreachable');
+      },
+      remove: async () => {
+        removed = true;
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).delete(`/api/downloads/${H}?deleteFiles=true`);
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/qBittorrent unreachable/);
+    expect(res.body.error).toMatch(/kept/);
+    expect(removed).toBe(false);
+  });
+
+  it('maps an unexpected qBittorrent failure to 502 and keeps the record', async () => {
+    let removed = false;
+    const deps = depsFor({
+      deleteTorrent: async () => {
+        throw new Error('connection refused');
+      },
+      remove: async () => {
+        removed = true;
+      },
+    });
+    const app = createApp(deps);
+    const res = await request(app).delete(`/api/downloads/${H}`);
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/kept/);
+    expect(removed).toBe(false);
+  });
+
+  it('sweeps leftover content off disk when deleteFiles=true', async () => {
+    const { dirs, deps } = onDiskDeps(null);
+    deps.downloads.findByInfoHash = async () =>
+      makeDownloadRecord({ infoHash: H, contentPath: dirs.content });
+    try {
+      const app = createApp(deps);
+      const res = await request(app).delete(`/api/downloads/${H}?deleteFiles=true`);
+      expect(res.status).toBe(204);
+      expect(fs.existsSync(dirs.content)).toBe(false);
+    } finally {
+      dirs.cleanup();
+    }
+  });
+
+  it('leaves files on disk when deleteFiles is false', async () => {
+    const { dirs, deps } = onDiskDeps(null);
+    deps.downloads.findByInfoHash = async () =>
+      makeDownloadRecord({ infoHash: H, contentPath: dirs.content });
+    try {
+      const app = createApp(deps);
+      const res = await request(app).delete(`/api/downloads/${H}`);
+      expect(res.status).toBe(204);
+      expect(fs.existsSync(dirs.content)).toBe(true);
+    } finally {
+      dirs.cleanup();
+    }
+  });
+
+  it('refuses to delete content outside the download dir (path-traversal guard)', async () => {
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'noair-out-'));
+    const outsideFile = path.join(outsideRoot, 'victim.mkv');
+    fs.writeFileSync(outsideFile, 'precious');
+    const { dirs, deps } = onDiskDeps(null);
+    deps.downloads.findByInfoHash = async () =>
+      makeDownloadRecord({ infoHash: H, contentPath: outsideFile });
+    try {
+      const app = createApp(deps);
+      const res = await request(app).delete(`/api/downloads/${H}?deleteFiles=true`);
+      expect(res.status).toBe(204);
+      expect(fs.existsSync(outsideFile)).toBe(true);
+    } finally {
+      dirs.cleanup();
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -7,6 +7,7 @@ import {
   removeDownload,
   pauseDownload,
   resumeDownload,
+  optimizeDownload,
   externalPlayerUrl,
   fileUrl,
   posterUrl,
@@ -154,6 +155,16 @@ export function DownloadsPage() {
     }
   }
 
+  async function handleOptimize(d: DownloadRecord): Promise<void> {
+    try {
+      const result = await optimizeDownload(d.infoHash);
+      if (result.status === 'started') toast('Optimizing — you can keep browsing.', 'info');
+      else toast('Browser copy ready or already on the way.', 'info');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Optimize failed', 'error');
+    }
+  }
+
   return (
     <div className="page">
       <h1 className="page-title">Downloads</h1>
@@ -221,6 +232,15 @@ export function DownloadsPage() {
                       audioLang={d.audioLang ?? null}
                       audioMode={d.audioMode ?? null}
                     />
+                    {d.optimize != null && d.optimize.status !== 'ready' && (
+                      <span className="download-meta" style={{ margin: 0 }}>
+                        {d.optimize.status === 'converting'
+                          ? `Optimizing for instant playback… ${Math.round(d.optimize.progress * 100)}%${
+                              d.optimize.etaSeconds != null ? ` (~${humanEta(d.optimize.etaSeconds)} left)` : ''
+                            }`
+                          : 'Optimization failed — retry below.'}
+                      </span>
+                    )}
                     <StateBadge state={d.state} />
                     <span title={d.torrentName}>{d.torrentName}</span>
                   </div>
@@ -261,6 +281,21 @@ export function DownloadsPage() {
                     <span className="download-meta" style={{ margin: 0 }}>
                       {humanSpeed(d.downloadSpeed)} · ETA {humanEta(d.etaSeconds)}
                     </span>
+                  )}
+                  {d.progress >= 1 && d.mediaType === 'movie' && d.optimize == null && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => handleOptimize(d)}
+                      title="Build a browser-playable copy in the background for instant Watch"
+                    >
+                      Optimize
+                    </button>
+                  )}
+                  {d.optimize?.status === 'failed' && (
+                    <button type="button" className="btn btn-outline btn-sm" onClick={() => handleOptimize(d)}>
+                      Retry optimize
+                    </button>
                   )}
                   <a className="btn btn-outline btn-sm" href={fileUrl(d.infoHash)} download>
                     <FileDown size={14} /> File

@@ -164,6 +164,32 @@ export type SourceSortKey = 'seeders' | 'size' | 'age' | 'resolution' | 'sizePer
  */
 export type FriendlyPickMode = 'most-seeded' | 'web-playable';
 
+/**
+ * Server-wide release-catalog strictness (Phase 1): `browser-friendly` (default)
+ * hides releases that would need a re-encode before the browser can play them;
+ * `all` shows everything for users who opt into the heavy stuff.
+ */
+export type ReleaseCatalogMode = 'browser-friendly' | 'all';
+
+/** Background browser-copy state for a finished download (Option C). */
+export interface OptimizeJob {
+  status: 'ready' | 'converting' | 'failed';
+  progress: number;
+  etaSeconds: number | null;
+  error: string | null;
+}
+
+/** Conversion-engine readout (Settings → diagnostics). */
+export interface EngineInfo {
+  encoder: string;
+  hardware: boolean;
+  note: string | null;
+  speedX: number | null;
+  cores: number;
+  threads: number;
+  driDevice: string | null;
+}
+
 export interface SourceFilters {
   indexers: string[];
   resolutions: string[];
@@ -223,6 +249,8 @@ export interface DownloadRecord {
   /** IMDb score cached on the subject's poster row; the downloads feed carries
    * it so My Downloads cards can show the rating badge. */
   imdbRating?: number | null;
+  /** Background browser-copy state (null = nothing built or in progress). */
+  optimize?: OptimizeJob | null;
 }
 
 export type PlayMode = 'direct' | 'remux-audio' | 'transcode' | 'player-required' | 'hls';

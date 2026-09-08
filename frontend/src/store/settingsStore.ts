@@ -1,35 +1,58 @@
 import { create } from 'zustand';
-import { fetchSettings, saveAudioLanguage, saveMaxResolution } from '../api';
+import {
+  fetchSettings,
+  saveAudioLanguage,
+  saveAutoConvertMovies,
+  saveMaxResolution,
+  saveReleaseCatalog,
+} from '../api';
 import { isMaxResolution } from '../lib/quality';
-import type { AudioLang, MaxResolution } from '../types';
+import type { AudioLang, MaxResolution, ReleaseCatalogMode } from '../types';
+
+const isCatalogMode = (v: unknown): v is ReleaseCatalogMode =>
+  v === 'browser-friendly' || v === 'all';
 
 interface SettingsState {
   audio: AudioLang;
   maxResolution: MaxResolution;
+  catalogMode: ReleaseCatalogMode;
+  autoConvertMovies: boolean;
   ready: boolean;
   saving: boolean;
   loadError: string | null;
   load: () => Promise<void>;
   saveAudio: (audio: AudioLang) => Promise<void>;
   saveMaxResolution: (maxResolution: MaxResolution) => Promise<void>;
+  saveCatalogMode: (mode: ReleaseCatalogMode) => Promise<void>;
+  saveAutoConvert: (enabled: boolean) => Promise<void>;
 }
 
 export const DEFAULT_AUDIO_LANG: AudioLang = 'en';
 export const DEFAULT_MAX_RESOLUTION: MaxResolution = '1080p';
+export const DEFAULT_CATALOG_MODE: ReleaseCatalogMode = 'browser-friendly';
+export const DEFAULT_AUTO_CONVERT = true;
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   audio: DEFAULT_AUDIO_LANG,
   maxResolution: DEFAULT_MAX_RESOLUTION,
+  catalogMode: DEFAULT_CATALOG_MODE,
+  autoConvertMovies: DEFAULT_AUTO_CONVERT,
   ready: false,
   saving: false,
   loadError: null,
   load: async () => {
     try {
       const res = await fetchSettings();
-      const maxResolution = isMaxResolution(res.quality?.maxResolution)
-        ? res.quality.maxResolution
-        : DEFAULT_MAX_RESOLUTION;
-      set({ audio: res.language.audio, maxResolution, ready: true, loadError: null });
+      set({
+        audio: res.language.audio,
+        maxResolution: isMaxResolution(res.quality?.maxResolution)
+          ? res.quality.maxResolution
+          : DEFAULT_MAX_RESOLUTION,
+        catalogMode: isCatalogMode(res.catalog?.mode) ? res.catalog.mode : DEFAULT_CATALOG_MODE,
+        autoConvertMovies: res.optimize?.autoConvertMovies ?? DEFAULT_AUTO_CONVERT,
+        ready: true,
+        loadError: null,
+      });
     } catch (error) {
       set({
         ready: true,
@@ -62,6 +85,32 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         maxResolution: isMaxResolution(res.quality?.maxResolution)
           ? res.quality.maxResolution
           : DEFAULT_MAX_RESOLUTION,
+        saving: false,
+      });
+    } catch (error) {
+      set({ saving: false });
+      throw error;
+    }
+  },
+  saveCatalogMode: async (mode) => {
+    set({ saving: true });
+    try {
+      const res = await saveReleaseCatalog(mode);
+      set({
+        catalogMode: isCatalogMode(res.catalog?.mode) ? res.catalog.mode : DEFAULT_CATALOG_MODE,
+        saving: false,
+      });
+    } catch (error) {
+      set({ saving: false });
+      throw error;
+    }
+  },
+  saveAutoConvert: async (enabled) => {
+    set({ saving: true });
+    try {
+      const res = await saveAutoConvertMovies(enabled);
+      set({
+        autoConvertMovies: res.optimize?.autoConvertMovies ?? DEFAULT_AUTO_CONVERT,
         saving: false,
       });
     } catch (error) {

@@ -1,10 +1,12 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import type { MediaInfo, SidecarSubtitle } from './mediaInfo.js';
 import type { SubtitleInfo } from './mediaInfo.js';
 import { listStreamableFiles } from './streaming.js';
+import { killPackageWriters, pickEncodeThreads } from './engine.js';
 import {
   audioSegmentArgs,
   buildMasterPlaylist,
@@ -19,6 +21,7 @@ import {
   videoCompatSegmentArgs,
   videoSegmentArgs,
   type AudioRendition,
+  type CompatVideoEncoder,
   type PackageLayout,
   type SubtitleRendition,
 } from './hls.js';
@@ -128,6 +131,12 @@ export interface PackageManagerOptions {
   maxBytes?: number | null;
   /** Abort the video pass (compat re-encode) if it makes no progress for this long. */
   stallTimeoutMs?: number;
+  /** Encoder for compat re-encodes (engine-detected at boot; defaults to libx264). */
+  encoder?: CompatVideoEncoder;
+  /** Hardware device for hardware encoders (e.g. /dev/dri/renderD128). */
+  hwDevice?: string | null;
+  /** Thread cap for software (libx264) compat encodes; 0/undefined = auto. */
+  threads?: number;
 }
 
 export function createPackageManager(
@@ -135,21 +144,38 @@ export function createPackageManager(
   runCommand: CommandRunner = realRunner(),
 ): PackageManager {
   const stallTimeoutMs = config.stallTimeoutMs ?? 90_000;
+  const compatEncoder = config.encoder ?? 'libx264';
+  const hwDevice = config.hwDevice ?? null;
+  // Explicit thread cap (resolved from CONVERSION_THREADS at boot); 0 = pick
+  // per job from the live free memory so a low-RAM host stays usable.
+  const threadOverride = config.threads ?? 0;
   const store = new Map<string, PackageState>();
   const running = new Set<string>();
 
-  // Compat builds re-encode video (H.264) and are expensive on CPU; run at most
-  // one across the whole box at a time so a burst of HEVC titles can't starve a
-  // live /watch stream or the qBittorrent poll. Stream-copy (web) packages stay
-  // unthrottled — they're near-free.
-  let compatLock: Promise<unknown> = Promise.resolve();
-  function withCompatLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = compatLock.then(fn, fn);
-    compatLock = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
+  // RAM-friendly conversion budget (default 2 = one background job + the movie
+  // you're currently watching; the rest queue). Combined with per-job threads
+  // derived from live free RAM, this keeps peak memory predictable on a shared
+  // machine instead of stacking every conversion at full core count.
+  const maxActive = (() => {
+    const parsed = Number.parseInt(process.env.CONVERSION_MAX_ACTIVE ?? '', 10);
+    return Number.isInteger(parsed) ? Math.min(Math.max(parsed, 1), 4) : 2;
+  })();
+  let activeJobs = 0;
+  const waiters: Array<() => void> = [];
+  function acquire(): Promise<void> {
+    return new Promise((resolve) => {
+      if (activeJobs < maxActive) {
+        activeJobs += 1;
+        resolve();
+      } else {
+        waiters.push(resolve);
+      }
+    });
+  }
+  function release(): void {
+    const next = waiters.shift();
+    if (next) next();
+    else activeJobs -= 1;
   }
 
   // Best-effort eviction for the `packages` volume: compat packages are ~1.0×
@@ -233,6 +259,14 @@ export function createPackageManager(
     const duration = media.durationSeconds;
     const durationUs = duration && duration > 0 ? duration * 1_000_000 : null;
 
+    // Threads for this job: an explicit override (CONVERSION_THREADS) wins,
+    // otherwise derived from cores + *live* free RAM so peak memory stays
+    // bounded even when the machine is already under load.
+    const threads =
+      threadOverride > 0
+        ? threadOverride
+        : pickEncodeThreads(os.cpus().length, os.freemem(), process.env.CONVERSION_THREADS);
+
     const audioRenditions = pickAudioRenditions(media);
     const subs = pickSubtitleRenditions(media.subtitleTracks, request.sidecars);
 
@@ -244,9 +278,14 @@ export function createPackageManager(
       ref: 'video',
       weight: 0.5,
       args: compat
-        ? videoCompatSegmentArgs(request.absolutePath, layout.videoDir, { targetHeight: request.targetHeight ?? null })
+        ? videoCompatSegmentArgs(request.absolutePath, layout.videoDir, {
+            targetHeight: request.targetHeight ?? null,
+            encoder: compatEncoder,
+            hwDevice,
+            threads: compatEncoder === 'libx264' ? threads : undefined,
+          })
         : videoSegmentArgs(request.absolutePath, layout.videoDir),
-      note: compat ? 'video (compat H.264)' : 'video',
+      note: compat ? `video (compat ${compatEncoder})` : 'video',
     };
     const audioSteps: Step[] = media.audioTracks.map((track) => ({
       kind: 'audio',
@@ -288,6 +327,16 @@ export function createPackageManager(
       });
     }
 
+    // A fresh run always starts from a clean directory: kill any orphaned ffmpeg
+    // still writing into this package (a dev/hot-reload restart leaves children
+    // behind) and wipe stale segments so playlist and segments can never diverge.
+    killPackageWriters(layout.root);
+    try {
+      fs.rmSync(layout.root, { recursive: true, force: true });
+    } catch {
+      // best effort — the mkdir below recreates it
+    }
+    const startedAt = Date.now();
     fs.mkdirSync(layout.root, { recursive: true });
     fs.mkdirSync(layout.videoDir, { recursive: true });
     for (const r of audioRenditions) fs.mkdirSync(layout.audioDir(r.streamIndex), { recursive: true });
@@ -295,6 +344,48 @@ export function createPackageManager(
 
     const succeeded = new Set<string>();
     const fracs = new Map<Step, number>();
+
+    // On-disk progress (progress.json) so the Downloads UI and dashboard can show
+    // "Optimizing 34% · ~18 min left" without probing the file, and so a package
+    // mid-build after a restart still reports where it got to.
+    let lastMetaWrite = 0;
+    const metaFile = path.join(layout.root, 'progress.json');
+    const persistProgress = (force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastMetaWrite < 1500) return;
+      lastMetaWrite = now;
+      const st = store.get(key);
+      if (!st) return;
+      let etaSeconds: number | null = null;
+      if (duration && duration > 0 && st.frontierSeconds && st.frontierSeconds > 0) {
+        const elapsedSec = Math.max(1, (now - startedAt) / 1000);
+        const movieSecondsPerWallSecond = st.frontierSeconds / elapsedSec;
+        if (movieSecondsPerWallSecond > 0) {
+          etaSeconds = Math.max(0, Math.round((duration - st.frontierSeconds) / movieSecondsPerWallSecond));
+        }
+      }
+      try {
+        fs.writeFileSync(
+          metaFile,
+          JSON.stringify({
+            infoHash: request.infoHash,
+            relative: request.relative,
+            variant: request.variant ?? 'web',
+            phase: st.phase,
+            progress: st.progress,
+            playable: st.playable,
+            frontierSeconds: st.frontierSeconds,
+            encoder: compatEncoder,
+            threads,
+            startedAt,
+            etaSeconds,
+            updatedAt: now,
+          }),
+        );
+      } catch {
+        // best effort
+      }
+    };
 
     const publish = (): void => {
       let done = 0;
@@ -308,6 +399,7 @@ export function createPackageManager(
         progress: Math.min(0.05 + 0.95 * done, 1),
         frontierSeconds: frontier,
       });
+      persistProgress();
     };
 
     const recordProgress = (step: Step, outTimeUs: number | null): void => {
@@ -459,10 +551,12 @@ export function createPackageManager(
       writeMasterFile(finishedAudio, finishedSubs);
       fs.writeFileSync(path.join(layout.root, 'DONE'), String(Date.now()));
       update(key, { phase: 'ready', progress: 1, playable: true, frontierSeconds: duration ?? null, error: null });
+      persistProgress(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'packaging failed';
       console.error(`[packages] package failed (${key}): ${message}`);
       update(key, { phase: 'failed', error: message });
+      persistProgress(true);
     } finally {
       running.delete(key);
     }
@@ -493,7 +587,15 @@ export function createPackageManager(
       evictIfOverBudget();
       const s = snapshot(request);
       running.add(key);
-      void (request.variant === 'compat' ? withCompatLock(() => runPackage(request)) : runPackage(request));
+      void (async () => {
+        await acquire();
+        try {
+          if (!running.has(key)) return; // package was deleted while queued
+          await runPackage(request);
+        } finally {
+          release();
+        }
+      })();
       return s;
     },
     masterPlaylistPath: (key) => {

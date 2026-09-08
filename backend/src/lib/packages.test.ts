@@ -280,6 +280,41 @@ describe('createPackageManager', () => {
     await waitUntil(() => manager.status(key)?.phase === 'failed');
     expect(manager.status(key)?.error).toContain('stalled');
   });
+
+  it('runs at most two conversions at once and queues the rest (default RAM budget)', async () => {
+    const root = makeDir('pkg-budget-');
+    const source = path.join(makeDir('src-budget-'), 'movie.mkv');
+    fs.writeFileSync(source, Buffer.alloc(1_000_000));
+    let videoConcurrent = 0;
+    let videoPeak = 0;
+    const runner: CommandRunner = async (args) => {
+      const isVideo = args.indexOf('-map') !== -1 && args[args.indexOf('-map') + 1] === '0:v:0';
+      if (isVideo) {
+        videoConcurrent += 1;
+        videoPeak = Math.max(videoPeak, videoConcurrent);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (isVideo) videoConcurrent -= 1;
+      return 0;
+    };
+    const manager = createPackageManager({ packageRoot: root }, runner);
+    const hashes = ['g'.repeat(40), 'h'.repeat(40), 'i'.repeat(40)];
+    for (const h of hashes) {
+      await manager.ensurePackage({
+        infoHash: h,
+        relative: 'movie.mkv',
+        absolutePath: source,
+        media,
+        sidecars: [],
+      });
+    }
+    for (const h of hashes) {
+      const key = packageKey(h, 'movie.mkv');
+      await waitUntil(() => manager.status(key)?.phase === 'ready');
+    }
+    expect(videoPeak).toBeGreaterThan(0);
+    expect(videoPeak).toBeLessThanOrEqual(2);
+  });
 });
 
 describe('cleanupTorrentPackages', () => {

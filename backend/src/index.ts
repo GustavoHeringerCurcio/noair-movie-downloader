@@ -14,6 +14,8 @@ import { createFanartClient } from './services/fanart.js';
 import { createProwlarrClient } from './services/prowlarr.js';
 import { createProwlarrAdminClient, type ProwlarrAdminClient } from './services/prowlarrAdmin.js';
 import { createQbittorrentClient } from './services/qbittorrent.js';
+import { probeEngineProfile } from './lib/engine.js';
+import { createPackageManager } from './lib/packages.js';
 import { createApp } from './app.js';
 import { attachSocket, startPollLoop } from './socket/hub.js';
 import type { AppDeps } from './deps.js';
@@ -75,6 +77,24 @@ async function main(): Promise<void> {
     resolveOrigin: resolveLogoOrigin,
   });
 
+  // Conversion engine detection (Phase 2): pick the best encoder this host can
+  // actually run (hardware when validated, else software libx264) and share one
+  // package manager between the playback router and the completion poller.
+  const engine = probeEngineProfile();
+  console.log(
+    `[engine] ${engine.note} — encoder ${engine.encoder}${engine.hardware ? ' (hardware)' : ' (CPU)'}${
+      engine.speedX ? `, ~${engine.speedX.toFixed(1)}× real-time software` : ''
+    }, ${engine.cores} cores, ${Math.round(engine.memoryTotalBytes / 1024 ** 3)} GB RAM`,
+  );
+  const packageManager = createPackageManager({
+    packageRoot: config.packageDir,
+    maxBytes: config.packageMaxBytes,
+    encoder: engine.encoder,
+    hwDevice: engine.driDevice,
+    // No fixed thread cap: each job picks its threads from live free RAM
+    // (CONVERSION_THREADS is honored inside the package manager too).
+  });
+
   const deps: AppDeps = {
     config,
     pool,
@@ -96,6 +116,7 @@ async function main(): Promise<void> {
     artCache,
     fanartCache,
     logoCache,
+    packageManager,
   };
 
   if (config.prowlarrBootstrapIndexers) {
