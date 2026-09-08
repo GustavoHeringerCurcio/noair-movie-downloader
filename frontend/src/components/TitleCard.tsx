@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownToLine, Play, Plus, Download, ChevronDown, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
+import { ArrowDownToLine, Play, Plus, Download, ChevronDown, Volume2, VolumeX, ThumbsUp, Trash2 } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import type { HoverCardInfo, MediaItem } from '../types';
 import { backdropUrl, fanartThumbUrl, hoverCardFor, logoUrl, posterUrl, trailerEmbedUrl, trailerStillUrl } from '../api';
@@ -72,6 +72,9 @@ interface TitleCardProps {
   /** Optional version chips shown on hover (multi-release titles in My Downloads). */
   variants?: TitleCardVariant[] | null;
   onVariantSelect?: (id: string) => void;
+  /** When set the card represents a download: the pop-up's placeholder "Rate"
+      circle is replaced with a working trash that removes the download. */
+  onRemoveDownload?: () => void;
 }
 
 interface PopGeometry {
@@ -152,7 +155,7 @@ function glyphFor(type?: 'download' | 'play' | 'down'): JSX.Element {
   }
 }
 
-export function TitleCard({ item, progress, primary, variants, onVariantSelect }: TitleCardProps) {
+export function TitleCard({ item, progress, primary, variants, onVariantSelect, onRemoveDownload }: TitleCardProps) {
   const navigate = useNavigate();
   const pct = progress == null ? null : Math.min(100, Math.max(0, Math.round(progress * 100)));
   const title = `${item.title}${item.year ? ` (${item.year})` : ''}`;
@@ -742,14 +745,29 @@ export function TitleCard({ item, progress, primary, variants, onVariantSelect }
                   >
                     <Plus size={20} strokeWidth={2} />
                   </button>
-                  <button
-                    type="button"
-                    className="tc-pop-btn tc-pop-btn-secondary"
-                    aria-label="Rate"
-                    title="Rate — coming soon"
-                  >
-                    <ThumbsUp size={16} strokeWidth={2} />
-                  </button>
+                  {onRemoveDownload ? (
+                    <button
+                      type="button"
+                      className="tc-pop-btn tc-pop-btn-secondary tc-pop-btn-danger"
+                      aria-label="Remove download"
+                      title="Remove download and delete its files"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveDownload();
+                      }}
+                    >
+                      <Trash2 size={16} strokeWidth={2} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="tc-pop-btn tc-pop-btn-secondary"
+                      aria-label="Rate"
+                      title="Rate — coming soon"
+                    >
+                      <ThumbsUp size={16} strokeWidth={2} />
+                    </button>
+                  )}
                 </div>
                 <div className="tc-pop-actions-r">
                   <button

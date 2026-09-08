@@ -459,6 +459,28 @@ describe('TitleCard expanded hover card (D20)', () => {
     expect(screen.getByRole('button', { name: 'Rate' })).toBeInTheDocument();
   });
 
+  it('swaps the Rate circle for a working trash that removes the download', async () => {
+    mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
+    const onRemove = vi.fn();
+    render(
+      <MemoryRouter>
+        <TitleCard
+          item={FULL}
+          primary={{ label: 'Watch', icon: 'play', onClick: () => {} }}
+          onRemoveDownload={onRemove}
+        />
+      </MemoryRouter>,
+    );
+    const card = screen.getByRole('button', { name: /inception/i });
+    await hoverFor(card, 600);
+
+    expect(screen.getByRole('button', { name: 'Remove download' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rate' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove download' }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps version chips on their own row under the pop-up actions', async () => {
     mockHoverCardFor.mockResolvedValue(MOVIE_HOVER);
     const onVariantSelect = vi.fn();

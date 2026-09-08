@@ -1241,6 +1241,11 @@ ul {
 .tc-pop-btn.tc-pop-btn-play:hover {
   background: rgba(255, 255, 255, 0.82);
 }
+.tc-pop-btn.tc-pop-btn-danger:hover {
+  background: #e50914;
+  border-color: transparent;
+  color: var(--white);
+}
 
 .tc-pop-variants {
   display: flex;

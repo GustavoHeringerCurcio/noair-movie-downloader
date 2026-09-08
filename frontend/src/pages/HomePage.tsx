@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import type { DiscoverSection, DownloadRecord, MediaItem } from '../types';
-import { browse } from '../api';
+import { browse, removeDownload } from '../api';
 import { TitleCard, type TitleCardPrimary } from '../components/TitleCard';
 import { HeroBillboard } from '../components/HeroBillboard';
 import { SectionRail } from '../components/SectionRail';
@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { useRecentsStore } from '../store/recentsStore';
 import { useSearchStore } from '../store/searchStore';
+import { useToastStore } from '../store/toastStore';
 import { useVersionStore, versionKey, resolveActiveVersion } from '../store/versionStore';
 import {
   bestPlayable,
@@ -50,6 +51,8 @@ function toMediaItem(d: DownloadRecord): MediaItem {
 export function HomePage() {
   const navigate = useNavigate();
   const downloads = useDownloadsStore((s) => s.downloads);
+  const removeLocal = useDownloadsStore((s) => s.removeLocal);
+  const toast = useToastStore((s) => s.toast);
   const recents = useRecentsStore((s) => s.recents);
   const openSearch = useSearchStore((s) => s.openSet);
 
@@ -110,6 +113,18 @@ export function HomePage() {
   const completedTitles = downloadGroups.filter(({ copies }) => copies.some((d) => d.streamable)).length;
   const activeTitles = downloadGroups.length - completedTitles;
 
+  async function handleRemoveDownload(copy: DownloadRecord): Promise<void> {
+    const ok = window.confirm(`Remove "${copy.torrentName}" and delete its files? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      await removeDownload(copy.infoHash, true);
+      removeLocal(copy.infoHash);
+      toast('Removed download', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Remove failed', 'error');
+    }
+  }
+
   function cardFor(group: { key: string; copies: DownloadRecord[] }) {
     const copies = sortVersions(group.copies);
     const rep = copies[0]!;
@@ -149,6 +164,7 @@ export function HomePage() {
         onVariantSelect={
           isMovie ? (id) => selectVersion(versionKey('movie', movieId), id) : undefined
         }
+        onRemoveDownload={() => void handleRemoveDownload(activeCopy)}
       />
     );
   }
